@@ -1,0 +1,99 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===========================================================
+   Theme tokens — values are space-separated R G B (no commas).
+   Tailwind uses rgb(var(--color-x) / <alpha-value>) so opacity
+   utilities like bg-bg/50 keep working.
+   =========================================================== */
+
+:root, [data-theme="light"] {
+  /* Claude-inspired warm off-white palette.
+     Main bg is cream, surfaces are pure white for subtle card elevation,
+     borders/text use warm tones rather than cool slate. */
+  --color-bg: 250 249 245;       /* #FAF9F5 — warm cream */
+  --color-surface: 255 255 255;  /* #FFFFFF — pure white cards */
+  --color-surface-2: 240 237 229;/* #F0EDE5 — warm nested surfaces */
+  --color-border: 232 228 218;   /* #E8E4DA — warm subtle border */
+  --color-border-2: 212 207 194; /* #D4CFC2 — warm stronger border */
+  --color-primary: 79 127 255;
+  --color-primary-dim: 58 95 204;
+  --color-success: 22 163 74;
+  --color-warning: 180 100 6;    /* slightly warmer amber for cream bg */
+  --color-danger: 201 65 65;     /* warmer red */
+  --color-text-primary: 44 42 38;   /* #2C2A26 — warm near-black */
+  --color-text-secondary: 98 96 90; /* #62605A — warm muted */
+  --color-text-muted: 168 163 154;  /* #A8A39A — warm light */
+
+  --shadow-card: 0 1px 2px 0 rgb(44 42 38 / 0.04), 0 1px 3px 0 rgb(44 42 38 / 0.05);
+  --shadow-elev: 0 10px 30px -10px rgb(44 42 38 / 0.14);
+}
+
+[data-theme="dark"] {
+  --color-bg: 10 11 13;
+  --color-surface: 19 21 26;
+  --color-surface-2: 26 29 38;
+  --color-border: 30 32 40;
+  --color-border-2: 42 45 56;
+  --color-primary: 79 127 255;
+  --color-primary-dim: 58 95 204;
+  --color-success: 34 197 94;
+  --color-warning: 245 158 11;
+  --color-danger: 239 68 68;
+  --color-text-primary: 241 243 249;
+  --color-text-secondary: 139 143 168;
+  --color-text-muted: 75 79 99;
+
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-elev: 0 10px 30px -10px rgb(0 0 0 / 0.5);
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: rgb(var(--color-bg));
+  color: rgb(var(--color-text-primary));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-border-2));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-text-muted) / 0.6);
+}
+
+.thin-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: '▋';
+  animation: blink 1s infinite;
+  color: rgb(var(--color-primary));
+  margin-left: 2px;
+}
