@@ -1,0 +1,529 @@
+// SellerWorkbookTable — opinionated flat table for sellers (Alex's view).
+//
+// Per the spec: sellers always work off their book. The workbook IS their book.
+// No source toggle, no view-mode toggle, no offering / signal filter chips.
+//
+// Columns:
+//   Tier · Account · [Offering Fit ×N] · Employees · Revenue ·
+//   Competitive Insights · Intent Insights · Partner Insights
+//
+// Competitive / Intent / Partner data is harvested from the tenant context
+// configured by RevOps (offering.competitors, offering.intentTopics,
+// offering.complementaryTech) and matched against the account's RGIF
+// (installs + intent). Each cell shows the matches with intensity.
+
+import {
+  Sparkles,
+  Globe,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Cpu,
+  Swords,
+  Handshake,
+  Bot,
+  DollarSign,
+  X,
+} from 'lucide-react';
+import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
+import { getRGIF, RGIF_CATEGORY_BY_ID, RGIF_CATEGORIES, valueFor } from '../../data/workbookRGIF.js';
+import { getHgIntelligence } from '../../data/hgIntelligence.js';
+import { useTenant } from '../../context/TenantContext.jsx';
+import SourceIcons from './SourceIcons.jsx';
+import HgIntelligenceCell from './HgIntelligenceCell.jsx';
+
+// ─── Tone dot for AI-enriched answers ─────────────────────────────────────
+
+function ToneDot({ tone }) {
+  const cls =
+    tone === 'good'
+      ? 'bg-emerald-500'
+      : tone === 'amber'
+      ? 'bg-amber-500'
+      : tone === 'red'
+      ? 'bg-rose-500'
+      : 'bg-text-muted';
+  return <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cls}`} />;
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+// Convert "Palo Alto Prisma Cloud" → "palo-alto-prisma" for install lookup.
+// Conservative slugify: lowercase, remove non-alphanumeric except dash, dedupe dashes.
+function slugify(s) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+// Find install entry for a tenant-context name by trying multiple slug
+// variants (full slug, first-2-tokens, single-token prefix).
+function findInstall(installs, name) {
+  if (!installs || !name) return null;
+  const full = slugify(name);
+  if (installs[full]?.present) return { key: full, ...installs[full] };
+  const tokens = full.split('-');
+  for (let n = Math.min(tokens.length, 3); n > 0; n--) {
+    const slug = tokens.slice(0, n).join('-');
+    if (installs[slug]?.present) return { key: slug, ...installs[slug] };
+  }
+  // Also try matching install keys that *contain* the first token (loose)
+  const first = tokens[0];
+  if (first) {
+    const match = Object.entries(installs).find(
+      ([k, v]) => v?.present && k.includes(first),
+    );
+    if (match) return { key: match[0], ...match[1] };
+  }
+  return null;
+}
+
+// Intent topic matching — case-insensitive substring against rgif.intent array.
+function findIntentMatch(intentList, topicName) {
+  if (!intentList || !topicName) return null;
+  const lower = topicName.toLowerCase();
+  for (const detected of intentList) {
+    const d = detected.toLowerCase();
+    if (d.includes(lower) || lower.includes(d)) return detected;
+  }
+  return null;
+}
+
+// Heuristic: is this intent topic from TrustRadius? In production this is a
+// proper source flag on the intent record. For the demo we keyword-match.
+const TRUSTRADIUS_KEYWORDS = ['rfp', 'comparison', 'pricing', 'vendor', 'category', 'buyer'];
+function isTrustRadiusIntent(topic) {
+  const lower = (topic || '').toLowerCase();
+  return TRUSTRADIUS_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// Map a tenant spend category to the key in rgif.spend. The tenant config
+// names categories ("Security (Software)", "Cloud Services", etc.) but the
+// account RGIF stores spend keyed by short slugs (security, cloud, iam,
+// network). We translate via keyword match.
+function resolveSpendValue(spend, categoryName) {
+  if (!spend || !categoryName) return null;
+  const lower = categoryName.toLowerCase();
+  if (lower.includes('security')) return spend.security;
+  if (lower.includes('cloud') || lower.includes('infrastructure')) return spend.cloud;
+  if (lower.includes('iam') || lower.includes('identity')) return spend.iam;
+  if (lower.includes('network')) return spend.network;
+  if (lower.includes('application') || lower.includes('appdev') || lower.includes('software')) {
+    // Fallback: software-ish categories map to total - infra (rough approximation)
+    return spend.software || null;
+  }
+  return null;
+}
+
+function TrendIcon({ trend }) {
+  if (trend === 'growing') return <TrendingUp size={9} className="text-emerald-700 dark:text-emerald-300" />;
+  if (trend === 'declining') return <TrendingDown size={9} className="text-rose-700 dark:text-rose-300" />;
+  return <Minus size={9} className="text-text-muted" />;
+}
+
+function IntensityBadge({ intensity }) {
+  if (intensity == null) return null;
+  const tone =
+    intensity >= 8 ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-500/10' :
+    intensity >= 5 ? 'text-amber-700 dark:text-amber-300 bg-amber-500/10' :
+                     'text-text-muted bg-surface-2';
+  return (
+    <span className={`text-[9px] font-mono px-1 py-0 rounded ${tone}`}>
+      {Number(intensity).toFixed(1)}
+    </span>
+  );
+}
+
+// ─── Per-cell renderers ────────────────────────────────────────────────────
+
+function SpendCell({ tenantSpendCategories, spend, spendTrend }) {
+  if (!tenantSpendCategories || tenantSpendCategories.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No spend categories configured</span>;
+  }
+  // Only show categories the tenant flagged as primary/adjacent (skip
+  // tangential), with a resolved $ value for this account.
+  const matches = tenantSpendCategories
+    .filter((c) => c.relevance !== 'tangential')
+    .map((c) => {
+      const value = resolveSpendValue(spend, c.name);
+      return value ? { name: c.name, value, relevance: c.relevance } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (matches.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No spend signal</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      {matches.map((m) => (
+        <div key={m.name} className="inline-flex items-center gap-1 text-[10px]">
+          <DollarSign size={9} className="text-emerald-700 dark:text-emerald-300 flex-shrink-0" />
+          <span className="text-text-secondary truncate max-w-[120px]">{m.name.replace(/\s*\(.+?\)/, '')}</span>
+          <span className="text-[10px] font-mono font-semibold text-text-primary">{m.value}</span>
+          {m.relevance === 'primary' && (
+            <span className="text-[8px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-bold">·</span>
+          )}
+        </div>
+      ))}
+      {spendTrend && (
+        <div className="inline-flex items-center gap-1 text-[10px] text-text-muted">
+          <TrendIcon trend={spendTrend} />
+          <span className="italic">trend</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OfferingScoreCell({ score }) {
+  if (score == null) return <span className="text-[10px] text-text-muted">—</span>;
+  const tier = tierForScore(score);
+  const cls = tier ? tier.color : 'text-text-secondary';
+  return <span className={`text-[12px] font-mono font-semibold ${cls}`}>{score}</span>;
+}
+
+function CompetitiveCell({ tenantCompetitors, installs }) {
+  if (!tenantCompetitors || tenantCompetitors.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No competitors configured</span>;
+  }
+  const matches = tenantCompetitors
+    .map((c) => {
+      const name = typeof c === 'string' ? c : c.name;
+      const inst = findInstall(installs, name);
+      return inst ? { name, ...inst } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.intensity || 0) - (a.intensity || 0))
+    .slice(0, 3);
+
+  if (matches.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No competitor footprint</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      {matches.map((m) => (
+        <div key={m.key} className="inline-flex items-center gap-1 text-[10px]">
+          <span className="text-rose-700 dark:text-rose-300 font-medium truncate max-w-[140px]">{m.name}</span>
+          <IntensityBadge intensity={m.intensity} />
+          <TrendIcon trend={m.trend} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IntentCell({ tenantIntentTopics, intentList }) {
+  if (!tenantIntentTopics || tenantIntentTopics.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No intent topics configured</span>;
+  }
+  const matches = tenantIntentTopics
+    .map((t) => {
+      const name = typeof t === 'string' ? t : t.name;
+      const matched = findIntentMatch(intentList, name);
+      return matched ? { topic: name, detected: matched } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+
+  // Also look for stray TrustRadius-flavor intent topics that aren't in
+  // tenant config but show in the account's intent list — these are
+  // valuable to surface.
+  const trustradiusExtra = (intentList || [])
+    .filter((d) => isTrustRadiusIntent(d) && !matches.some((m) => m.detected === d))
+    .slice(0, 1);
+
+  if (matches.length === 0 && trustradiusExtra.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No intent detected</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      {matches.map((m) => (
+        <div key={m.topic} className="inline-flex items-center gap-1 text-[10px]">
+          <Sparkles size={9} className="text-violet-500 flex-shrink-0" />
+          <span className="text-text-secondary truncate max-w-[140px]">{m.detected}</span>
+          {isTrustRadiusIntent(m.detected) && <TrBadge />}
+        </div>
+      ))}
+      {trustradiusExtra.map((d) => (
+        <div key={d} className="inline-flex items-center gap-1 text-[10px]">
+          <Globe size={9} className="text-amber-600 flex-shrink-0" />
+          <span className="text-text-secondary truncate max-w-[140px]">{d}</span>
+          <TrBadge />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TrBadge() {
+  return (
+    <span
+      className="inline-flex items-center text-[8px] uppercase tracking-wider px-1 py-0 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold"
+      title="TrustRadius intent detected"
+    >
+      TR
+    </span>
+  );
+}
+
+function PartnerCell({ tenantComplementaryTech, installs }) {
+  if (!tenantComplementaryTech || tenantComplementaryTech.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No partner stack configured</span>;
+  }
+  const matches = tenantComplementaryTech
+    .map((t) => {
+      const name = typeof t === 'string' ? t : t.name;
+      const inst = findInstall(installs, name);
+      return inst ? { name, ...inst } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.intensity || 0) - (a.intensity || 0))
+    .slice(0, 3);
+
+  if (matches.length === 0) {
+    return <span className="text-[10px] text-text-muted italic">No partner stack detected</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      {matches.map((m) => (
+        <div key={m.key} className="inline-flex items-center gap-1 text-[10px]">
+          <span className="text-sky-700 dark:text-sky-300 font-medium truncate max-w-[140px]">{m.name}</span>
+          <IntensityBadge intensity={m.intensity} />
+          <TrendIcon trend={m.trend} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main component ────────────────────────────────────────────────────────
+
+export default function SellerWorkbookTable({
+  accounts,
+  offerings,
+  onOpenAccount,
+  onOpenAccountChat,
+  showSourceColumn = false,
+  showHgIntelligence = false,
+  enrichedCols = [],
+  onRemoveEnrichedColumn,
+}) {
+  const { tenant } = useTenant();
+  const tenantSpendCategories = tenant?.spendCategories || [];
+  // Aggregate tenant context from all confirmed offerings — these are the
+  // signals the seller's RevOps admin configured. Dedupe across offerings.
+  const confirmedOfferings = offerings.filter((o) => o.confirmed !== false);
+  const allCompetitors = [];
+  const allIntentTopics = [];
+  const allComplementaryTech = [];
+  const seenC = new Set(), seenI = new Set(), seenT = new Set();
+  for (const o of confirmedOfferings) {
+    (o.competitors || []).forEach((c) => {
+      const name = typeof c === 'string' ? c : c.name;
+      if (name && !seenC.has(name.toLowerCase())) {
+        seenC.add(name.toLowerCase());
+        allCompetitors.push(c);
+      }
+    });
+    (o.intentTopics || []).forEach((t) => {
+      const name = typeof t === 'string' ? t : t.name;
+      if (name && !seenI.has(name.toLowerCase())) {
+        seenI.add(name.toLowerCase());
+        allIntentTopics.push(t);
+      }
+    });
+    (o.complementaryTech || []).forEach((t) => {
+      const name = typeof t === 'string' ? t : t.name;
+      if (name && !seenT.has(name.toLowerCase())) {
+        seenT.add(name.toLowerCase());
+        allComplementaryTech.push(t);
+      }
+    });
+  }
+
+  if (accounts.length === 0) {
+    return (
+      <div className="bg-surface border border-dashed border-border rounded-md p-10 text-center text-text-muted">
+        <div className="text-sm font-semibold text-text-primary mb-1">Your book is empty</div>
+        <p className="text-xs">Ask your admin to add accounts to your book via Territory Design.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-surface border border-border rounded-md overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead className="bg-bg/30 border-b border-border">
+          <tr className="text-text-muted">
+            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-3 py-2 min-w-[220px]">Account</th>
+            {showSourceColumn && (
+              <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-20">Source</th>
+            )}
+            {confirmedOfferings.map((o) => (
+              <th
+                key={o.id}
+                className="text-center text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-16"
+                title={`Fit score for ${o.name}`}
+              >
+                <div className="truncate max-w-[60px] mx-auto">{(o.shortName || o.name).replace(/^Wiz\s+/i, '')}</div>
+              </th>
+            ))}
+            <th className="text-right text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-16">Emp</th>
+            <th className="text-right text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-20">Revenue</th>
+            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+              <Swords size={9} className="inline mr-1 text-rose-500" /> Competitive
+            </th>
+            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+              <Sparkles size={9} className="inline mr-1 text-violet-500" /> Intent
+            </th>
+            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+              <Handshake size={9} className="inline mr-1 text-sky-500" /> Partner stack
+            </th>
+            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[150px]">
+              <DollarSign size={9} className="inline mr-1 text-emerald-500" /> IT Spend
+            </th>
+            {showHgIntelligence && (
+              <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[260px]">
+                <Sparkles size={9} className="inline mr-1 text-violet-500" /> HG Intelligence
+              </th>
+            )}
+            {enrichedCols.map((col) => {
+              const cat = RGIF_CATEGORY_BY_ID[col.category] || RGIF_CATEGORIES[0];
+              return (
+                <th
+                  key={col.id}
+                  className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 whitespace-nowrap min-w-[160px] max-w-[220px]"
+                >
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <span className="text-[10px]">{cat.icon}</span>
+                    <span className="text-[9px] uppercase tracking-wider font-bold text-primary">✦ Enriched</span>
+                    {onRemoveEnrichedColumn && (
+                      <button
+                        onClick={() => onRemoveEnrichedColumn(col.id)}
+                        className="ml-auto text-text-muted hover:text-rose-600 transition-colors"
+                        title="Remove column"
+                      >
+                        <X size={9} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[9px] font-normal text-text-muted leading-tight whitespace-normal max-w-[200px]">
+                    {col.question}
+                  </div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {accounts.map((account) => {
+            const rgif = getRGIF(account.id) || account.rgif || {};
+            const installs = rgif.installs;
+            const intentList = rgif.intent;
+            const spend = rgif.spend;
+            const spendTrend = rgif.spendTrend;
+            const allScores = confirmedOfferings.map((o) => ({
+              offering: o,
+              score: getFitFor(account.id, o.id)?.score ?? null,
+            }));
+
+            return (
+              <tr
+                key={account.id}
+                onClick={() => onOpenAccount?.(account)}
+                className="border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors"
+              >
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    {account.logoColor && (
+                      <div
+                        className="w-7 h-7 rounded text-[11px] font-bold flex items-center justify-center text-white flex-shrink-0"
+                        style={{ background: account.logoColor }}
+                      >
+                        {account.name?.[0]?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-medium text-text-primary truncate">{account.name}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenAccountChat?.(account);
+                          }}
+                          className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
+                          title={`Open AI chat for ${account.name}`}
+                        >
+                          <Bot size={11} />
+                        </button>
+                      </div>
+                      <div className="text-[10px] text-text-muted truncate">
+                        {account.industry || '—'}{account.fai?.hq ? ` · ${account.fai.hq}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                {showSourceColumn && (
+                  <td className="px-2 py-2">
+                    <SourceIcons presentIn={account.presentIn} />
+                  </td>
+                )}
+                {allScores.map(({ offering, score }) => (
+                  <td key={offering.id} className="px-2 py-2 text-center">
+                    <OfferingScoreCell score={score} />
+                  </td>
+                ))}
+                <td className="px-2 py-2 text-right text-[11px] text-text-secondary font-mono">
+                  {account.fai?.employees || '—'}
+                </td>
+                <td className="px-2 py-2 text-right text-[11px] text-text-secondary font-mono">
+                  {account.fai?.revenue || '—'}
+                </td>
+                <td className="px-2 py-2">
+                  <CompetitiveCell tenantCompetitors={allCompetitors} installs={installs} />
+                </td>
+                <td className="px-2 py-2">
+                  <IntentCell tenantIntentTopics={allIntentTopics} intentList={intentList} />
+                </td>
+                <td className="px-2 py-2">
+                  <PartnerCell tenantComplementaryTech={allComplementaryTech} installs={installs} />
+                </td>
+                <td className="px-2 py-2">
+                  <SpendCell
+                    tenantSpendCategories={tenantSpendCategories}
+                    spend={spend}
+                    spendTrend={spendTrend}
+                  />
+                </td>
+                {showHgIntelligence && (
+                  <td className="px-2 py-2 align-top">
+                    <HgIntelligenceCell intelligence={getHgIntelligence(account.id)} />
+                  </td>
+                )}
+                {enrichedCols.map((col) => {
+                  const v = valueFor(account, col.question);
+                  return (
+                    <td key={col.id} className="px-2 py-2">
+                      <div className="inline-flex items-center gap-1.5">
+                        <ToneDot tone={v.tone} />
+                        <span
+                          className="text-[10px] font-mono text-text-secondary truncate max-w-[180px]"
+                          title={v.value}
+                        >
+                          {v.value}
+                        </span>
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}

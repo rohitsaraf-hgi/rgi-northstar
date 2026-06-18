@@ -49,6 +49,7 @@ function defaultViews() {
       id: 'view-all',
       name: 'All accounts',
       source: 'book',
+      system: true,
       isDefault: true,
       filters: { offeringId: 'all', signalKinds: [], tier: 'all' },
       columns: DEFAULT_COLUMN_IDS.map((id) => ({ id, kind: 'builtin' })),
@@ -60,6 +61,7 @@ function defaultViews() {
       id: 'view-cnapp-pipeline',
       name: 'CNAPP pipeline',
       source: 'book',
+      system: true,
       isDefault: false,
       filters: { offeringId: 'cnapp', signalKinds: ['active_rfp', 'competitor_displacement'], tier: 'all' },
       columns: [
@@ -75,6 +77,7 @@ function defaultViews() {
       id: 'view-renewal-watch',
       name: 'Renewal watch',
       source: 'book',
+      system: true,
       isDefault: false,
       filters: { offeringId: 'all', signalKinds: ['stale_no_touch'], tier: 'all', stage: 'customer' },
       columns: [
@@ -91,6 +94,7 @@ function defaultViews() {
       id: 'view-ws-all',
       name: 'All whitespace',
       source: 'whitespace',
+      system: true,
       isDefault: true,
       filters: { offeringId: 'all', signalKinds: [], tier: 'all' },
       columns: DEFAULT_COLUMN_IDS.map((id) => ({ id, kind: 'builtin' })),
@@ -102,6 +106,7 @@ function defaultViews() {
       id: 'view-ws-cnapp-atier',
       name: 'CNAPP A-tier whitespace',
       source: 'whitespace',
+      system: true,
       isDefault: false,
       filters: { offeringId: 'cnapp', signalKinds: [], tier: 'A' },
       columns: [
@@ -117,6 +122,7 @@ function defaultViews() {
       id: 'view-ws-displacement',
       name: 'Displacement-ready whitespace',
       source: 'whitespace',
+      system: true,
       isDefault: false,
       filters: { offeringId: 'all', signalKinds: ['competitor_displacement'], tier: 'all' },
       columns: [
@@ -132,6 +138,24 @@ function defaultViews() {
 
 // ----- Persistence -----
 
+// IDs of the original seeded views — used to retroactively stamp the
+// `system: true` flag on cached localStorage entries from older builds
+// (where the flag didn't exist yet).
+const SYSTEM_VIEW_IDS = new Set([
+  'view-all',
+  'view-cnapp-pipeline',
+  'view-renewal-watch',
+  'view-ws-all',
+  'view-ws-cnapp-atier',
+  'view-ws-displacement',
+]);
+
+function migrateSystemFlag(view) {
+  if (view.system === true) return view;
+  if (SYSTEM_VIEW_IDS.has(view.id)) return { ...view, system: true };
+  return view;
+}
+
 export function readViews(personaId) {
   if (typeof window === 'undefined') return defaultViews();
   try {
@@ -139,7 +163,7 @@ export function readViews(personaId) {
     if (!raw) return defaultViews();
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return defaultViews();
-    return parsed;
+    return parsed.map(migrateSystemFlag);
   } catch {
     return defaultViews();
   }

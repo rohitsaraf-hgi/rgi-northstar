@@ -218,7 +218,7 @@ function OfferingSection({ offering, accounts, source, onOpenAccount, onActivate
         <>
           {ranked.length === 0 ? (
             <div className="text-center px-4 py-8 text-[12px] text-text-muted">
-              No {source === 'book' ? 'book' : source === 'whitespace' ? 'whitespace' : ''} accounts match
+              No {source === 'book' ? 'book' : source === 'whitespace' ? 'whitespace' : source === 'needs_review' ? 'unmatched' : ''} accounts match
               this offering's ICP yet.
               <div className="text-[11px] text-text-muted/70 mt-1">
                 Refine the ICP in <span className="font-mono">/admin/offerings/{offering.id}</span> or enrich the universe to surface more.
@@ -245,7 +245,7 @@ function OfferingSection({ offering, accounts, source, onOpenAccount, onActivate
                       key={r.account.id}
                       account={r.account}
                       offering={offering}
-                      isBook={source === 'book' || (source === 'both' && r.account.source !== 'hg')}
+                      isBook={r.account.source !== 'hg'}
                       onOpen={onOpenAccount}
                       onActivate={onActivate}
                       onAddToBook={onAddToBook}

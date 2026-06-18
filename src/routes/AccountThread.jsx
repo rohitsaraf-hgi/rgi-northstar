@@ -1249,7 +1249,13 @@ export default function AccountThread() {
     }
   };
 
-  const [tab, setTab] = useState('overview');
+  // Initial tab from URL — lets the seller workbook deep-link via ?tab=chat.
+  const initialTab = (() => {
+    const t = searchParams.get('tab');
+    const valid = ['overview', 'activity', 'meddic', 'plays', 'artifacts', 'stakeholders', 'chat'];
+    return valid.includes(t) ? t : 'overview';
+  })();
+  const [tab, setTab] = useState(initialTab);
   const [turns, setTurns] = useState([]);
   const [runHistory, setRunHistory] = useState([]);
   const [isPinned, setIsPinned] = useState(false);

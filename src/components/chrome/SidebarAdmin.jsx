@@ -1,12 +1,12 @@
 // SidebarAdmin — minimal left navigation for RevOps admin personas.
 //
-// Sections (each rendered only if it has content):
+// Sections:
 //   1. WORKSPACE                — Workbook (default landing) + Admin Hub
-//   2. MY WORKBOOKS             — saved Workbook views the admin authored
-//   3. PINNED ACCOUNTS          — accounts the admin starred from any surface
-//   4. ACCOUNT CONVERSATIONS    — recent AI chats about specific accounts
-//   5. SALES PLAYS              — admin-configured active plays
-//   6. CONNECTED INTEGRATIONS   — only integrations with agent access granted
+//   2. MY WORKBOOKS             — user-saved Workbook views (header always shown,
+//                                 empty hint when none — seeded system views hidden)
+//   3. SALES PLAYS              — active plays; clicking filters Workbook by play
+//   4. PINNED ACCOUNTS          — accounts the admin starred (header always shown)
+//   5. CONNECTED INTEGRATIONS   — only integrations with agent access granted
 //
 // Distinct from the seller sidebar (which carries Active Threads, Channels,
 // Playbooks, Use Case Library, etc.). Admins live in a quieter shell.
@@ -20,11 +20,8 @@ import {
   ChevronsRight,
   Bookmark,
   Pin,
-  MessageSquare,
   Swords,
   Plug,
-  Sparkles,
-  Building2,
 } from 'lucide-react';
 import { usePersona } from '../../context/PersonaContext.jsx';
 import { listViewsBySource, subscribeViews } from '../../data/workbookViews.js';
@@ -76,14 +73,6 @@ function NavRow({ icon: Icon, label, active, onClick, badge, accent, collapsed, 
   );
 }
 
-// ─── Demo seed data for surfaces not yet wired ───────────────────────
-
-const DEMO_ACCOUNT_CONVERSATIONS = [
-  { id: 'conv-1', account: 'Wells Fargo',     summary: 'CISO change · cloud security RFP',  startedAgo: '2h ago' },
-  { id: 'conv-2', account: 'Goldman Sachs',   summary: 'Lacework renewal window',           startedAgo: 'Yesterday' },
-  { id: 'conv-3', account: 'Stripe',          summary: 'DevSecOps pull · IaC growth',       startedAgo: '3d ago' },
-];
-
 // Integrations considered "connected" — read from governance store. For the
 // demo, show any with agentAccess granted. Display labels per id.
 const INTEGRATION_LABELS = {
@@ -129,16 +118,18 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
     return () => window.removeEventListener('rgi:pins-changed', handler);
   }, []);
 
-  // Saved workbook views — both book and whitespace sources, deduped by id.
+  // Saved workbook views — only user-authored (system-seeded views are hidden).
   const bookViews = listViewsBySource(personaId, 'book') || [];
   const whitespaceViews = listViewsBySource(personaId, 'whitespace') || [];
   const allViews = useMemo(() => {
     const seen = new Set();
-    return [...bookViews, ...whitespaceViews].filter((v) => {
-      if (seen.has(v.id)) return false;
-      seen.add(v.id);
-      return true;
-    });
+    return [...bookViews, ...whitespaceViews]
+      .filter((v) => !v.system)
+      .filter((v) => {
+        if (seen.has(v.id)) return false;
+        seen.add(v.id);
+        return true;
+      });
   }, [bookViews, whitespaceViews]);
 
   // Pinned accounts (admin can pin too — same store as sellers).
@@ -191,95 +182,58 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
           />
         </div>
 
-        {/* MY WORKBOOKS */}
-        {!collapsed && allViews.length > 0 && (
+        {/* MY WORKBOOKS — header always shown so admin understands the
+            concept; empty hint when no user-saved views exist yet. */}
+        {!collapsed && (
           <>
-            <SectionLabel count={allViews.length}>My Workbooks</SectionLabel>
-            <div className="space-y-0.5">
-              {allViews.slice(0, 6).map((v) => (
-                <NavRow
-                  key={v.id}
-                  icon={Bookmark}
-                  label={v.name}
-                  active={location.search.includes(`view=${v.id}`)}
-                  onClick={() => navigate(`/workbook?view=${v.id}&source=${v.source || 'book'}`)}
-                  collapsed={collapsed}
-                  indent
-                />
-              ))}
-              {allViews.length > 6 && (
-                <div className="px-5 py-1 text-[10px] text-text-muted/70">
-                  +{allViews.length - 6} more
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* PINNED ACCOUNTS */}
-        {!collapsed && pinnedIds.length > 0 && (
-          <>
-            <SectionLabel count={pinnedIds.length}>Pinned Accounts</SectionLabel>
-            <div className="space-y-0.5">
-              {pinnedIds.slice(0, 5).map((id) => (
-                <NavRow
-                  key={id}
-                  icon={Pin}
-                  label={id} /* prototype: ids are readable enough for demo */
-                  active={location.pathname === `/account/${id}`}
-                  onClick={() => navigate(`/account/${id}`)}
-                  collapsed={collapsed}
-                  indent
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* ACCOUNT CONVERSATIONS */}
-        {!collapsed && DEMO_ACCOUNT_CONVERSATIONS.length > 0 && (
-          <>
-            <SectionLabel count={DEMO_ACCOUNT_CONVERSATIONS.length}>Account Conversations</SectionLabel>
-            <div className="space-y-0.5">
-              {DEMO_ACCOUNT_CONVERSATIONS.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    // For now, conversations don't have their own route — link
-                    // to the account threads index. Engineering wires the AI
-                    // conversation history in the next milestone.
-                    alert(`Conversation: ${c.account} — ${c.summary}\n\nFull AI conversation thread ships in the next iteration.`);
-                  }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-md hover:bg-surface-2 transition-colors group"
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <Sparkles size={11} className="text-violet-500 flex-shrink-0" />
-                    <span className="text-xs text-text-primary truncate flex-1">{c.account}</span>
-                    <span className="text-[9px] text-text-muted/60 flex-shrink-0">{c.startedAgo}</span>
+            <SectionLabel count={allViews.length > 0 ? allViews.length : undefined}>My Workbooks</SectionLabel>
+            {allViews.length > 0 ? (
+              <div className="space-y-0.5">
+                {allViews.slice(0, 6).map((v) => (
+                  <NavRow
+                    key={v.id}
+                    icon={Bookmark}
+                    label={v.name}
+                    active={location.search.includes(`view=${v.id}`)}
+                    onClick={() => navigate(`/workbook?view=${v.id}&source=${v.source || 'book'}`)}
+                    collapsed={collapsed}
+                    indent
+                  />
+                ))}
+                {allViews.length > 6 && (
+                  <div className="px-5 py-1 text-[10px] text-text-muted/70">
+                    +{allViews.length - 6} more
                   </div>
-                  <div className="pl-5 text-[10px] text-text-muted truncate">{c.summary}</div>
-                </button>
-              ))}
-            </div>
+                )}
+              </div>
+            ) : (
+              <div className="px-5 py-1.5 text-[10px] text-text-muted/60 italic">
+                Save a workbook view to pin it here.
+              </div>
+            )}
           </>
         )}
 
-        {/* SALES PLAYS */}
+        {/* SALES PLAYS — moved up under My Workbooks. Clicking a play opens
+            the Workbook filtered to All Companies + play criteria. */}
         {!collapsed && activePlays.length > 0 && (
           <>
             <SectionLabel count={activePlays.length}>Sales Plays</SectionLabel>
             <div className="space-y-0.5">
-              {activePlays.slice(0, 6).map((p) => (
-                <NavRow
-                  key={p.id}
-                  icon={Swords}
-                  label={p.name}
-                  active={location.pathname === `/admin/plays/${p.id}`}
-                  onClick={() => navigate(`/admin/plays/${p.id}`)}
-                  collapsed={collapsed}
-                  indent
-                />
-              ))}
+              {activePlays.slice(0, 6).map((p) => {
+                const playFilterActive = new URLSearchParams(location.search).get('play') === p.id;
+                return (
+                  <NavRow
+                    key={p.id}
+                    icon={Swords}
+                    label={p.name}
+                    active={playFilterActive}
+                    onClick={() => navigate(`/workbook?source=all&play=${p.id}`)}
+                    collapsed={collapsed}
+                    indent
+                  />
+                );
+              })}
               {activePlays.length > 6 && (
                 <button
                   onClick={() => navigate('/admin/plays')}
@@ -289,6 +243,32 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
                 </button>
               )}
             </div>
+          </>
+        )}
+
+        {/* PINNED ACCOUNTS — header always shown (empty for now). */}
+        {!collapsed && (
+          <>
+            <SectionLabel count={pinnedIds.length > 0 ? pinnedIds.length : undefined}>Pinned Accounts</SectionLabel>
+            {pinnedIds.length > 0 ? (
+              <div className="space-y-0.5">
+                {pinnedIds.slice(0, 5).map((id) => (
+                  <NavRow
+                    key={id}
+                    icon={Pin}
+                    label={id}
+                    active={location.pathname === `/account/${id}`}
+                    onClick={() => navigate(`/account/${id}`)}
+                    collapsed={collapsed}
+                    indent
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="px-5 py-1.5 text-[10px] text-text-muted/60 italic">
+                Pin an account from its profile to see it here.
+              </div>
+            )}
           </>
         )}
 

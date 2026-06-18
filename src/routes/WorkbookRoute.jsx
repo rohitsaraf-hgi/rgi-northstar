@@ -17,6 +17,7 @@ import {
   CircleDot,
   Layers,
   Wand2,
+  Swords,
   ArrowRight,
   Table as TableIcon,
   Filter,
@@ -39,10 +40,35 @@ import SetupCoach from '../components/onboarding/SetupCoach.jsx';
 import { getCoverageStats } from '../data/territoryDesign.js';
 import { getCoachState, subscribeCoach, setCoachExpanded, restoreCoach } from '../data/onboardingCoach.js';
 import WorkbookSegmented from '../components/workbook/WorkbookSegmented.jsx';
+import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx';
+import IcpPill from '../components/workbook/IcpPill.jsx';
+import FilterPanel from '../components/workbook/FilterPanel.jsx';
+import { buildPredicates } from '../data/filterRegistry.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
 import { getFitFor, getAllFitFor, tierForScore } from '../data/accountOfferingFit.js';
+
+// Wizard-saved offerings carry ids like `wiz-cnapp` whose fit data lives
+// under the canonical key (`cnapp`). resolveFitScore tries the id first,
+// then the offering's `key`, then a fallback for product lines that don't
+// have a dedicated FITS entry (code → dspm, cdr → workload). Mirrors the
+// behavior of WorkbookSegmented's `resolveFit` so flat view doesn't drop
+// every row when the lens is set to a wizard-saved offering.
+const OFFERING_KEY_FALLBACKS = { code: 'dspm', cdr: 'workload' };
+function resolveFitScore(accountId, offeringIdOrKey, offeringRegistry) {
+  if (!offeringIdOrKey || offeringIdOrKey === 'all') return null;
+  const offering = offeringRegistry?.find((o) => o.id === offeringIdOrKey) || null;
+  const keys = [offeringIdOrKey, offering?.key, OFFERING_KEY_FALLBACKS[offering?.key]];
+  const tried = new Set();
+  for (const k of keys) {
+    if (!k || tried.has(k)) continue;
+    tried.add(k);
+    const f = getFitFor(accountId, k);
+    if (f && f.score != null) return f;
+  }
+  return null;
+}
 import { SIGNAL_KINDS, SIGNAL_KIND_BY_ID } from '../data/sellerHomeFilters.js';
 import {
   RGIF_CATEGORIES,
@@ -77,6 +103,13 @@ import {
   isAgentAccessEnabled,
   setIntegrationGovernance,
 } from '../data/integrationGovernance.js';
+import {
+  getUnifiedAccounts,
+  getUnifiedCounts,
+  filterByTab,
+  SOURCE_BADGE,
+} from '../data/unifiedWorkbook.js';
+import { getPlay, MOTION_LABELS } from '../data/plays.js';
 
 // ----- Helpers -----
 
@@ -112,46 +145,106 @@ function TierBadge({ score }) {
 
 // ----- Saved view picker -----
 
-// Source toggle — top of workbook
-function SourceToggle({ source, onChange, bookCount, whitespaceCount, isAdmin = false, bookEmpty = false }) {
+// Offering refine — single-select dropdown that narrows the table to a
+// specific product's fit. Replaces the old multi-chip lens row. Locked when
+// a sales play is active (play already pins offerings).
+function OfferingRefine({ activeOfferingId, offerings, onChange, disabled = false }) {
+  const active = offerings.find((o) => o.id === activeOfferingId);
+  const label = active ? active.name : 'All offerings';
   return (
-    <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
-      <button
-        onClick={() => onChange('book')}
-        disabled={bookEmpty}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded transition-colors ${
-          source === 'book'
-            ? 'bg-primary/15 text-primary font-semibold'
-            : bookEmpty
-            ? 'text-text-muted cursor-not-allowed opacity-50'
-            : 'text-text-secondary hover:text-text-primary'
-        }`}
-        title={bookEmpty ? 'Upload a CSV or connect a CRM to populate your Tenant Book' : undefined}
+    <div className="relative">
+      <select
+        value={activeOfferingId}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className={`appearance-none pl-7 pr-7 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
+          activeOfferingId !== 'all'
+            ? 'bg-primary/10 text-primary border-primary/30'
+            : 'bg-surface text-text-secondary border-border hover:text-text-primary'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        title={disabled ? 'Offering is set by the active sales play' : `Fit lens: ${label}`}
       >
-        <BookOpen size={11} />
-        {isAdmin ? 'Tenant Book' : 'My Book'}
-        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-          source === 'book' ? 'bg-primary/20 text-primary' : 'bg-surface-2 text-text-muted'
-        }`}>
-          {bookCount}
-        </span>
-      </button>
-      <button
-        onClick={() => onChange('whitespace')}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded transition-colors ${
-          source === 'whitespace'
-            ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 font-semibold'
-            : 'text-text-secondary hover:text-text-primary'
-        }`}
-      >
-        <Globe size={11} />
-        Whitespace
-        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-          source === 'whitespace' ? 'bg-violet-500/20 text-violet-700 dark:text-violet-300' : 'bg-surface-2 text-text-muted'
-        }`}>
-          {whitespaceCount}
-        </span>
-      </button>
+        <option value="all">All offerings</option>
+        {offerings.map((o) => (
+          <option key={o.id} value={o.id}>{o.name}</option>
+        ))}
+      </select>
+      <Package size={11} className={`pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 ${activeOfferingId !== 'all' ? 'text-primary' : 'text-text-muted'}`} />
+      <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-muted" />
+    </div>
+  );
+}
+
+// Source toggle — 4-tab unified source filter at top of workbook.
+// All / Tenant Book / Whitespace / Needs Review.
+function SourceToggle({ source, onChange, counts, isAdmin = false, bookEmpty = false }) {
+  const tabs = [
+    {
+      id: 'all',
+      label: 'All Companies',
+      icon: Layers,
+      count: counts.all,
+      activeClasses: 'bg-text-primary/10 text-text-primary font-semibold',
+      countActive: 'bg-text-primary/15 text-text-primary',
+    },
+    {
+      id: 'book',
+      label: isAdmin ? 'Tenant Book' : 'My Book',
+      icon: BookOpen,
+      count: counts.book,
+      activeClasses: 'bg-primary/15 text-primary font-semibold',
+      countActive: 'bg-primary/20 text-primary',
+      disabled: bookEmpty,
+      disabledTitle: 'Upload a CSV or connect a CRM to populate your Tenant Book',
+    },
+    {
+      id: 'whitespace',
+      label: 'Whitespace',
+      icon: Globe,
+      count: counts.whitespace,
+      activeClasses: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 font-semibold',
+      countActive: 'bg-violet-500/20 text-violet-700 dark:text-violet-300',
+    },
+    {
+      id: 'needs_review',
+      label: 'Needs Review',
+      icon: AlertCircle,
+      count: counts.needsReview,
+      activeClasses: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold',
+      countActive: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
+    },
+  ];
+  return (
+    <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5 flex-wrap">
+      {tabs.map((t) => {
+        const Icon = t.icon;
+        const isActive = source === t.id;
+        return (
+          <button
+            key={t.id}
+            onClick={() => !t.disabled && onChange(t.id)}
+            disabled={t.disabled}
+            title={t.disabled ? t.disabledTitle : undefined}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded transition-colors ${
+              isActive
+                ? t.activeClasses
+                : t.disabled
+                ? 'text-text-muted cursor-not-allowed opacity-50'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Icon size={11} />
+            {t.label}
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                isActive ? t.countActive : 'bg-surface-2 text-text-muted'
+              }`}
+            >
+              {t.count}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1468,9 +1561,21 @@ export default function WorkbookRoute() {
   const { showToast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Source state — book | whitespace. URL ?source= takes precedence.
-  const initialSource = searchParams.get('source') === 'whitespace' ? 'whitespace' : 'book';
+  // Compute persona-derived flag here (before source state) so admins can
+  // default to the 'all' tab on first land. isAdmin is also exported below
+  // for the rest of the component — this is the canonical computation site.
+  const isAdminPersona = persona?.roleType === 'admin';
+
+  // Source state — 4 tabs: all | book | whitespace | needs_review.
+  // URL ?source= takes precedence. Admins default to 'all' (All Companies);
+  // sellers default to 'book' (My Book).
+  const VALID_SOURCES = ['all', 'book', 'whitespace', 'needs_review'];
+  const initialSource = VALID_SOURCES.includes(searchParams.get('source'))
+    ? searchParams.get('source')
+    : isAdminPersona ? 'all' : 'book';
   const [source, setSource] = useState(initialSource);
+  // Legacy saved-views are keyed off 'book' | 'whitespace'. Map 4-tab source → 2-state for views compat.
+  const viewsSourceKey = source === 'whitespace' ? 'whitespace' : 'book';
 
   // View mode — segmented (sections per offering) vs flat (single table).
   // URL ?view_mode= takes precedence; sellers default to segmented since
@@ -1481,19 +1586,22 @@ export default function WorkbookRoute() {
 
   // View state
   const initialViewId = searchParams.get('view');
+  const initialViewsKey = initialSource === 'whitespace' ? 'whitespace' : 'book';
   const [currentViewId, setCurrentViewId] = useState(() =>
-    initialViewId || getDefaultView(personaId, initialSource)?.id,
+    initialViewId || getDefaultView(personaId, initialViewsKey)?.id,
   );
   const [viewsTick, setViewsTick] = useState(0);
   useEffect(() => subscribeViews(() => setViewsTick((t) => t + 1)), []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const currentView = useMemo(() => getView(personaId, currentViewId), [personaId, currentViewId, viewsTick]);
 
-  // When source changes, swap to that source's default view
+  // When source changes, swap to that source's default view.
+  // Saved views only exist for 'book' and 'whitespace' — 'all' and 'needs_review' reuse 'book' views.
   const handleSourceChange = (next) => {
     if (next === source) return;
     setSource(next);
-    const def = getDefaultView(personaId, next);
+    const viewsKey = next === 'whitespace' ? 'whitespace' : 'book';
+    const def = getDefaultView(personaId, viewsKey);
     if (def) setCurrentViewId(def.id);
   };
 
@@ -1521,39 +1629,90 @@ export default function WorkbookRoute() {
   const [addedTick, setAddedTick] = useState(0);
   useEffect(() => subscribeAdded(() => setAddedTick((t) => t + 1)), []);
 
-  // Accounts — source-aware. Book = Alex's CRM + accounts she's added from whitespace.
-  // Whitespace = HG universe minus added.
+  // Accounts — unified universe, filtered by tab. Each row carries a `source` field
+  // ('matched' | 'crm' | 'hg') so per-row UI can adapt regardless of tab.
   const accounts = useMemo(() => {
-    if (source === 'whitespace') {
-      return listAvailableWhitespace(personaId);
-    }
-    return [...getAccountsForOwner('alex'), ...listAddedFromWhitespace(personaId)];
+    const unified = getUnifiedAccounts(personaId);
+    return filterByTab(unified, source);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, personaId, addedTick]);
 
   // Always-current counts for the toggle, independent of filters
-  const bookCount = useMemo(
-    () => getAccountsForOwner('alex').length + listAddedFromWhitespace(personaId).length,
+  const tabCounts = useMemo(
+    () => getUnifiedCounts(personaId),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [personaId, addedTick],
   );
-  const whitespaceCount = useMemo(
-    () => listAvailableWhitespace(personaId).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [personaId, addedTick],
-  );
+  const bookCount = tabCounts.book;
+  const whitespaceCount = tabCounts.whitespace;
 
-  // Apply filters from current view
+  // Sales-play filter — sidebar links the workbook to a specific play via
+  // ?play=<id>. We resolve the play and overlay its audience criteria
+  // (offering lens + signals) on top of the current view's filters.
+  const activePlayId = searchParams.get('play') || null;
+  const activePlay = useMemo(() => (activePlayId ? getPlay(activePlayId) : null), [activePlayId]);
+
+  // Offerings shown as fit columns in the table. In play-mode, narrow to the
+  // play's offerings so the table feels purpose-built for the play instead of
+  // showing every product the tenant sells.
+  const tableOfferings = useMemo(() => {
+    const all = listOfferings();
+    if (!activePlay) return all;
+    const ids = new Set();
+    if (activePlay.offering_id) ids.add(activePlay.offering_id);
+    if (Array.isArray(activePlay.offerings)) activePlay.offerings.forEach((id) => ids.add(id));
+    if (ids.size === 0) return all;
+    const matched = all.filter((o) => ids.has(o.id));
+    return matched.length > 0 ? matched : all;
+  }, [activePlay]);
+
+  const clearPlayFilter = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete('play');
+    setSearchParams(params, { replace: true });
+  };
+
+  // HG filter state — in-memory only (per session). Filters are stored as
+  // serializable specs { id, specId, group, label, value, displayValue }.
+  // Predicates are materialized at filter-time via buildPredicates().
+  // Intersects with view filters + active play (AND logic).
+  const [hgFilters, setHgFilters] = useState([]);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const addOrUpdateHgFilter = (filter) => {
+    setHgFilters((prev) => {
+      const exists = prev.some((f) => f.id === filter.id);
+      if (exists) return prev.map((f) => (f.id === filter.id ? filter : f));
+      return [...prev, filter];
+    });
+  };
+  const removeHgFilter = (filterId) => {
+    setHgFilters((prev) => prev.filter((f) => f.id !== filterId));
+  };
+  const clearHgFilters = () => setHgFilters([]);
+  const hgPredicates = useMemo(() => buildPredicates(hgFilters), [hgFilters]);
+
+  // Apply filters from current view (and overlay sales-play criteria when set)
   const filteredAccounts = useMemo(() => {
     let list = [...accounts];
-    const f = currentView?.filters || {};
+    const viewFilters = currentView?.filters || {};
+    // Play overlays the view's offering + signal filters when present.
+    const playOffering =
+      activePlay?.offering_id || activePlay?.offerings?.[0] || null;
+    const playSignals = Array.isArray(activePlay?.signals) ? activePlay.signals : [];
+    const f = {
+      ...viewFilters,
+      offeringId: playOffering || viewFilters.offeringId,
+      signalKinds:
+        playSignals.length > 0 ? playSignals : viewFilters.signalKinds,
+    };
     // Lookalike list: restrict to a curated set of whitespace accounts
     if (source === 'whitespace' && Array.isArray(f.lookalikeIds) && f.lookalikeIds.length > 0) {
       const allowed = new Set(f.lookalikeIds);
       list = list.filter((a) => allowed.has(a.id));
     }
     if (f.offeringId && f.offeringId !== 'all') {
-      list = list.filter((a) => (getFitFor(a.id, f.offeringId).score ?? 0) >= 50);
+      const registry = listOfferings();
+      list = list.filter((a) => (resolveFitScore(a.id, f.offeringId, registry)?.score ?? 0) >= 50);
     }
     if (Array.isArray(f.signalKinds) && f.signalKinds.length > 0) {
       list = list.filter((a) => {
@@ -1572,8 +1731,14 @@ export default function WorkbookRoute() {
     if (f.stage === 'customer') {
       list = list.filter((a) => a.stage === 'customer' || a.stage === 'renewal');
     }
+    // HG filters intersect (AND) with everything else.
+    if (hgPredicates.length > 0) {
+      list = list.filter((a) => hgPredicates.every((pred) => {
+        try { return pred(a) === true; } catch { return false; }
+      }));
+    }
     return list;
-  }, [accounts, currentView]);
+  }, [accounts, currentView, activePlay, hgPredicates]);
 
   // Sort
   const sortedAccounts = useMemo(() => {
@@ -1585,8 +1750,10 @@ export default function WorkbookRoute() {
       if (columnId === 'opp_score' || columnId === 'tier') {
         av = a.combinedScore; bv = b.combinedScore;
       } else if (columnId === 'fit_lens') {
-        const fa = getFitFor(a.id, currentView.filters?.offeringId || 'cnapp');
-        const fb = getFitFor(b.id, currentView.filters?.offeringId || 'cnapp');
+        const registry = listOfferings();
+        const lensId = currentView.filters?.offeringId || 'cnapp';
+        const fa = resolveFitScore(a.id, lensId, registry) || getFitFor(a.id, 'cnapp');
+        const fb = resolveFitScore(b.id, lensId, registry) || getFitFor(b.id, 'cnapp');
         av = fa.score; bv = fb.score;
       } else if (columnId === 'revenue') {
         av = parseFloat((a.fai.revenue || '').replace(/[^0-9.]/g, ''));
@@ -1612,8 +1779,12 @@ export default function WorkbookRoute() {
   const [addToBookAccount, setAddToBookAccount] = useState(null);
   const [addToBookDefaultOffering, setAddToBookDefaultOffering] = useState(null);
 
-  // Admin chrome flag
+  // Admin / seller flags. Sellers get a focused, opinionated view that
+  // strips chrome (lens/signal/source/view toggles) and renders the seller
+  // table with offering-score columns + competitive/intent/partner insights
+  // harvested from the tenant context.
   const isAdmin = persona?.roleType === 'admin';
+  const isSeller = !isAdmin;
   const [lastSync, setLastSyncState] = useState(() => getLastSync(personaId));
 
   // Workbook state — drives first-entry vs repeat-user experience for admins.
@@ -1688,13 +1859,12 @@ export default function WorkbookRoute() {
     showToast(`Activating ${action.label.toLowerCase()} on ${account.name}`, 'success');
   };
 
-  // Row click — book vs whitespace differs
+  // Row click — uses per-row source so mixed-tab views (All) route correctly.
+  // HG-only rows open the preview drawer; matched/crm rows open the account thread.
   const handleRowClick = (account) => {
-    if (source === 'whitespace') {
-      // Whitespace: open preview drawer (account isn't in CRM yet)
+    if (account.source === 'hg') {
       setPreviewAccount(account);
     } else {
-      // Book: open AccountThread with current lens
       const lens = currentView.filters?.offeringId || 'all';
       navigate(`/account/${account.id}?offering=${lens}`);
     }
@@ -1733,30 +1903,54 @@ export default function WorkbookRoute() {
       {/* Page header */}
       <div className="flex-shrink-0 border-b border-border bg-bg/95">
         <div className="max-w-7xl mx-auto px-6 py-3">
-          <button
-            onClick={() => navigate('/home')}
-            className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary mb-2 transition-colors"
-          >
-            <ArrowLeft size={11} /> Home
-          </button>
+          {activePlay ? (
+            <button
+              onClick={clearPlayFilter}
+              className="flex items-center gap-1 text-xs text-text-muted hover:text-primary mb-2 transition-colors"
+            >
+              <ArrowLeft size={11} /> {isAdmin ? 'Master Workbook' : 'Workbook'}
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/home')}
+              className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary mb-2 transition-colors"
+            >
+              <ArrowLeft size={11} /> Home
+            </button>
+          )}
           <div className="flex items-end justify-between gap-3 flex-wrap">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <TableIcon size={16} className="text-primary" />
+                {activePlay ? <Swords size={16} className="text-primary" /> : <TableIcon size={16} className="text-primary" />}
                 <h1 className="text-xl font-semibold tracking-tight">
-                  {isAdmin ? 'Master Workbook' : 'Workbook'}
+                  {activePlay
+                    ? activePlay.name
+                    : isAdmin ? 'Master Workbook' : 'Workbook'}
                 </h1>
-                <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30">
-                  Enrichable
-                </span>
-                {isAdmin && (
+                {activePlay ? (
+                  <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                    Sales Play
+                  </span>
+                ) : (
+                  <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30">
+                    Enrichable
+                  </span>
+                )}
+                {!activePlay && isAdmin && (
                   <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
                     Admin
                   </span>
                 )}
+                {activePlay?.motion && (
+                  <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-surface-2 text-text-secondary border border-border">
+                    {MOTION_LABELS[activePlay.motion] || activePlay.motion}
+                  </span>
+                )}
               </div>
               <div className="text-xs text-text-secondary">
-                {isAdmin
+                {activePlay
+                  ? (activePlay.description || `Companies matching the ${activePlay.name} criteria across your tenant book and HG whitespace.`)
+                  : isAdmin
                   ? `Enrich the tenant's account universe with HG signals, then sync to Salesforce. Sellers consume enriched signals via Plays.`
                   : 'Your full book · ranked by opportunity · ask anything across rows'}
               </div>
@@ -1766,52 +1960,78 @@ export default function WorkbookRoute() {
                   Last sync to Salesforce: {new Date(lastSync).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                 </div>
               )}
+              {isAdmin && !activePlay && (
+                <IcpPill
+                  icp={tenant?.icp}
+                  onEdit={() => navigate('/admin/tenant')}
+                />
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <SourceToggle
-                source={source}
-                onChange={handleSourceChange}
-                bookCount={bookCount}
-                whitespaceCount={whitespaceCount}
-                isAdmin={isAdmin}
-                bookEmpty={isAdmin && workbookState.isEmptyTenant}
-              />
-              {/* View-mode toggle — segmented (per-offering sections) vs flat (single table) */}
-              <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
-                <button
-                  onClick={() => setViewMode('segmented')}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                    viewMode === 'segmented'
-                      ? 'bg-primary/15 text-primary font-semibold'
-                      : 'text-text-secondary hover:text-text-primary'
-                  }`}
-                  title="Stack sections per offering"
-                >
-                  <Layers size={11} />
-                  Segmented
-                </button>
-                <button
-                  onClick={() => setViewMode('flat')}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                    viewMode === 'flat'
-                      ? 'bg-primary/15 text-primary font-semibold'
-                      : 'text-text-secondary hover:text-text-primary'
-                  }`}
-                  title="Single flat table"
-                >
-                  <TableIcon size={11} />
-                  Flat
-                </button>
-              </div>
+              {/* Sellers always work off their book — no source toggle, no
+                  view-mode toggle, no offering/signal filter chips. */}
+              {isSeller ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
+                  <BookOpen size={11} />
+                  My Book
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
+                </div>
+              ) : (
+                <>
+                  <SourceToggle
+                    source={source}
+                    onChange={handleSourceChange}
+                    counts={tabCounts}
+                    isAdmin={isAdmin}
+                    bookEmpty={isAdmin && workbookState.isEmptyTenant}
+                  />
+                  {/* Offering refine — single dropdown to narrow the table to
+                      a specific product's fit. Replaces the multi-chip lens row
+                      that used to live below. */}
+                  <OfferingRefine
+                    activeOfferingId={currentView.filters?.offeringId || 'all'}
+                    offerings={listOfferings()}
+                    onChange={updateLens}
+                    disabled={!!activePlay}
+                  />
+                  {/* View-mode toggle — segmented (per-offering sections) vs flat (single table) */}
+                  <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
+                    <button
+                      onClick={() => setViewMode('segmented')}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
+                        viewMode === 'segmented'
+                          ? 'bg-primary/15 text-primary font-semibold'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                      title="Stack sections per offering"
+                    >
+                      <Layers size={11} />
+                      Segmented
+                    </button>
+                    <button
+                      onClick={() => setViewMode('flat')}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
+                        viewMode === 'flat'
+                          ? 'bg-primary/15 text-primary font-semibold'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                      title="Single flat table"
+                    >
+                      <TableIcon size={11} />
+                      Flat
+                    </button>
+                  </div>
+                </>
+              )}
               <SavedViewPicker
                 personaId={personaId}
-                source={source}
+                source={viewsSourceKey}
                 currentView={currentView}
                 onChangeView={(v) => setCurrentViewId(v.id)}
                 onSaveAs={() => setSaveAsOpen(true)}
                 onDelete={(id) => {
                   deleteView(personaId, id);
-                  const def = getDefaultView(personaId, source);
+                  const def = getDefaultView(personaId, viewsSourceKey);
                   setCurrentViewId(def?.id);
                 }}
                 onSetDefault={(id) => setDefaultView(personaId, id)}
@@ -1819,6 +2039,25 @@ export default function WorkbookRoute() {
               {/* Explicit Save Workbook CTA — same modal as SavedViewPicker's
                   "Save as…" option, but discoverable as a first-class button.
                   Lands in the sidebar's My Workbooks section. */}
+              {isAdmin && (
+                <button
+                  onClick={() => setFilterPanelOpen(true)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border rounded-md transition-colors ${
+                    hgFilters.length > 0
+                      ? 'bg-primary/10 text-primary border-primary/40'
+                      : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/40'
+                  }`}
+                  title="Add HG filters to refine the company list"
+                >
+                  <Filter size={11} />
+                  Filter
+                  {hgFilters.length > 0 && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+                      {hgFilters.length}
+                    </span>
+                  )}
+                </button>
+              )}
               <button
                 onClick={() => setSaveAsOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
@@ -1834,31 +2073,32 @@ export default function WorkbookRoute() {
                 <Wand2 size={11} />
                 Enrich with AI
               </button>
-              {/* Sync button — disabled when no CRM is connected. Tooltip
-                  points admin to Integrations to connect. */}
-              <button
-                onClick={() => {
-                  if (!workbookState.hasCrm) {
-                    navigate('/admin/apps');
-                    return;
+              {/* Sync button — admin-only. Sellers don't sync books to CRM. */}
+              {!isSeller && (
+                <button
+                  onClick={() => {
+                    if (!workbookState.hasCrm) {
+                      navigate('/admin/apps');
+                      return;
+                    }
+                    setSyncOpen(true);
+                  }}
+                  disabled={!workbookState.hasCrm}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-opacity shadow-card ${
+                    workbookState.hasCrm
+                      ? 'bg-gradient-to-r from-emerald-500 to-primary text-white hover:opacity-90'
+                      : 'bg-surface border border-border text-text-muted cursor-not-allowed opacity-70 hover:opacity-100 hover:text-primary'
+                  }`}
+                  title={
+                    workbookState.hasCrm
+                      ? 'Sync enriched columns back to Salesforce as Account custom fields'
+                      : 'Connect a CRM in Integrations to enable Sync'
                   }
-                  setSyncOpen(true);
-                }}
-                disabled={!workbookState.hasCrm}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-opacity shadow-card ${
-                  workbookState.hasCrm
-                    ? 'bg-gradient-to-r from-emerald-500 to-primary text-white hover:opacity-90'
-                    : 'bg-surface border border-border text-text-muted cursor-not-allowed opacity-70 hover:opacity-100 hover:text-primary'
-                }`}
-                title={
-                  workbookState.hasCrm
-                    ? 'Sync enriched columns back to Salesforce as Account custom fields'
-                    : 'Connect a CRM in Integrations to enable Sync'
-                }
-              >
-                <Upload size={11} />
-                {workbookState.hasCrm ? 'Sync to Salesforce' : 'Sync · Connect CRM'}
-              </button>
+                >
+                  <Upload size={11} />
+                  {workbookState.hasCrm ? 'Sync to Salesforce' : 'Sync · Connect CRM'}
+                </button>
+              )}
               {/* Setup Coach trigger — always-visible entry to the coach
                   panel. Admin can re-open it any time during onboarding. */}
               {isAdmin && (
@@ -1934,7 +2174,11 @@ export default function WorkbookRoute() {
             )}
           </div>
 
-          {/* Filter strip — lens + signal kinds */}
+          {/* Filter strip — lens + signal kinds. Hidden for sellers (their
+              workbook columns already show per-offering scores + signal
+              insights inline) AND for admins (their All Companies view uses
+              the source column + sales-play filter for slicing). */}
+          {!isSeller && !isAdmin && (
           <div className="mt-3 flex items-center gap-2 flex-wrap text-[11px]">
             <Filter size={10} className="text-text-muted" />
             <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">Lens:</span>
@@ -1984,12 +2228,54 @@ export default function WorkbookRoute() {
               );
             })}
           </div>
+          )}
         </div>
       </div>
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto px-6 py-4">
+          {hgFilters.length > 0 && (
+            <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mr-1">
+                Filters:
+              </span>
+              {hgFilters.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setFilterPanelOpen(true)}
+                  className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md text-[11px] bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15 transition-colors"
+                  title="Click to edit"
+                >
+                  <span className="text-text-muted text-[9px] uppercase tracking-wider">
+                    {f.group}:
+                  </span>
+                  <span className="font-medium">{f.label}</span>
+                  {f.displayValue && (
+                    <span className="text-text-secondary font-mono text-[10px]">
+                      {f.displayValue}
+                    </span>
+                  )}
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeHgFilter(f.id);
+                    }}
+                    className="ml-0.5 p-0.5 rounded hover:bg-primary/20 text-primary/70 hover:text-primary transition-colors cursor-pointer"
+                    title="Remove filter"
+                  >
+                    <X size={10} />
+                  </span>
+                </button>
+              ))}
+              <button
+                onClick={clearHgFilters}
+                className="ml-1 text-[10px] text-rose-600 hover:underline"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
           {currentView?.filters?.lookalikeOf && source === 'whitespace' && (
             <div className="mb-2 px-3 py-2 rounded-md bg-violet-500/5 border border-violet-500/30 text-[11px] text-violet-700 dark:text-violet-300 inline-flex items-center gap-2">
               <Wand2 size={11} />
@@ -2001,7 +2287,13 @@ export default function WorkbookRoute() {
             </div>
           )}
           <div className="text-[11px] text-text-muted mb-2">
-            {source === 'whitespace' ? 'Whitespace · ' : 'My book · '}
+            {source === 'all'
+              ? 'All Companies · '
+              : source === 'whitespace'
+              ? 'Whitespace · '
+              : source === 'needs_review'
+              ? 'Needs Review · '
+              : isAdmin ? 'Tenant Book · ' : 'My book · '}
             {sortedAccounts.length} accounts
             {currentView.filters?.offeringId && currentView.filters.offeringId !== 'all' && (
               <> · filtered by {getOffering(currentView.filters.offeringId)?.name} lens</>
@@ -2010,19 +2302,45 @@ export default function WorkbookRoute() {
             {source === 'whitespace' && (
               <> · click a row to preview · <span className="font-mono">Add to book</span> writes to Salesforce via the agent</>
             )}
+            {source === 'needs_review' && (
+              <> · CRM accounts with no HG match — resolve domain or accept as private</>
+            )}
+            {source === 'all' && (
+              <> · all companies in HG + your CRM · the <span className="font-semibold">Source</span> column shows where each came from</>
+            )}
           </div>
 
           {sortedAccounts.length === 0 ? (
-            <div className="bg-surface border border-dashed border-border rounded-md p-10 text-center">
-              <Layers size={20} className="mx-auto text-text-muted mb-2" />
-              <h3 className="text-sm font-semibold text-text-primary mb-1">No accounts match this view</h3>
-              <p className="text-xs text-text-secondary mb-3">
-                Try clearing the lens, removing signal filters, or switching to "All accounts" view.
-              </p>
-              <button onClick={() => updateLens('all')} className="text-xs text-primary hover:underline">
-                Clear lens
-              </button>
-            </div>
+            source === 'needs_review' ? (
+              <div className="bg-surface border border-dashed border-amber-500/30 rounded-md p-10 text-center">
+                <AlertCircle size={20} className="mx-auto text-amber-500 mb-2" />
+                <h3 className="text-sm font-semibold text-text-primary mb-1">Nothing needs review</h3>
+                <p className="text-xs text-text-secondary max-w-md mx-auto">
+                  Accounts in your CRM with no HG match will land here. Resolve them by accepting the closest match
+                  candidate or marking them as private companies.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-surface border border-dashed border-border rounded-md p-10 text-center">
+                <Layers size={20} className="mx-auto text-text-muted mb-2" />
+                <h3 className="text-sm font-semibold text-text-primary mb-1">No accounts match this view</h3>
+                <p className="text-xs text-text-secondary mb-3">
+                  Try clearing the lens, removing signal filters, or switching to "All accounts" view.
+                </p>
+                <button onClick={() => updateLens('all')} className="text-xs text-primary hover:underline">
+                  Clear lens
+                </button>
+              </div>
+            )
+          ) : isSeller ? (
+            <SellerWorkbookTable
+              accounts={sortedAccounts}
+              offerings={tableOfferings}
+              onOpenAccount={(a) => navigate(`/account/${a.id}`)}
+              onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
+              enrichedCols={enrichedCols}
+              onRemoveEnrichedColumn={handleRemoveColumn}
+            />
           ) : viewMode === 'segmented' ? (
             <WorkbookSegmented
               accounts={sortedAccounts}
@@ -2040,150 +2358,18 @@ export default function WorkbookRoute() {
               }}
             />
           ) : (
-            <div className="bg-surface border border-border rounded-md overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-bg/40 border-b border-border">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted w-12">Tier</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Account</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Opp Score</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">
-                      Fit{activeOffering && ` · ${activeOffering.name.replace('Wiz ', '')}`}
-                    </th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Top Signal</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Cloud</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Revenue</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Employees</th>
-                    <th className="px-3 py-2 text-left text-[9px] uppercase tracking-wider font-semibold text-text-muted">Stage</th>
-                    {enrichedCols.map((col) => {
-                      const cat = RGIF_CATEGORY_BY_ID[col.category] || RGIF_CATEGORIES[0];
-                      return (
-                        <th key={col.id} className="px-3 py-2 text-left whitespace-nowrap min-w-[140px] max-w-[200px]">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <span className="text-[10px]">{cat.icon}</span>
-                            <span className="text-[9px] uppercase tracking-wider font-bold text-primary">✦ Enriched</span>
-                            <button
-                              onClick={() => handleRemoveColumn(col.id)}
-                              className="ml-auto text-text-muted hover:text-rose-600 transition-colors"
-                              title="Remove column"
-                            >
-                              <X size={9} />
-                            </button>
-                          </div>
-                          <div className="text-[9px] font-normal text-text-muted leading-tight whitespace-normal max-w-[180px]">
-                            {col.question}
-                          </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedAccounts.map((a) => {
-                    const lensOffering = currentView.filters?.offeringId === 'all' ? 'cnapp' : currentView.filters?.offeringId;
-                    const fit = getFitFor(a.id, lensOffering);
-                    const topSignal = source === 'whitespace' ? a.hgDiscoverySignal : a.signals?.[0];
-                    const sigType = topSignal ? SIGNAL_TYPES[topSignal.type] : null;
-                    return (
-                      <tr
-                        key={a.id}
-                        onClick={() => handleRowClick(a)}
-                        className={`border-b border-border last:border-b-0 hover:bg-surface-2 cursor-pointer transition-colors ${
-                          source === 'whitespace' ? 'hover:bg-violet-500/5' : ''
-                        }`}
-                      >
-                        <td className="px-3 py-3">
-                          <TierBadge score={fit.score} />
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-7 h-7 rounded flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
-                              style={{ background: a.logoColor }}
-                            >
-                              {a.name.charAt(0)}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="text-xs font-semibold text-text-primary truncate">{a.name}</div>
-                              <div className="text-[10px] text-text-muted truncate">{a.industry.split(' ').slice(0, 3).join(' ')} · {a.fai.hq}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-3">
-                          <ScoreCell score={a.combinedScore} />
-                        </td>
-                        <td className="px-3 py-3">
-                          <ScoreCell score={fit.score} />
-                        </td>
-                        <td className="px-3 py-3">
-                          {topSignal ? (
-                            source === 'whitespace' ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30 max-w-[220px] truncate">
-                                <Wand2 size={9} />
-                                <span className="truncate">{topSignal.headline}</span>
-                              </span>
-                            ) : (
-                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${sigType?.bg} ${sigType?.color} ${sigType?.border} max-w-[200px] truncate`}>
-                                <CircleDot size={9} />
-                                <span className="truncate">{topSignal.headline}</span>
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-[10px] text-text-muted italic">No signal</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="text-[10px] font-mono text-text-secondary">{a.cloud}</span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="text-[10px] font-mono text-text-secondary">{a.fai.revenue}</span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="text-[10px] font-mono text-text-secondary">{a.fai.employees}</span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {source === 'whitespace' ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartAddToBook(a, lensOffering);
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/30 hover:bg-violet-500/20"
-                              >
-                                <Plus size={9} />
-                                Add to book
-                              </button>
-                            ) : (
-                              <span className="text-[10px] text-text-secondary">{a.stage}</span>
-                            )}
-                            <ActivateMenu
-                              account={a}
-                              isBookAccount={source !== 'whitespace'}
-                              lensOffering={lensOffering}
-                              onLaunch={handleLaunchActivate}
-                            />
-                          </div>
-                        </td>
-                        {enrichedCols.map((col) => {
-                          const v = valueFor(a, col.question);
-                          return (
-                            <td key={col.id} className="px-3 py-3">
-                              <div className="inline-flex items-center gap-1.5">
-                                <ToneDot tone={v.tone} />
-                                <span className="text-[10px] font-mono text-text-secondary truncate max-w-[160px]" title={v.value}>
-                                  {v.value}
-                                </span>
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            // Admin flat view: same columns as Alex (seller) plus Source
+            // icons + HG Intelligence (AI-synthesized lead-with + co-sell).
+            <SellerWorkbookTable
+              accounts={sortedAccounts}
+              offerings={tableOfferings}
+              onOpenAccount={(a) => handleRowClick(a)}
+              onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
+              showSourceColumn
+              showHgIntelligence
+              enrichedCols={enrichedCols}
+              onRemoveEnrichedColumn={handleRemoveColumn}
+            />
           )}
 
           <div className="mt-4 text-[11px] text-text-muted max-w-3xl leading-relaxed">
@@ -2210,6 +2396,14 @@ export default function WorkbookRoute() {
         onAddColumn={handleAddEnrichedColumn}
         lensOfferingId={currentView.filters?.offeringId}
         source={source}
+      />
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        filters={hgFilters}
+        onAddOrUpdate={addOrUpdateHgFilter}
+        onRemove={removeHgFilter}
+        onClearAll={clearHgFilters}
       />
       <AnimatePresence>
         {previewAccount && (
