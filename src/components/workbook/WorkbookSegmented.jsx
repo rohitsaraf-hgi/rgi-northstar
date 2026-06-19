@@ -18,8 +18,23 @@ import {
   ArrowRight,
   Sparkles,
   Plus,
+  Users,
+  Swords,
+  Handshake,
+  Bot,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
+import { getRGIF } from '../../data/workbookRGIF.js';
+import { useTenant } from '../../context/TenantContext.jsx';
+import {
+  CompetitiveCell,
+  IntentCell,
+  PartnerCell,
+  BuyingCommitteeCell,
+  SubsidiariesIndicator,
+} from './SellerWorkbookTable.jsx';
+import HgIntelligenceCell from './HgIntelligenceCell.jsx';
+import { getHgIntelligence } from '../../data/hgIntelligence.js';
 
 const TOP_N_DEFAULT = 10;
 
@@ -75,27 +90,36 @@ function MiniTierBar({ counts }) {
   );
 }
 
-function CompactAccountRow({ account, offering, isBook, onOpen, onActivate, onAddToBook }) {
+// Each section's row. Columns:
+//   Account (with tier badge + subsidiary indicator + AI-chat button)
+//   Emp · Revenue · BC contacts · Competitive · Intent · Partner stack ·
+//   HG Intelligence
+// Fit score is implicit by section, so we surface only the tier badge.
+function CompactAccountRow({
+  account,
+  offering,
+  isBook,
+  onOpen,
+  onActivate,
+  onAddToBook,
+  onOpenChat,
+  tenantCompetitors,
+  tenantIntentTopics,
+  tenantComplementaryTech,
+}) {
   const fit = resolveFit(account.id, offering);
   const score = fit?.score ?? null;
   const tier = score != null ? tierForScore(score) : null;
-  const topSignal = account.signals?.[0]?.message || account.hgDiscoverySignal?.headline || '—';
+  const rgif = getRGIF(account.id) || account.rgif || {};
+  const installs = rgif.installs;
+  const intentList = rgif.intent;
 
   return (
     <tr
       onClick={() => onOpen?.(account)}
       className="border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors"
     >
-      <td className="px-3 py-2 w-16">
-        {tier ? (
-          <div className={`inline-flex w-6 h-6 rounded-full items-center justify-center text-[10px] font-bold ${tier.bg} ${tier.color}`}>
-            {tier.label}
-          </div>
-        ) : (
-          <span className="text-[10px] text-text-muted">—</span>
-        )}
-      </td>
-      <td className="px-2 py-2">
+      <td className="px-3 py-2">
         <div className="flex items-center gap-2">
           {account.logoColor && (
             <div
@@ -105,61 +129,76 @@ function CompactAccountRow({ account, offering, isBook, onOpen, onActivate, onAd
               {account.name?.split(' ')[0]?.[0]?.toUpperCase() || '?'}
             </div>
           )}
-          <div className="min-w-0">
-            <div className="text-[13px] text-text-primary truncate font-medium">{account.name}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {tier && (
+                <span
+                  className={`inline-flex w-5 h-5 rounded-full items-center justify-center text-[9px] font-bold ${tier.bg} ${tier.color} flex-shrink-0`}
+                  title={`Fit: ${score}`}
+                >
+                  {tier.label}
+                </span>
+              )}
+              <span className="text-[13px] text-text-primary font-medium truncate">{account.name}</span>
+              {onOpenChat && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenChat(account);
+                  }}
+                  className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
+                  title={`Open AI chat for ${account.name}`}
+                >
+                  <Bot size={11} />
+                </button>
+              )}
+              <SubsidiariesIndicator subsidiaries={account.subsidiaries} />
+            </div>
             <div className="text-[10px] text-text-muted truncate">
               {account.industry || '—'}{account.fai?.hq ? ` · ${account.fai.hq}` : ''}
             </div>
           </div>
         </div>
       </td>
-      <td className="px-2 py-2 text-center w-14">
-        <span className="text-[13px] font-mono font-semibold text-text-primary">{score ?? '—'}</span>
-      </td>
-      <td className="px-2 py-2 max-w-xs">
-        <div className="text-[11px] text-text-secondary truncate">
-          <Sparkles size={9} className="inline mr-1 text-violet-500" />
-          {topSignal}
-        </div>
-      </td>
-      <td className="px-2 py-2 text-[11px] text-text-secondary w-32 truncate">
-        {account.cloud || account.fai?.cloud || '—'}
+      <td className="px-2 py-2 text-[11px] text-text-secondary text-right w-16 font-mono">
+        {account.fai?.employees || '—'}
       </td>
       <td className="px-2 py-2 text-[11px] text-text-secondary text-right w-20 font-mono">
         {account.fai?.revenue || '—'}
       </td>
-      <td className="px-2 py-2 text-[11px] text-text-secondary text-right w-16 font-mono">
-        {account.fai?.employees || '—'}
+      <td className="px-2 py-2 w-28">
+        <BuyingCommitteeCell count={account.stakeholdersCount} />
       </td>
-      <td className="px-2 py-2 w-28 text-right">
-        {!isBook && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddToBook?.(account, offering.id);
-            }}
-            className="text-[10px] px-2 py-1 rounded border border-violet-500/30 text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 inline-flex items-center gap-1"
-          >
-            <Plus size={9} /> Book
-          </button>
-        )}
-        {isBook && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onActivate?.(account, offering.id);
-            }}
-            className="text-[10px] px-2 py-1 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 inline-flex items-center gap-1"
-          >
-            <Sparkles size={9} /> Activate
-          </button>
-        )}
+      <td className="px-2 py-2 min-w-[170px]">
+        <CompetitiveCell tenantCompetitors={tenantCompetitors} installs={installs} />
+      </td>
+      <td className="px-2 py-2 min-w-[170px]">
+        <IntentCell tenantIntentTopics={tenantIntentTopics} intentList={intentList} />
+      </td>
+      <td className="px-2 py-2 min-w-[170px]">
+        <PartnerCell tenantComplementaryTech={tenantComplementaryTech} installs={installs} />
+      </td>
+      <td className="px-2 py-2 align-top min-w-[260px]">
+        <HgIntelligenceCell intelligence={getHgIntelligence(account.id)} />
       </td>
     </tr>
   );
 }
 
-function OfferingSection({ offering, accounts, source, onOpenAccount, onActivate, onAddToBook, onViewAll }) {
+function OfferingSection({
+  offering,
+  accounts,
+  source,
+  onOpenAccount,
+  onOpenAccountChat,
+  onActivate,
+  onAddToBook,
+  onViewAll,
+  tenantCompetitors,
+  tenantIntentTopics,
+  tenantComplementaryTech,
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [topN] = useState(TOP_N_DEFAULT);
 
@@ -229,14 +268,24 @@ function OfferingSection({ offering, accounts, source, onOpenAccount, onActivate
               <table className="w-full text-sm border-collapse">
                 <thead className="bg-bg/20 text-text-muted">
                   <tr>
-                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-3 py-2 w-16">Tier</th>
-                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2">Account</th>
-                    <th className="text-center text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-14">Fit</th>
-                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2">Top Signal</th>
-                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-32">Cloud</th>
-                    <th className="text-right text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-20">Revenue</th>
+                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-3 py-2 min-w-[220px]">Account</th>
                     <th className="text-right text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-16">Emp</th>
-                    <th className="text-right text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-28"></th>
+                    <th className="text-right text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-20">Revenue</th>
+                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2 w-28">
+                      <Users size={9} className="inline mr-1 text-sky-500" /> BC contacts
+                    </th>
+                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+                      <Swords size={9} className="inline mr-1 text-rose-500" /> Competitive
+                    </th>
+                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+                      <Sparkles size={9} className="inline mr-1 text-violet-500" /> Intent
+                    </th>
+                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+                      <Handshake size={9} className="inline mr-1 text-sky-500" /> Partner stack
+                    </th>
+                    <th className="text-left text-[10px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[260px]">
+                      <Sparkles size={9} className="inline mr-1 text-violet-500" /> HG Intelligence
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -247,8 +296,12 @@ function OfferingSection({ offering, accounts, source, onOpenAccount, onActivate
                       offering={offering}
                       isBook={r.account.source !== 'hg'}
                       onOpen={onOpenAccount}
+                      onOpenChat={onOpenAccountChat}
                       onActivate={onActivate}
                       onAddToBook={onAddToBook}
+                      tenantCompetitors={tenantCompetitors}
+                      tenantIntentTopics={tenantIntentTopics}
+                      tenantComplementaryTech={tenantComplementaryTech}
                     />
                   ))}
                 </tbody>
@@ -278,10 +331,45 @@ export default function WorkbookSegmented({
   offerings,
   source,
   onOpenAccount,
+  onOpenAccountChat,
   onActivate,
   onAddToBook,
   onViewAll,
 }) {
+  // Aggregate tenant context across confirmed offerings so each row's
+  // Competitive / Intent / Partner cells get the same matching surface
+  // SellerWorkbookTable uses. Dedupe by lowercase name.
+  const confirmedOfferings = (offerings || []).filter((o) => o.confirmed !== false);
+  const tenantCompetitors = [];
+  const tenantIntentTopics = [];
+  const tenantComplementaryTech = [];
+  {
+    const seenC = new Set(), seenI = new Set(), seenT = new Set();
+    for (const o of confirmedOfferings) {
+      (o.competitors || []).forEach((c) => {
+        const name = typeof c === 'string' ? c : c.name;
+        if (name && !seenC.has(name.toLowerCase())) {
+          seenC.add(name.toLowerCase());
+          tenantCompetitors.push(c);
+        }
+      });
+      (o.intentTopics || []).forEach((t) => {
+        const name = typeof t === 'string' ? t : t.name;
+        if (name && !seenI.has(name.toLowerCase())) {
+          seenI.add(name.toLowerCase());
+          tenantIntentTopics.push(t);
+        }
+      });
+      (o.complementaryTech || []).forEach((t) => {
+        const name = typeof t === 'string' ? t : t.name;
+        if (name && !seenT.has(name.toLowerCase())) {
+          seenT.add(name.toLowerCase());
+          tenantComplementaryTech.push(t);
+        }
+      });
+    }
+  }
+
   if (!offerings || offerings.length === 0) {
     return (
       <div className="text-center py-12 text-text-muted">
@@ -318,9 +406,13 @@ export default function WorkbookSegmented({
           accounts={accounts}
           source={source}
           onOpenAccount={onOpenAccount}
+          onOpenAccountChat={onOpenAccountChat}
           onActivate={onActivate}
           onAddToBook={onAddToBook}
           onViewAll={onViewAll}
+          tenantCompetitors={tenantCompetitors}
+          tenantIntentTopics={tenantIntentTopics}
+          tenantComplementaryTech={tenantComplementaryTech}
         />
       ))}
     </div>

@@ -2501,6 +2501,7 @@ export default function WorkbookRoute() {
               offerings={listOfferings()}
               source={source}
               onOpenAccount={(a) => navigate(`/account/${a.id}`)}
+              onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
               onActivate={(a, offeringId) => navigate(`/account/${a.id}?offering=${offeringId}`)}
               onAddToBook={(a, offeringId) => {
                 setAddToBookAccount(a);
@@ -2512,8 +2513,10 @@ export default function WorkbookRoute() {
               }}
             />
           ) : (
-            // Admin flat view: same columns as Alex (seller) plus Source
-            // icons + HG Intelligence (AI-synthesized lead-with + co-sell).
+            // Admin flat view: across-offering scan with one row per company.
+            // Columns: Account (with subsidiary hierarchy) · Source · per-
+            // offering scores · Emp · Revenue · BC contacts · IT Spend · HQ ·
+            // Industry. Competitive / Intent / Partner live in segmented view.
             <SellerWorkbookTable
               accounts={sortedAccounts}
               offerings={tableOfferings}
@@ -2521,6 +2524,7 @@ export default function WorkbookRoute() {
               onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
               showSourceColumn
               showHgIntelligence
+              columnSet="admin-flat"
               enrichedCols={enrichedCols}
               onRemoveEnrichedColumn={handleRemoveColumn}
             />

@@ -168,15 +168,6 @@ A Play's Audience is a **further narrowing** of the offering's Target ICP. This 
 
 A play that has CRM-side criteria but the tenant's CRM is disconnected gets a yellow ⚠ triangle on its card and a banner on its detail page: *"This play references CRM data but no CRM is connected."* It still runs (other criteria fire), but the admin sees that the configuration is broken.
 
-### Signals — the firing condition
-
-Every play has signals. An account appears in a play if **at least one signal fires**. The score is the sum of firing signal weights, multiplied by the offering fit. So an account that fires three high-weight signals on an offering it's a 90-fit for will land at the top of the ranked list.
-
-Examples:
-
-- "Palo Alto Prisma installed and aging" — fires the Competitive Takeout play
-- "Active CNAPP RFP signal" — fires Net New Logo + Takeout + High-Intent Buyer
-- "Existing CNAPP customer + champion identified" — fires Expansion / Cross-sell
 
 ### Sharing plays — Priya's leverage
 

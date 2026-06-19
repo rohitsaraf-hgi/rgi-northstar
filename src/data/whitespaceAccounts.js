@@ -15,6 +15,10 @@ export const WHITESPACE_ACCOUNTS = [
   {
     id: 'ws-wells-fargo',
     name: 'Wells Fargo',
+    subsidiaries: [
+      { name: 'Wells Fargo Advisors', employees: '14K' },
+      { name: 'Wells Fargo Securities', employees: '3K' },
+    ],
     url: 'wellsfargo.com',
     logoColor: '#D71921',
     industry: 'Banking and Financial Services',

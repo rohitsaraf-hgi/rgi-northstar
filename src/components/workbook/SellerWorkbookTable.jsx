@@ -24,6 +24,10 @@ import {
   Bot,
   DollarSign,
   X,
+  Users,
+  Building2,
+  MapPin,
+  GitBranch,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
 
@@ -48,6 +52,40 @@ import { getHgIntelligence } from '../../data/hgIntelligence.js';
 import { useTenant } from '../../context/TenantContext.jsx';
 import SourceIcons from './SourceIcons.jsx';
 import HgIntelligenceCell from './HgIntelligenceCell.jsx';
+
+// Buying Committee count cell. Shows the number of stakeholders matched
+// against the tenant's buying committee at this account. Hover lists the
+// roles (when available on the account).
+export function BuyingCommitteeCell({ count, roles }) {
+  if (count == null || count === 0) {
+    return <span className="text-[10px] text-text-muted italic">—</span>;
+  }
+  return (
+    <div
+      className="inline-flex items-center gap-1.5"
+      title={roles && roles.length > 0 ? roles.join(' · ') : `${count} stakeholders identified`}
+    >
+      <span className="text-[11px] font-mono font-semibold text-text-primary">{count}</span>
+      <span className="text-[9px] text-text-muted uppercase tracking-wider">contacts</span>
+    </div>
+  );
+}
+
+// Subsidiary hierarchy chip. Renders below the company name when the
+// account has known subsidiaries. Hover lists them.
+export function SubsidiariesIndicator({ subsidiaries }) {
+  if (!Array.isArray(subsidiaries) || subsidiaries.length === 0) return null;
+  const names = subsidiaries.map((s) => (typeof s === 'string' ? s : s.name)).filter(Boolean);
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/30 font-medium"
+      title={`Subsidiaries: ${names.join(', ')}`}
+    >
+      <GitBranch size={8} />
+      +{names.length} {names.length === 1 ? 'subsidiary' : 'subsidiaries'}
+    </span>
+  );
+}
 
 // ─── Tone dot for AI-enriched answers ─────────────────────────────────────
 
@@ -154,7 +192,7 @@ function IntensityBadge({ intensity }) {
 
 // ─── Per-cell renderers ────────────────────────────────────────────────────
 
-function SpendCell({ tenantSpendCategories, spend, spendTrend }) {
+export function SpendCell({ tenantSpendCategories, spend, spendTrend }) {
   if (!tenantSpendCategories || tenantSpendCategories.length === 0) {
     return <span className="text-[10px] text-text-muted italic">No spend categories configured</span>;
   }
@@ -201,7 +239,7 @@ function OfferingScoreCell({ score }) {
   return <span className={`text-[12px] font-mono font-semibold ${cls}`}>{score}</span>;
 }
 
-function CompetitiveCell({ tenantCompetitors, installs }) {
+export function CompetitiveCell({ tenantCompetitors, installs }) {
   if (!tenantCompetitors || tenantCompetitors.length === 0) {
     return <span className="text-[10px] text-text-muted italic">No competitors configured</span>;
   }
@@ -231,7 +269,7 @@ function CompetitiveCell({ tenantCompetitors, installs }) {
   );
 }
 
-function IntentCell({ tenantIntentTopics, intentList }) {
+export function IntentCell({ tenantIntentTopics, intentList }) {
   if (!tenantIntentTopics || tenantIntentTopics.length === 0) {
     return <span className="text-[10px] text-text-muted italic">No intent topics configured</span>;
   }
@@ -285,7 +323,7 @@ function TrBadge() {
   );
 }
 
-function PartnerCell({ tenantComplementaryTech, installs }) {
+export function PartnerCell({ tenantComplementaryTech, installs }) {
   if (!tenantComplementaryTech || tenantComplementaryTech.length === 0) {
     return <span className="text-[10px] text-text-muted italic">No partner stack configured</span>;
   }
@@ -326,7 +364,14 @@ export default function SellerWorkbookTable({
   showHgIntelligence = false,
   enrichedCols = [],
   onRemoveEnrichedColumn,
+  // Column-set switch. 'seller' (default) renders Competitive/Intent/
+  // Partner/IT Spend — the seller's day-of-the-week context. 'admin-flat'
+  // renders BC contacts/IT Spend/HQ/Industry — the across-offering scan
+  // an admin wants. Both render Account + per-offering scores + Emp +
+  // Revenue regardless.
+  columnSet = 'seller',
 }) {
+  const isAdminFlat = columnSet === 'admin-flat';
   const { tenant } = useTenant();
   const tenantSpendCategories = tenant?.spendCategories || [];
   // Aggregate tenant context from all confirmed offerings — these are the
@@ -389,18 +434,37 @@ export default function SellerWorkbookTable({
             ))}
             <th className="text-right text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-16">Emp</th>
             <th className="text-right text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-20">Revenue</th>
-            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
-              <Swords size={9} className="inline mr-1 text-rose-500" /> Competitive
-            </th>
-            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
-              <Sparkles size={9} className="inline mr-1 text-violet-500" /> Intent
-            </th>
-            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
-              <Handshake size={9} className="inline mr-1 text-sky-500" /> Partner stack
-            </th>
-            <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[150px]">
-              <DollarSign size={9} className="inline mr-1 text-emerald-500" /> IT Spend
-            </th>
+            {isAdminFlat ? (
+              <>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-28">
+                  <Users size={9} className="inline mr-1 text-sky-500" /> Buying Committee
+                </th>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[150px]">
+                  <DollarSign size={9} className="inline mr-1 text-emerald-500" /> IT Spend
+                </th>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-32">
+                  <MapPin size={9} className="inline mr-1 text-text-muted" /> HQ
+                </th>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[160px]">
+                  <Building2 size={9} className="inline mr-1 text-text-muted" /> Industry
+                </th>
+              </>
+            ) : (
+              <>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+                  <Swords size={9} className="inline mr-1 text-rose-500" /> Competitive
+                </th>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+                  <Sparkles size={9} className="inline mr-1 text-violet-500" /> Intent
+                </th>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[170px]">
+                  <Handshake size={9} className="inline mr-1 text-sky-500" /> Partner stack
+                </th>
+                <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[150px]">
+                  <DollarSign size={9} className="inline mr-1 text-emerald-500" /> IT Spend
+                </th>
+              </>
+            )}
             {showHgIntelligence && (
               <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[260px]">
                 <Sparkles size={9} className="inline mr-1 text-violet-500" /> HG Intelligence
@@ -463,7 +527,7 @@ export default function SellerWorkbookTable({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[13px] font-medium text-text-primary truncate">{account.name}</span>
                         <button
                           type="button"
@@ -476,10 +540,16 @@ export default function SellerWorkbookTable({
                         >
                           <Bot size={11} />
                         </button>
+                        <SubsidiariesIndicator subsidiaries={account.subsidiaries} />
                       </div>
-                      <div className="text-[10px] text-text-muted truncate">
-                        {account.industry || '—'}{account.fai?.hq ? ` · ${account.fai.hq}` : ''}
-                      </div>
+                      {/* In admin-flat mode, industry + HQ live in their own
+                          columns. In seller mode keep them inline under the
+                          name so the row reads at a glance. */}
+                      {!isAdminFlat && (
+                        <div className="text-[10px] text-text-muted truncate">
+                          {account.industry || '—'}{account.fai?.hq ? ` · ${account.fai.hq}` : ''}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </td>
@@ -499,22 +569,50 @@ export default function SellerWorkbookTable({
                 <td className="px-2 py-2 text-right text-[11px] text-text-secondary font-mono">
                   {account.fai?.revenue || '—'}
                 </td>
-                <td className="px-2 py-2">
-                  <CompetitiveCell tenantCompetitors={allCompetitors} installs={installs} />
-                </td>
-                <td className="px-2 py-2">
-                  <IntentCell tenantIntentTopics={allIntentTopics} intentList={intentList} />
-                </td>
-                <td className="px-2 py-2">
-                  <PartnerCell tenantComplementaryTech={allComplementaryTech} installs={installs} />
-                </td>
-                <td className="px-2 py-2">
-                  <SpendCell
-                    tenantSpendCategories={tenantSpendCategories}
-                    spend={spend}
-                    spendTrend={spendTrend}
-                  />
-                </td>
+                {isAdminFlat ? (
+                  <>
+                    <td className="px-2 py-2">
+                      <BuyingCommitteeCell
+                        count={account.stakeholdersCount}
+                        roles={(account.signals || [])
+                          .map((s) => s.headline)
+                          .filter((h) => /CISO|VP|Head|Director|Champion/i.test(h || ''))}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <SpendCell
+                        tenantSpendCategories={tenantSpendCategories}
+                        spend={spend}
+                        spendTrend={spendTrend}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-[11px] text-text-secondary">
+                      {account.fai?.hq || '—'}
+                    </td>
+                    <td className="px-2 py-2 text-[11px] text-text-secondary truncate max-w-[200px]" title={account.industry || ''}>
+                      {account.industry || '—'}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-2 py-2">
+                      <CompetitiveCell tenantCompetitors={allCompetitors} installs={installs} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <IntentCell tenantIntentTopics={allIntentTopics} intentList={intentList} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <PartnerCell tenantComplementaryTech={allComplementaryTech} installs={installs} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <SpendCell
+                        tenantSpendCategories={tenantSpendCategories}
+                        spend={spend}
+                        spendTrend={spendTrend}
+                      />
+                    </td>
+                  </>
+                )}
                 {showHgIntelligence && (
                   <td className="px-2 py-2 align-top">
                     <HgIntelligenceCell intelligence={getHgIntelligence(account.id)} />

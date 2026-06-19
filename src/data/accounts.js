@@ -97,6 +97,11 @@ export const ACCOUNTS_BY_OWNER = {
       logoColor: '#0F4D9F',
       industry: 'Banking and Financial Services',
       fai: { revenue: '$162.4B', employees: '309K', hq: 'New York, NY', stage: 'Public (NYSE)' },
+      subsidiaries: [
+        { name: 'Chase Bank', employees: '250K' },
+        { name: 'JPMorgan Asset Management', employees: '15K' },
+        { name: 'JPM Securities', employees: '8K' },
+      ],
       stage: 'active',
       addedAt: 'Apr 22',
       ownerIds: ['alex'],
@@ -172,6 +177,9 @@ export const ACCOUNTS_BY_OWNER = {
     {
       id: 'acct-databricks',
       name: 'Databricks',
+      subsidiaries: [
+        { name: 'MosaicML', employees: '300' },
+      ],
       url: 'databricks.com',
       logoColor: '#FF3621',
       industry: 'Computer and Electronic Product Manufacturing',
@@ -202,6 +210,10 @@ export const ACCOUNTS_BY_OWNER = {
       logoColor: '#1A1F71',
       industry: 'Banking and Financial Services',
       fai: { revenue: '$36.0B', employees: '28K', hq: 'San Francisco, CA', stage: 'Public (NYSE)' },
+      subsidiaries: [
+        { name: 'Visa Direct', employees: '2K' },
+        { name: 'Visa+', employees: '500' },
+      ],
       stage: 'customer',
       addedAt: 'Jan 12',
       ownerIds: ['alex'],
@@ -306,6 +318,11 @@ export const ACCOUNTS_BY_OWNER = {
       url: 'block.xyz',
       logoColor: '#000000',
       industry: 'Banking and Financial Services',
+      subsidiaries: [
+        { name: 'Cash App', employees: '5K' },
+        { name: 'Square', employees: '8K' },
+        { name: 'Bitkey', employees: '200' },
+      ],
       fai: { revenue: '$21.9B', employees: '12K', hq: 'Oakland, CA', stage: 'Public (NYSE)' },
       stage: 'pipeline',
       addedAt: 'May 10',
