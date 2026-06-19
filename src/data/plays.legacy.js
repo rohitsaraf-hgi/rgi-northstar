@@ -23,6 +23,18 @@ export const PLAYS = [
     surface_scope: 'both',
     is_default_chip: true,
     eligibility: { min_offering_fit: 60 },
+    // Audience defaults tracking the tenant ICP. The wizard / play editor
+    // can narrow further; soft-warn if anyone reaches outside this set.
+    firmoFilters: {
+      industries: ['Banking and Financial Services', 'Computer and Electronic Product Manufacturing'],
+      sizeBand: '1,000+ employees',
+      regions: ['United States'],
+    },
+    technoFilters: {
+      hasInstalled: ['Palo Alto Prisma Cloud', 'Lacework Polygraph', 'Orca Security'],
+      missingInstall: [],
+      custom: ['Install age ≥ 24 months'],
+    },
     signals: [
       'sig-palo-alto-installed',
       'sig-palo-alto-aging',
@@ -37,6 +49,7 @@ export const PLAYS = [
     recommended_workflows: ['cnapp-displacement-brief', 'sales-play-fintech-displacement'],
     created_by: 'Priya',
     version: 2,
+    visibility: 'tenant',
   },
   {
     id: 'play-net-new-logo',
@@ -49,6 +62,16 @@ export const PLAYS = [
     surface_scope: 'whitespace',
     is_default_chip: true,
     eligibility: { min_offering_fit: 70 },
+    firmoFilters: {
+      industries: ['Banking and Financial Services', 'Computer and Electronic Product Manufacturing'],
+      sizeBand: '500+ employees',
+      regions: ['United States'],
+    },
+    technoFilters: {
+      hasInstalled: [],
+      missingInstall: ['Palo Alto Prisma Cloud', 'Lacework', 'Orca Security'],
+      custom: ['Multi-cloud: AWS + (Azure or GCP)'],
+    },
     signals: [
       'sig-no-cnapp-incumbent',
       'sig-cnapp-intent-active',
@@ -62,6 +85,7 @@ export const PLAYS = [
     recommended_workflows: ['account-brief-flow', 'cnapp-displacement-brief'],
     created_by: 'Priya',
     version: 1,
+    visibility: 'tenant',
   },
   {
     id: 'play-expansion',
@@ -74,6 +98,16 @@ export const PLAYS = [
     surface_scope: 'book',
     is_default_chip: true,
     eligibility: { min_offering_fit: 60 },
+    firmoFilters: {
+      industries: ['Banking and Financial Services', 'Computer and Electronic Product Manufacturing'],
+      sizeBand: '1,000+ employees',
+      regions: ['United States'],
+    },
+    technoFilters: {
+      hasInstalled: ['Wiz Cloud Security Platform'],
+      missingInstall: [],
+      custom: ['Existing customer ≥ 90 days', 'Champion present'],
+    },
     signals: [
       'sig-crm-existing-customer',
       'sig-crm-has-champion',
@@ -85,93 +119,18 @@ export const PLAYS = [
     recommended_workflows: ['ciem-audit-probe', 'dspm-rfp-response'],
     created_by: 'Priya',
     version: 1,
-  },
-  {
-    id: 'play-renewal-defense',
-    name: 'Renewal Defense',
-    description: 'Existing customers with renewal in 90 days + stale engagement or declining usage signals.',
-    motion: 'renewal',
-    status: 'active',
-    offering_id: 'cnapp',
-    audience_roles: ['AM', 'CSM'],
-    surface_scope: 'book',
-    is_default_chip: true,
-    eligibility: {},
-    signals: [
-      'sig-crm-renewal-window',
-      'sig-crm-stale-activity',
-      'sig-crm-existing-customer',
-    ],
-    recommended_workflows: ['account-brief-flow', 'onboarding-rescue-flow'],
-    created_by: 'Priya',
-    version: 1,
-  },
-  {
-    id: 'play-high-intent-buyer',
-    name: 'High-Intent Active Buyer',
-    description: 'Accounts showing pricing-page visits, comparison research, and multi-topic intent surge.',
-    motion: 'in_market',
-    status: 'active',
-    offering_id: 'cnapp',
-    audience_roles: ['AE'],
-    surface_scope: 'both',
-    is_default_chip: true,
-    eligibility: { min_offering_fit: 60 },
-    signals: [
-      'sig-pricing-visits',
-      'sig-comparison-research',
-      'sig-intent-surge',
-      'sig-cnapp-intent-active',
-      'sig-comparison-research',
-    ],
-    recommended_workflows: ['cnapp-displacement-brief', 'account-brief-flow'],
-    created_by: 'Priya',
-    version: 1,
-  },
-  {
-    id: 'play-ai-dspm-push',
-    name: 'AI / Data Sensitivity Push',
-    description: 'AI-vertical and data-platform-heavy accounts with active DSPM signals — the AI safety era driver.',
-    motion: 'new_logo',
-    status: 'active',
-    offering_id: 'dspm',
-    audience_roles: ['AE'],
-    surface_scope: 'both',
-    is_default_chip: false,
-    eligibility: { min_offering_fit: 65 },
-    signals: [
-      'sig-data-platform-installed',
-      'sig-dspm-intent-active',
-      'sig-ai-spend-growing',
-      'sig-new-ciso',
-      'sig-funding-raised',
-    ],
-    recommended_workflows: ['dspm-rfp-response'],
-    created_by: 'Priya',
-    version: 1,
-  },
-  {
-    id: 'play-catalyst-event',
-    name: 'Catalyst Event',
-    description: 'Accounts with a recent funding round, M&A activity, or breach — security spend catalysts.',
-    motion: 'opportunity_window',
-    status: 'active',
-    offering_id: 'cnapp',
-    audience_roles: ['AE'],
-    surface_scope: 'both',
-    is_default_chip: false,
-    eligibility: {},
-    signals: [
-      'sig-funding-raised',
-      'sig-ma-activity',
-      'sig-breach-incident',
-      'sig-new-ciso',
-    ],
-    recommended_workflows: ['account-brief-flow'],
-    created_by: 'Priya',
-    version: 1,
+    visibility: 'tenant',
   },
 ];
+
+// Allowlist used by configStore.migrateStaleState to prune plays from
+// older builds that seeded a broader catalog. Anything not in this set
+// is dropped on read so the demo stays consistent.
+export const SEEDED_PLAY_IDS = new Set([
+  'play-competitive-takeout',
+  'play-net-new-logo',
+  'play-expansion',
+]);
 
 export const PLAYS_BY_ID = Object.fromEntries(PLAYS.map((p) => [p.id, p]));
 

@@ -42,8 +42,6 @@ import { getCoachState, subscribeCoach, setCoachExpanded, restoreCoach } from '.
 import WorkbookSegmented from '../components/workbook/WorkbookSegmented.jsx';
 import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx';
 import IcpPill from '../components/workbook/IcpPill.jsx';
-import FilterPanel from '../components/workbook/FilterPanel.jsx';
-import { buildPredicates } from '../data/filterRegistry.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
@@ -110,6 +108,7 @@ import {
   SOURCE_BADGE,
 } from '../data/unifiedWorkbook.js';
 import { getPlay, MOTION_LABELS } from '../data/plays.js';
+import { buildPredicates } from '../data/filterRegistry.js';
 
 // ----- Helpers -----
 
@@ -1672,26 +1671,12 @@ export default function WorkbookRoute() {
     setSearchParams(params, { replace: true });
   };
 
-  // HG filter state — in-memory only (per session). Filters are stored as
-  // serializable specs { id, specId, group, label, value, displayValue }.
-  // Predicates are materialized at filter-time via buildPredicates().
-  // Intersects with view filters + active play (AND logic).
-  const [hgFilters, setHgFilters] = useState([]);
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
-  const addOrUpdateHgFilter = (filter) => {
-    setHgFilters((prev) => {
-      const exists = prev.some((f) => f.id === filter.id);
-      if (exists) return prev.map((f) => (f.id === filter.id ? filter : f));
-      return [...prev, filter];
-    });
-  };
-  const removeHgFilter = (filterId) => {
-    setHgFilters((prev) => prev.filter((f) => f.id !== filterId));
-  };
-  const clearHgFilters = () => setHgFilters([]);
-  const hgPredicates = useMemo(() => buildPredicates(hgFilters), [hgFilters]);
+  // Workbook audience is the tenant ICP. Slicing happens via Sales Plays.
+  // Saved views capture columns + sort + AI enrichment only — no audience
+  // refinement. The play overlay (when active) is the only in-Workbook slicer.
 
-  // Apply filters from current view (and overlay sales-play criteria when set)
+  // Apply view-level overlays (lookalike list, stage filter from system seeds)
+  // plus the active sales-play criteria when one is selected.
   const filteredAccounts = useMemo(() => {
     let list = [...accounts];
     const viewFilters = currentView?.filters || {};
@@ -1731,14 +1716,110 @@ export default function WorkbookRoute() {
     if (f.stage === 'customer') {
       list = list.filter((a) => a.stage === 'customer' || a.stage === 'renewal');
     }
-    // HG filters intersect (AND) with everything else.
-    if (hgPredicates.length > 0) {
-      list = list.filter((a) => hgPredicates.every((pred) => {
-        try { return pred(a) === true; } catch { return false; }
-      }));
+    // ─── Play audience: legacy firmo/techno filters + new audienceFilters ─
+    // The Plays admin form ("Add a play") writes industries / size band /
+    // regions / hasInstalled / missingInstall. The newer "Refine audience"
+    // panel writes spec-driven audienceFilters. The Workbook honors all of
+    // them so what an admin configures is what sellers see.
+    if (activePlay) {
+      const fp = activePlay.firmoFilters || {};
+      const tp = activePlay.technoFilters || {};
+
+      // Industries — case-insensitive substring match against account.industry
+      const industries = Array.isArray(fp.industries)
+        ? fp.industries.filter((i) => i && i !== 'Any')
+        : [];
+      if (industries.length > 0) {
+        const needles = industries.map((s) => String(s).toLowerCase());
+        list = list.filter((a) => {
+          const i = String(a.industry || '').toLowerCase();
+          return needles.some((n) =>
+            // also accept the head word ("Banking" matches "Banking & Financial Services")
+            i.includes(n) || n.split(/[\s&/]+/).some((w) => w && i.includes(w)),
+          );
+        });
+      }
+
+      // Size band — parse "1,000+ employees", "500-1000", "200+ engineers" etc.
+      const sizeBand = (fp.sizeBand || '').trim();
+      if (sizeBand) {
+        const m = sizeBand.match(/([\d,]+)\s*\+?/);
+        const minEmp = m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
+        if (minEmp != null && !Number.isNaN(minEmp)) {
+          list = list.filter((a) => {
+            const raw = String(a?.fai?.employees || '').toUpperCase();
+            if (!raw) return false;
+            if (raw.includes('K')) {
+              const n = parseFloat(raw) * 1000;
+              return n >= minEmp;
+            }
+            const n = parseInt(raw.replace(/,/g, ''), 10);
+            return !Number.isNaN(n) && n >= minEmp;
+          });
+        }
+      }
+
+      // Regions — match against fai.hq (city, state) substring
+      const regions = Array.isArray(fp.regions) ? fp.regions : [];
+      if (regions.length > 0) {
+        const KEYWORDS = {
+          'united states': ['ny', 'ca', 'tx', 'mn', 'wa', 'usa', 'us', 'new york', 'san francisco'],
+          'north america': ['ny', 'ca', 'tx', 'mn', 'wa', 'usa', 'us', 'toronto', 'canada'],
+          'europe': ['london', 'berlin', 'paris', 'germany', 'france', 'uk', 'spain', 'italy'],
+          'apac': ['sydney', 'singapore', 'tokyo', 'bangalore', 'mumbai'],
+        };
+        const needles = regions.flatMap((r) => {
+          const key = String(r).toLowerCase();
+          return [key, ...(KEYWORDS[key] || [])];
+        });
+        list = list.filter((a) => {
+          const hq = String(a?.fai?.hq || '').toLowerCase();
+          return needles.some((n) => n && hq.includes(n));
+        });
+      }
+
+      // Has installed — product slugs/keys present in RGIF.installs
+      const hasInstalled = Array.isArray(tp.hasInstalled) ? tp.hasInstalled : [];
+      if (hasInstalled.length > 0) {
+        list = list.filter((a) => {
+          const installs = a?.rgif?.installs || {};
+          return hasInstalled.some((name) => {
+            const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            if (installs[slug]?.present) return true;
+            // fallback: any key that includes the slug head token
+            const head = slug.split('-')[0];
+            return Object.keys(installs).some((k) => installs[k]?.present && k.includes(head));
+          });
+        });
+      }
+
+      // Missing install — opposite of has-installed
+      const missingInstall = Array.isArray(tp.missingInstall) ? tp.missingInstall : [];
+      if (missingInstall.length > 0) {
+        list = list.filter((a) => {
+          const installs = a?.rgif?.installs || {};
+          return missingInstall.every((name) => {
+            const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            return !installs[slug]?.present;
+          });
+        });
+      }
+
+      // Spec-driven audienceFilters from the new "Refine audience" panel.
+      const audienceFilters = Array.isArray(activePlay.audienceFilters)
+        ? activePlay.audienceFilters
+        : [];
+      if (audienceFilters.length > 0) {
+        const preds = buildPredicates(audienceFilters);
+        if (preds.length > 0) {
+          list = list.filter((a) => preds.every((p) => {
+            try { return p(a) === true; } catch { return false; }
+          }));
+        }
+      }
     }
     return list;
-  }, [accounts, currentView, activePlay, hgPredicates]);
+  }, [accounts, currentView, activePlay]);
 
   // Sort
   const sortedAccounts = useMemo(() => {
@@ -1951,7 +2032,7 @@ export default function WorkbookRoute() {
                 {activePlay
                   ? (activePlay.description || `Companies matching the ${activePlay.name} criteria across your tenant book and HG whitespace.`)
                   : isAdmin
-                  ? `Enrich the tenant's account universe with HG signals, then sync to Salesforce. Sellers consume enriched signals via Plays.`
+                  ? `Every company in your tenant ICP, enriched with HG signals. To change scope, edit your ICP. To work a slice, open a Sales Play.`
                   : 'Your full book · ranked by opportunity · ask anything across rows'}
               </div>
               {isAdmin && lastSync && (
@@ -1984,15 +2065,6 @@ export default function WorkbookRoute() {
                     counts={tabCounts}
                     isAdmin={isAdmin}
                     bookEmpty={isAdmin && workbookState.isEmptyTenant}
-                  />
-                  {/* Offering refine — single dropdown to narrow the table to
-                      a specific product's fit. Replaces the multi-chip lens row
-                      that used to live below. */}
-                  <OfferingRefine
-                    activeOfferingId={currentView.filters?.offeringId || 'all'}
-                    offerings={listOfferings()}
-                    onChange={updateLens}
-                    disabled={!!activePlay}
                   />
                   {/* View-mode toggle — segmented (per-offering sections) vs flat (single table) */}
                   <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
@@ -2036,35 +2108,16 @@ export default function WorkbookRoute() {
                 }}
                 onSetDefault={(id) => setDefaultView(personaId, id)}
               />
-              {/* Explicit Save Workbook CTA — same modal as SavedViewPicker's
-                  "Save as…" option, but discoverable as a first-class button.
-                  Lands in the sidebar's My Workbooks section. */}
-              {isAdmin && (
-                <button
-                  onClick={() => setFilterPanelOpen(true)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border rounded-md transition-colors ${
-                    hgFilters.length > 0
-                      ? 'bg-primary/10 text-primary border-primary/40'
-                      : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/40'
-                  }`}
-                  title="Add HG filters to refine the company list"
-                >
-                  <Filter size={11} />
-                  Filter
-                  {hgFilters.length > 0 && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-                      {hgFilters.length}
-                    </span>
-                  )}
-                </button>
-              )}
+              {/* Save view — captures the current columns / sort / enrichment.
+                  No audience refinement: the workbook universe is the tenant
+                  ICP; slicing happens via Sales Plays, not saved views. */}
               <button
                 onClick={() => setSaveAsOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
-                title="Save current filters + columns + lens as a new Workbook view"
+                title="Save current columns + sort + enrichment as a view"
               >
                 <Save size={11} />
-                Save Workbook
+                Save view
               </button>
               <button
                 onClick={() => setEnrichOpen(true)}
@@ -2235,47 +2288,41 @@ export default function WorkbookRoute() {
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          {hgFilters.length > 0 && (
-            <div className="mb-2 flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mr-1">
-                Filters:
-              </span>
-              {hgFilters.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setFilterPanelOpen(true)}
-                  className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md text-[11px] bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15 transition-colors"
-                  title="Click to edit"
-                >
-                  <span className="text-text-muted text-[9px] uppercase tracking-wider">
-                    {f.group}:
-                  </span>
-                  <span className="font-medium">{f.label}</span>
-                  {f.displayValue && (
-                    <span className="text-text-secondary font-mono text-[10px]">
-                      {f.displayValue}
-                    </span>
-                  )}
+          {activePlay && (() => {
+            // Surface every audience criterion the play has configured so admins
+            // can see *why* this list looks the way it does. Pull from the legacy
+            // firmoFilters / technoFilters AND from the spec-driven audienceFilters.
+            const chips = [];
+            const fp = activePlay.firmoFilters || {};
+            const tp = activePlay.technoFilters || {};
+            (fp.industries || []).filter((i) => i && i !== 'Any').forEach((i) =>
+              chips.push({ k: 'Industry', v: i }),
+            );
+            if (fp.sizeBand) chips.push({ k: 'Size', v: fp.sizeBand });
+            (fp.regions || []).forEach((r) => chips.push({ k: 'Region', v: r }));
+            (tp.hasInstalled || []).forEach((t) => chips.push({ k: 'Has', v: t }));
+            (tp.missingInstall || []).forEach((t) => chips.push({ k: 'Missing', v: t }));
+            (activePlay.audienceFilters || []).forEach((f) =>
+              chips.push({ k: f.group, v: `${f.label}${f.displayValue ? ' · ' + f.displayValue : ''}` }),
+            );
+            if (chips.length === 0) return null;
+            return (
+              <div className="mb-2 flex items-start gap-1.5 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mr-1 mt-0.5">
+                  Play audience:
+                </span>
+                {chips.map((c, i) => (
                   <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeHgFilter(f.id);
-                    }}
-                    className="ml-0.5 p-0.5 rounded hover:bg-primary/20 text-primary/70 hover:text-primary transition-colors cursor-pointer"
-                    title="Remove filter"
+                    key={i}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-primary/5 border border-primary/20 text-primary"
                   >
-                    <X size={10} />
+                    <span className="text-text-muted text-[9px] uppercase tracking-wider">{c.k}:</span>
+                    <span className="font-medium">{c.v}</span>
                   </span>
-                </button>
-              ))}
-              <button
-                onClick={clearHgFilters}
-                className="ml-1 text-[10px] text-rose-600 hover:underline"
-              >
-                Clear all
-              </button>
-            </div>
-          )}
+                ))}
+              </div>
+            );
+          })()}
           {currentView?.filters?.lookalikeOf && source === 'whitespace' && (
             <div className="mb-2 px-3 py-2 rounded-md bg-violet-500/5 border border-violet-500/30 text-[11px] text-violet-700 dark:text-violet-300 inline-flex items-center gap-2">
               <Wand2 size={11} />
@@ -2294,10 +2341,7 @@ export default function WorkbookRoute() {
               : source === 'needs_review'
               ? 'Needs Review · '
               : isAdmin ? 'Tenant Book · ' : 'My book · '}
-            {sortedAccounts.length} accounts
-            {currentView.filters?.offeringId && currentView.filters.offeringId !== 'all' && (
-              <> · filtered by {getOffering(currentView.filters.offeringId)?.name} lens</>
-            )}
+            {sortedAccounts.length} accounts in your ICP
             {enrichedCols.length > 0 && <> · {enrichedCols.length} AI-enriched column{enrichedCols.length === 1 ? '' : 's'}</>}
             {source === 'whitespace' && (
               <> · click a row to preview · <span className="font-mono">Add to book</span> writes to Salesforce via the agent</>
@@ -2306,7 +2350,7 @@ export default function WorkbookRoute() {
               <> · CRM accounts with no HG match — resolve domain or accept as private</>
             )}
             {source === 'all' && (
-              <> · all companies in HG + your CRM · the <span className="font-semibold">Source</span> column shows where each came from</>
+              <> · companies in HG + your CRM · the <span className="font-semibold">Source</span> column shows origin · slice via Sales Plays</>
             )}
           </div>
 
@@ -2373,10 +2417,12 @@ export default function WorkbookRoute() {
           )}
 
           <div className="mt-4 text-[11px] text-text-muted max-w-3xl leading-relaxed">
-            <strong className="text-text-secondary">How the workbook works:</strong> Click a row to open the
-            account in the current offering lens. Use{' '}
-            <strong className="text-text-secondary">Enrich with AI</strong> to ask any question across all
-            rows — answers become permanent columns. Save your filters + columns as a view for daily reuse.
+            <strong className="text-text-secondary">How the workbook works:</strong> The audience here is
+            every company that fits your <span className="font-semibold">tenant ICP</span> — edit ICP in
+            the Admin Hub to change scope. To work a specific motion (takeout, net-new, expansion),
+            open a <span className="font-semibold">Sales Play</span> from the sidebar. Use{' '}
+            <strong className="text-text-secondary">Enrich with AI</strong> to ask questions across
+            rows; save columns + sort + enrichment as a view for daily reuse.
           </div>
         </div>
       </div>
@@ -2396,14 +2442,6 @@ export default function WorkbookRoute() {
         onAddColumn={handleAddEnrichedColumn}
         lensOfferingId={currentView.filters?.offeringId}
         source={source}
-      />
-      <FilterPanel
-        open={filterPanelOpen}
-        onClose={() => setFilterPanelOpen(false)}
-        filters={hgFilters}
-        onAddOrUpdate={addOrUpdateHgFilter}
-        onRemove={removeHgFilter}
-        onClearAll={clearHgFilters}
       />
       <AnimatePresence>
         {previewAccount && (

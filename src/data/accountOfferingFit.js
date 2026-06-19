@@ -56,8 +56,8 @@ const FITS = {
       ],
     },
     workload: {
-      score: 68,
-      reasons: ['Kubernetes-heavy infrastructure', 'No active runtime-security signal'],
+      score: 47,
+      reasons: ['Snowpark/Kubernetes presence is light', 'Runtime-defense not in current buying cycle'],
     },
   },
   'acct-acme': {
@@ -84,11 +84,11 @@ const FITS = {
   },
   'acct-databricks': {
     cnapp: {
-      score: 91,
+      score: 78,
       reasons: [
         'Multi-cloud AWS + Azure + GCP',
         'Orca contract expiring Sept — displacement window',
-        'Pre-IPO posture push (14 product page visits this week)',
+        'But Agent Bricks launch pulls focus toward runtime — CNAPP is the secondary motion',
       ],
     },
     ciem: {
@@ -104,11 +104,11 @@ const FITS = {
       ],
     },
     workload: {
-      score: 88,
+      score: 92,
       reasons: [
-        'Kubernetes-heavy infrastructure',
-        'Container security on surge topic list',
-        'DevSecOps maturity is high',
+        '100k+ AI agents in production — runtime defense is the natural lead',
+        'Unity AI Gateway needs an infrastructure security layer',
+        'FedRAMP High pursuit forces the compliance clock',
       ],
     },
   },
@@ -149,27 +149,27 @@ const FITS = {
     workload: { score: 84, reasons: ['Kubernetes-native', 'Heavy CI/CD adoption'] },
   },
   'acct-block': {
-    cnapp: { score: 89, reasons: ['Multi-cloud fintech', 'Active security investments'] },
+    cnapp: { score: 73, reasons: ['AWS-only simplifies CNAPP buy', 'Posture refresh on roadmap but not in flight'] },
     ciem: { score: 81, reasons: ['Fintech identity compliance', 'Recent breach industry-wide drives push'] },
-    dspm: { score: 79, reasons: ['Heavy data platform — Snowflake confirmed'] },
-    workload: { score: 72, reasons: ['Kubernetes adoption'] },
+    dspm: { score: 64, reasons: ['Heavy data platform — Snowflake confirmed', 'Compliance owned by GRC, not security'] },
+    workload: { score: 89, reasons: ['Crypto + Cash App + Square — multi-product runtime exposure', 'Recent fraud telemetry investments'] },
   },
   'acct-stripe': {
-    cnapp: { score: 93, reasons: ['Heavy multi-cloud fintech', 'Strong security culture', 'Active RFP signal'] },
-    ciem: { score: 88, reasons: ['Fintech IAM compliance critical', 'Active identity-audit project'] },
-    dspm: { score: 85, reasons: ['Sensitive financial data', 'Strong DSPM fit'] },
-    workload: { score: 87, reasons: ['Kubernetes-heavy', 'DevSecOps maturity'] },
+    cnapp: { score: 71, reasons: ['Cloud security posture exists but engineering-owned, not security-led', 'Slower CNAPP buying motion'] },
+    ciem: { score: 76, reasons: ['Fintech IAM compliance critical', 'Standard Okta + custom IAM stack'] },
+    dspm: { score: 92, reasons: ['Shift-left DevSec culture is gold-standard', 'Heavy IaC + supply-chain posture', 'Code Security is the natural lead'] },
+    workload: { score: 58, reasons: ['Kubernetes adoption is moderate', 'Runtime defense is a later motion'] },
   },
   'acct-pinterest': {
-    cnapp: { score: 76, reasons: ['AWS-heavy', 'Cost-conscious motion'] },
+    cnapp: { score: 86, reasons: ['AWS-heavy posture push', 'Recent CISO hire signals refresh'] },
     ciem: { score: 62, reasons: ['Standard SaaS IAM'] },
-    dspm: { score: 67, reasons: ['Consumer data heavy', 'Compliance moderate'] },
-    workload: { score: 78, reasons: ['Container adoption growing'] },
+    dspm: { score: 44, reasons: ['Light data-platform footprint', 'Consumer-data compliance is mature already'] },
+    workload: { score: 56, reasons: ['Container adoption growing but not yet a runtime-security buyer'] },
   },
   'acct-cloudflare': {
-    cnapp: { score: 80, reasons: ['Multi-cloud confirmed', 'Edge platform — strong security culture'] },
+    cnapp: { score: 88, reasons: ['Workers AI + R2 growth turns Cloudflare into a workload provider', 'Multi-cloud confirmed', 'Edge platform — strong security culture'] },
     ciem: { score: 74, reasons: ['Standard SaaS IAM with growth'] },
-    dspm: { score: 58, reasons: ['Less data-warehouse adoption'] },
+    dspm: { score: 42, reasons: ['Less data-warehouse adoption', 'Edge-first architecture limits DSPM relevance'] },
     workload: { score: 81, reasons: ['Kubernetes + edge runtime', 'DevSecOps focus'] },
   },
 };

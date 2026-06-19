@@ -7,33 +7,54 @@ import { useDemo } from '../../context/DemoContext.jsx';
 import { THREADS } from '../../data/threads.js';
 import { TIER_DEFINITIONS } from '../../data/modules.js';
 import Avatar from '../shared/Avatar.jsx';
+import ModuleSwitcher, { resolveCurrentModule } from './ModuleSwitcher.jsx';
 
-const ROUTE_LABELS = {
+// Page-within-module labels. The first breadcrumb crumb is now the
+// module switcher; the second crumb is the page label resolved here.
+const PAGE_LABELS = {
+  // Sales Co-Pilot pages
   '/workspace': 'Workspace',
+  '/home': 'Home',
+  '/workbook': 'Workbook',
   '/use-cases': 'Use Case Library',
   '/roi': 'ROI Dashboard',
+  '/library': 'Saved Library',
+  '/plays': 'Sales Plays',
+  '/channels': 'Channels',
+  // Admin Hub pages
+  '/admin': 'Admin Home',
+  '/admin/copilot': 'Copilot Settings',
+  '/admin/apps': 'Integrations',
+  '/admin/agents': 'Agents',
+  '/admin/workflows': 'Workflows',
+  '/admin/tenant': 'Tenant Profile',
+  '/admin/territory': 'Territory Design',
+  '/admin/scoring': 'Scoring Models',
+  '/admin/settings': 'Settings',
+  '/admin/users': 'Users',
+  '/admin/teams': 'Teams',
+  '/admin/plays': 'Sales Plays',
+  '/admin/offerings': 'Offerings',
+  // Standalone
   '/onboarding': 'Onboarding',
   '/platform': 'Platform Architecture',
-  '/library': 'Saved Library',
-  '/admin': 'Admin Hub',
-  '/admin/copilot': 'Admin · Copilot Settings',
-  '/admin/apps': 'Admin · Connected Apps',
 };
 
-function buildBreadcrumb(pathname) {
+function resolvePageLabel(pathname) {
   if (pathname.startsWith('/thread/')) {
     const id = pathname.split('/')[2];
     const t = THREADS[id];
-    return ['Workspace', t ? t.name : 'Thread'];
+    return t ? t.name : 'Thread';
   }
   if (pathname.startsWith('/collaborate/')) {
     const id = pathname.split('/')[2];
     const t = THREADS[id];
-    return ['Workspace', t ? `${t.name} (Collaborative)` : 'Collaborative Thread'];
+    return t ? `${t.name} (Collaborative)` : 'Collaborative Thread';
   }
-  const label = ROUTE_LABELS[pathname];
-  if (label) return [label];
-  return ['Workspace'];
+  if (pathname.startsWith('/account/')) return 'Account';
+  if (pathname.startsWith('/admin/workflows/')) return 'Workflow';
+  if (pathname.startsWith('/admin/settings/')) return 'Settings';
+  return PAGE_LABELS[pathname] || null;
 }
 
 const TIER_BADGE_STYLES = {
@@ -64,7 +85,7 @@ export default function TopNav({ onBellClick, notificationCount = 3 }) {
   const { config } = useDemo();
   const location = useLocation();
   const navigate = useNavigate();
-  const crumbs = buildBreadcrumb(location.pathname);
+  const pageLabel = resolvePageLabel(location.pathname);
 
   return (
     <>
@@ -84,12 +105,13 @@ export default function TopNav({ onBellClick, notificationCount = 3 }) {
         <div className="h-5 w-px bg-border" />
 
         <div className="flex items-center gap-2 text-sm text-text-secondary">
-          {crumbs.map((c, i) => (
-            <span key={i} className="flex items-center gap-2">
-              {i > 0 && <span className="text-text-muted">/</span>}
-              <span className={i === crumbs.length - 1 ? 'text-text-primary' : ''}>{c}</span>
-            </span>
-          ))}
+          <ModuleSwitcher />
+          {pageLabel && (
+            <>
+              <span className="text-text-muted">/</span>
+              <span className="text-text-primary truncate max-w-[260px]">{pageLabel}</span>
+            </>
+          )}
         </div>
 
         {isThinking && (

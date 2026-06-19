@@ -22,12 +22,15 @@ import {
   Pin,
   Swords,
   Plug,
+  Package,
+  Gauge,
 } from 'lucide-react';
 import { usePersona } from '../../context/PersonaContext.jsx';
 import { listViewsBySource, subscribeViews } from '../../data/workbookViews.js';
 import { getPinnedAccountIds } from '../../data/accounts.js';
 import { listPlays, subscribePlays } from '../../data/plays.js';
 import { getIntegrationGovernance } from '../../data/integrationGovernance.js';
+import { resolveCurrentModule } from './ModuleSwitcher.jsx';
 import PersonaSwitcher from './PersonaSwitcher.jsx';
 
 // ─── Section header helper ────────────────────────────────────────────
@@ -145,6 +148,13 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
   // Path predicates
   const isWorkbookActive = location.pathname === '/workbook';
   const isAdminActive = location.pathname.startsWith('/admin');
+  const isOfferingsActive = location.pathname.startsWith('/admin/offerings');
+  const isScoringActive = location.pathname.startsWith('/admin/scoring');
+  const isPlaysActive = location.pathname.startsWith('/admin/plays') || location.pathname.startsWith('/plays');
+
+  // Which module are we in right now? Drives which sidebar we render.
+  const currentModule = resolveCurrentModule(location.pathname);
+  const inAdminHub = currentModule.id === 'admin-hub';
 
   return (
     <div
@@ -163,136 +173,178 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
       </div>
 
       <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-2">
-        {/* WORKSPACE */}
-        {!collapsed && <SectionLabel>Workspace</SectionLabel>}
-        <div className={collapsed ? 'pt-3 space-y-1' : 'space-y-0.5'}>
-          <NavRow
-            icon={Table}
-            label="Workbook"
-            active={isWorkbookActive}
-            onClick={() => navigate('/workbook')}
-            collapsed={collapsed}
-          />
-          <NavRow
-            icon={Wrench}
-            label="Admin Hub"
-            active={isAdminActive}
-            onClick={() => navigate('/admin')}
-            collapsed={collapsed}
-          />
-        </div>
-
-        {/* MY WORKBOOKS — header always shown so admin understands the
-            concept; empty hint when no user-saved views exist yet. */}
-        {!collapsed && (
+        {inAdminHub ? (
+          // ─── ADMIN HUB SIDEBAR ─────────────────────────────────────
+          // Minimal — Admin Hub root + Connected Integrations. Tenant
+          // Profile / Users / etc. are reached via the tiles on the
+          // Admin Home page, not the sidebar.
           <>
-            <SectionLabel count={allViews.length > 0 ? allViews.length : undefined}>My Workbooks</SectionLabel>
-            {allViews.length > 0 ? (
-              <div className="space-y-0.5">
-                {allViews.slice(0, 6).map((v) => (
-                  <NavRow
-                    key={v.id}
-                    icon={Bookmark}
-                    label={v.name}
-                    active={location.search.includes(`view=${v.id}`)}
-                    onClick={() => navigate(`/workbook?view=${v.id}&source=${v.source || 'book'}`)}
-                    collapsed={collapsed}
-                    indent
-                  />
-                ))}
-                {allViews.length > 6 && (
-                  <div className="px-5 py-1 text-[10px] text-text-muted/70">
-                    +{allViews.length - 6} more
+            {!collapsed && <SectionLabel>Workspace</SectionLabel>}
+            <div className={collapsed ? 'pt-3 space-y-1' : 'space-y-0.5'}>
+              <NavRow
+                icon={Wrench}
+                label="Admin Hub"
+                active={isAdminActive}
+                onClick={() => navigate('/admin')}
+                collapsed={collapsed}
+              />
+            </div>
+            {!collapsed && connectedIntegrations.length > 0 && (
+              <>
+                <SectionLabel count={connectedIntegrations.length}>Connected Integrations</SectionLabel>
+                <div className="space-y-0.5">
+                  {connectedIntegrations.map((id) => {
+                    const meta = INTEGRATION_LABELS[id];
+                    return (
+                      <NavRow
+                        key={id}
+                        icon={Plug}
+                        label={meta?.label || id}
+                        active={false}
+                        onClick={() => navigate('/admin/apps')}
+                        collapsed={collapsed}
+                        indent
+                        dotColor={meta?.dotColor}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          // ─── SALES CO-PILOT SIDEBAR (admin variant) ────────────────
+          // Workbook + saved views + plays + admin-only configuration
+          // (Offerings + Scoring Models) + pinned accounts.
+          <>
+            {!collapsed && <SectionLabel>Workspace</SectionLabel>}
+            <div className={collapsed ? 'pt-3 space-y-1' : 'space-y-0.5'}>
+              <NavRow
+                icon={Table}
+                label="Workbook"
+                active={isWorkbookActive}
+                onClick={() => navigate('/workbook')}
+                collapsed={collapsed}
+              />
+            </div>
+
+            {/* MY WORKBOOKS */}
+            {!collapsed && (
+              <>
+                <SectionLabel count={allViews.length > 0 ? allViews.length : undefined}>My Workbooks</SectionLabel>
+                {allViews.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {allViews.slice(0, 6).map((v) => (
+                      <NavRow
+                        key={v.id}
+                        icon={Bookmark}
+                        label={v.name}
+                        active={location.search.includes(`view=${v.id}`)}
+                        onClick={() => navigate(`/workbook?view=${v.id}&source=${v.source || 'book'}`)}
+                        collapsed={collapsed}
+                        indent
+                      />
+                    ))}
+                    {allViews.length > 6 && (
+                      <div className="px-5 py-1 text-[10px] text-text-muted/70">
+                        +{allViews.length - 6} more
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="px-5 py-1.5 text-[10px] text-text-muted/60 italic">
+                    Save a workbook view to pin it here.
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="px-5 py-1.5 text-[10px] text-text-muted/60 italic">
-                Save a workbook view to pin it here.
-              </div>
+              </>
             )}
-          </>
-        )}
 
-        {/* SALES PLAYS — moved up under My Workbooks. Clicking a play opens
-            the Workbook filtered to All Companies + play criteria. */}
-        {!collapsed && activePlays.length > 0 && (
-          <>
-            <SectionLabel count={activePlays.length}>Sales Plays</SectionLabel>
-            <div className="space-y-0.5">
-              {activePlays.slice(0, 6).map((p) => {
-                const playFilterActive = new URLSearchParams(location.search).get('play') === p.id;
-                return (
-                  <NavRow
-                    key={p.id}
-                    icon={Swords}
-                    label={p.name}
-                    active={playFilterActive}
-                    onClick={() => navigate(`/workbook?source=all&play=${p.id}`)}
-                    collapsed={collapsed}
-                    indent
-                  />
-                );
-              })}
-              {activePlays.length > 6 && (
-                <button
-                  onClick={() => navigate('/admin/plays')}
-                  className="w-full pl-5 pr-2.5 py-1 text-[10px] text-text-muted/70 hover:text-primary text-left"
-                >
-                  +{activePlays.length - 6} more · view all
-                </button>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* PINNED ACCOUNTS — header always shown (empty for now). */}
-        {!collapsed && (
-          <>
-            <SectionLabel count={pinnedIds.length > 0 ? pinnedIds.length : undefined}>Pinned Accounts</SectionLabel>
-            {pinnedIds.length > 0 ? (
-              <div className="space-y-0.5">
-                {pinnedIds.slice(0, 5).map((id) => (
-                  <NavRow
-                    key={id}
-                    icon={Pin}
-                    label={id}
-                    active={location.pathname === `/account/${id}`}
-                    onClick={() => navigate(`/account/${id}`)}
-                    collapsed={collapsed}
-                    indent
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="px-5 py-1.5 text-[10px] text-text-muted/60 italic">
-                Pin an account from its profile to see it here.
-              </div>
+            {/* SALES PLAYS */}
+            {!collapsed && (
+              <>
+                <SectionLabel count={activePlays.length > 0 ? activePlays.length : undefined}>Sales Plays</SectionLabel>
+                <div className="space-y-0.5">
+                  {activePlays.slice(0, 6).map((p) => {
+                    const playFilterActive = new URLSearchParams(location.search).get('play') === p.id;
+                    return (
+                      <NavRow
+                        key={p.id}
+                        icon={Swords}
+                        label={p.name}
+                        active={playFilterActive}
+                        onClick={() => navigate(`/workbook?source=all&play=${p.id}`)}
+                        collapsed={collapsed}
+                        indent
+                      />
+                    );
+                  })}
+                  <button
+                    onClick={() => navigate('/admin/plays')}
+                    className={`w-full pl-5 pr-2.5 py-1 text-[10px] text-left transition-colors ${
+                      isPlaysActive
+                        ? 'text-primary font-semibold'
+                        : 'text-text-muted/70 hover:text-primary'
+                    }`}
+                  >
+                    {activePlays.length > 6
+                      ? `+${activePlays.length - 6} more · manage plays`
+                      : '+ Manage plays'}
+                  </button>
+                </div>
+              </>
             )}
-          </>
-        )}
 
-        {/* CONNECTED INTEGRATIONS */}
-        {!collapsed && connectedIntegrations.length > 0 && (
-          <>
-            <SectionLabel count={connectedIntegrations.length}>Connected Integrations</SectionLabel>
-            <div className="space-y-0.5">
-              {connectedIntegrations.map((id) => {
-                const meta = INTEGRATION_LABELS[id];
-                return (
+            {/* CONFIGURATION — admin-only. Offerings + Scoring Models
+                live in Sales Co-Pilot since they shape what sellers see. */}
+            {!collapsed && (
+              <>
+                <SectionLabel>Configuration</SectionLabel>
+                <div className="space-y-0.5">
                   <NavRow
-                    key={id}
-                    icon={Plug}
-                    label={meta?.label || id}
-                    active={false}
-                    onClick={() => navigate('/admin/apps')}
+                    icon={Package}
+                    label="Offerings"
+                    active={isOfferingsActive}
+                    onClick={() => navigate('/admin/offerings')}
                     collapsed={collapsed}
                     indent
-                    dotColor={meta?.dotColor}
                   />
-                );
-              })}
-            </div>
+                  <NavRow
+                    icon={Gauge}
+                    label="Scoring Models"
+                    active={isScoringActive}
+                    onClick={() => navigate('/admin/scoring')}
+                    collapsed={collapsed}
+                    indent
+                  />
+                </div>
+              </>
+            )}
+
+            {/* PINNED ACCOUNTS */}
+            {!collapsed && (
+              <>
+                <SectionLabel count={pinnedIds.length > 0 ? pinnedIds.length : undefined}>Pinned Accounts</SectionLabel>
+                {pinnedIds.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {pinnedIds.slice(0, 5).map((id) => (
+                      <NavRow
+                        key={id}
+                        icon={Pin}
+                        label={id}
+                        active={location.pathname === `/account/${id}`}
+                        onClick={() => navigate(`/account/${id}`)}
+                        collapsed={collapsed}
+                        indent
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-5 py-1.5 text-[10px] text-text-muted/60 italic">
+                    Pin an account from its profile to see it here.
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>

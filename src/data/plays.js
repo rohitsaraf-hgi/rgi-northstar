@@ -42,6 +42,31 @@ export function listPlaysForRole(role) {
   return plays.filter((p) => (p.audienceRoles || p.audience_roles || []).includes(role));
 }
 
+// Return plays that should be visible to a given persona, honoring the
+// play.visibility setting ('tenant' | 'team' | 'private'). Admins see
+// every play in the tenant (including private ones they didn't create).
+// Sellers see tenant-wide plays plus team plays for teams they belong to,
+// plus any plays explicitly listing their user id.
+export function listPlaysVisibleTo(persona) {
+  if (!persona) return listPlaysFromStore();
+  const plays = listPlaysFromStore();
+  if (persona.roleType === 'admin') return plays;
+  const personaTeamIds = new Set(persona.teamIds || []);
+  return plays.filter((p) => {
+    const v = p.visibility || 'tenant';
+    if (v === 'tenant') return true;
+    if (v === 'private' || v === 'just_me') {
+      return (p.userIds || []).includes(persona.id) || p.created_by === persona.id;
+    }
+    if (v === 'team' || v === 'teams') {
+      const playTeams = p.teamIds || [];
+      if (playTeams.length === 0) return true; // 'team' with no teams selected → tenant-wide (per drawer note)
+      return playTeams.some((t) => personaTeamIds.has(t));
+    }
+    return true;
+  });
+}
+
 export function listDefaultPlaysForRole(role) {
   return listPlaysForRole(role).filter((p) => p.is_default_chip);
 }

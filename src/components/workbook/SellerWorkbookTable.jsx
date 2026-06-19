@@ -26,6 +26,23 @@ import {
   X,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
+
+// Offerings created via the wizard carry ids like `wiz-cnapp` whose fit
+// data lives under the canonical key (`cnapp`). We try the offering's
+// id first, then its `key`, then a key-fallback for product lines that
+// don't have a dedicated FITS entry (code → dspm, cdr → workload).
+const OFFERING_KEY_FALLBACKS = { code: 'dspm', cdr: 'workload' };
+function resolveOfferingFit(accountId, offering) {
+  const keys = [offering?.id, offering?.key, OFFERING_KEY_FALLBACKS[offering?.key]];
+  const tried = new Set();
+  for (const k of keys) {
+    if (!k || tried.has(k)) continue;
+    tried.add(k);
+    const f = getFitFor(accountId, k);
+    if (f && f.score != null) return f;
+  }
+  return null;
+}
 import { getRGIF, RGIF_CATEGORY_BY_ID, RGIF_CATEGORIES, valueFor } from '../../data/workbookRGIF.js';
 import { getHgIntelligence } from '../../data/hgIntelligence.js';
 import { useTenant } from '../../context/TenantContext.jsx';
@@ -426,7 +443,7 @@ export default function SellerWorkbookTable({
             const spendTrend = rgif.spendTrend;
             const allScores = confirmedOfferings.map((o) => ({
               offering: o,
-              score: getFitFor(account.id, o.id)?.score ?? null,
+              score: resolveOfferingFit(account.id, o)?.score ?? null,
             }));
 
             return (

@@ -19,9 +19,10 @@ import {
   Users,
   FileText,
   Check,
+  Database,
 } from 'lucide-react';
 import { listOfferings } from '../../data/offerings.js';
-import { FILTER_REGISTRY, FILTER_GROUPS } from '../../data/filterRegistry.js';
+import { FILTER_REGISTRY, FILTER_GROUPS, CRM_GATED_GROUPS } from '../../data/filterRegistry.js';
 
 // ─── Tiny presentational helpers ───────────────────────────────────────
 
@@ -198,7 +199,7 @@ function IntentForm({ value, onChange }) {
 
 // ─── Main panel ────────────────────────────────────────────────────────
 
-export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onRemove, onClearAll }) {
+export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onRemove, onClearAll, crmConnected = false, title = 'Filters' }) {
   const [activeFilterId, setActiveFilterId] = useState('emp_count');
   const [search, setSearch] = useState('');
   // Working draft for the active filter (not yet committed).
@@ -354,6 +355,7 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
     Intent: Sparkles,
     Firmographics: Building2,
     Technographics: Cpu,
+    'CRM Filters': Database,
     Overview: FileText,
   };
 
@@ -365,7 +367,7 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">Filters</div>
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">{title}</div>
           <div className="flex items-center gap-2">
             {filters.length > 0 && (
               <button
@@ -411,6 +413,8 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
                 onClick={() => setActiveFilterId('overview')}
               />
               {FILTER_GROUPS.map((groupName) => {
+                // CRM groups only appear when the tenant has a CRM connected.
+                if (CRM_GATED_GROUPS.has(groupName) && !crmConnected) return null;
                 const specs = Object.values(FILTER_REGISTRY).filter(
                   (s) => s.group === groupName && matchesSearch(s),
                 );

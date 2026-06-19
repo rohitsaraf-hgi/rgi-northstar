@@ -29,6 +29,19 @@ import { getOffering } from '../data/offerings.js';
 import { getWorkflow } from '../data/workflows.js';
 import { getSignalDef, SIGNAL_CATEGORIES } from '../data/rankingSignals.js';
 import { useToast } from '../context/ToastContext.jsx';
+import FilterPanel from '../components/workbook/FilterPanel.jsx';
+import { getIntegrationGovernance } from '../data/integrationGovernance.js';
+import { useTenant } from '../context/TenantContext.jsx';
+import { Filter, X } from 'lucide-react';
+
+// CRM connection detection — used to gate the CRM Filters group inside
+// the Plays audience builder. Matches what WorkbookRoute uses for the
+// workbookState.hasCrm flag but lives inline to avoid a refactor.
+function detectCrmConnected() {
+  const sf = getIntegrationGovernance('salesforce');
+  const hs = getIntegrationGovernance('hubspot');
+  return sf?.agentAccess === true || hs?.agentAccess === true;
+}
 
 // Render a single signal as a chip in the Play Builder
 function SignalChip({ signal, showWeight = true }) {
@@ -161,6 +174,7 @@ function VisibilityChip({ visibility }) {
 function PlayDetail({ play, onBack }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { tenant } = useTenant();
   const offering = getOffering(play.offering_id);
   const signals = (play.signals || []).map((id) => getSignalDef(id)).filter(Boolean);
   const hgSignals = signals.filter((s) => s.kind === 'hg');
@@ -168,6 +182,49 @@ function PlayDetail({ play, onBack }) {
   const recommendedWorkflows = (play.recommended_workflows || []).map((wid) => getWorkflow(wid)).filter(Boolean);
   const crmDependent = crmSignals.length > 0;
   const motionLabel = MOTION_LABELS[play.motion] || play.motion;
+
+  // ─── ICP delta detection (soft warn) ─────────────────────────────
+  // Audience hierarchy: tenant ICP ⊇ offering ICP ⊇ play audience.
+  // We warn (never block) when the play reaches past either set.
+  const playIndustries = (play.firmoFilters?.industries || []).filter((i) => i && i !== 'Any');
+  const tenantIndustries = (tenant?.icp?.industries || []).map((i) =>
+    typeof i === 'string' ? i : i?.name,
+  ).filter(Boolean);
+  const offeringIcp =
+    offering?.targetIcp || offering?.targetICP || {};
+  const offeringIndustries = (offeringIcp.industries || []).map((i) =>
+    typeof i === 'string' ? i : i?.name,
+  ).filter(Boolean);
+  const lc = (s) => String(s || '').toLowerCase();
+  const inSet = (list, needle) =>
+    list.some((x) => lc(x) === lc(needle) || lc(x).includes(lc(needle)) || lc(needle).includes(lc(x)));
+  const industriesOutsideTenant = playIndustries.filter((i) => tenantIndustries.length > 0 && !inSet(tenantIndustries, i));
+  const industriesOutsideOffering = playIndustries.filter(
+    (i) => offeringIndustries.length > 0 && !inSet(offeringIndustries, i),
+  );
+  const hasIcpReach = industriesOutsideTenant.length > 0 || industriesOutsideOffering.length > 0;
+
+  // ─── Audience refinement (per the new model) ─────────────────────
+  // Plays narrow the offering's ICP audience via optional HG-firmographic
+  // refinements + first-party CRM filters (gated by CRM connection).
+  // Filters live on the play and are persisted via configStore.
+  const crmConnected = detectCrmConnected();
+  const [audienceFilters, setAudienceFilters] = useState(play.audienceFilters || []);
+  const [audiencePanelOpen, setAudiencePanelOpen] = useState(false);
+  const persistAudienceFilters = (next) => {
+    setAudienceFilters(next);
+    upsertPlay({ ...play, audienceFilters: next });
+  };
+  const addOrUpdateAudienceFilter = (filter) => {
+    const exists = audienceFilters.some((f) => f.id === filter.id);
+    const next = exists
+      ? audienceFilters.map((f) => (f.id === filter.id ? filter : f))
+      : [...audienceFilters, filter];
+    persistAudienceFilters(next);
+  };
+  const removeAudienceFilter = (id) =>
+    persistAudienceFilters(audienceFilters.filter((f) => f.id !== id));
+  const clearAudienceFilters = () => persistAudienceFilters([]);
 
   return (
     <div className="max-w-5xl mx-auto px-8 py-8">
@@ -302,6 +359,181 @@ function PlayDetail({ play, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Soft-warn when the play's audience reaches outside the offering
+          ICP or tenant ICP. Never blocks — admins can run plays in
+          adjacent industries with intent. */}
+      {hasIcpReach && (
+        <div className="bg-amber-500/10 border border-amber-500/40 rounded-md p-3 mb-4">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-0.5">
+                Audience reaches outside your ICP
+              </div>
+              <div className="text-[11px] text-text-secondary leading-relaxed">
+                {industriesOutsideOffering.length > 0 && (
+                  <div>
+                    <span className="font-medium">{industriesOutsideOffering.length}</span>{' '}
+                    {industriesOutsideOffering.length === 1 ? 'industry' : 'industries'} not in the{' '}
+                    <span className="font-mono">{offering?.name || 'offering'}</span> ICP:{' '}
+                    {industriesOutsideOffering.map((i, idx) => (
+                      <span
+                        key={i}
+                        className="font-mono text-amber-700 dark:text-amber-300"
+                      >
+                        {i}
+                        {idx < industriesOutsideOffering.length - 1 && ', '}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {industriesOutsideTenant.length > 0 && (
+                  <div className="mt-1">
+                    <span className="font-medium">{industriesOutsideTenant.length}</span>{' '}
+                    {industriesOutsideTenant.length === 1 ? 'industry' : 'industries'} not in your{' '}
+                    <span className="font-mono">tenant ICP</span>:{' '}
+                    {industriesOutsideTenant.map((i, idx) => (
+                      <span
+                        key={i}
+                        className="font-mono text-amber-700 dark:text-amber-300"
+                      >
+                        {i}
+                        {idx < industriesOutsideTenant.length - 1 && ', '}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="text-text-muted mt-1.5">
+                  This is a warning, not a block. Plays can target adjacent industries — confirm this is intentional.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audience refinement — optional HG + CRM filters on top of the
+          play's offering ICP. Workbook itself has no filters; slicing the
+          universe is a Play-level concern. */}
+      <div className="bg-surface border border-border rounded-md p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-semibold text-text-primary">Audience refinement</div>
+            <div className="text-[11px] text-text-muted leading-relaxed mt-0.5">
+              Optional. Layer firmographic / technographic / intent
+              constraints — and CRM filters when connected — on top of the
+              offering ICP.
+            </div>
+          </div>
+          <button
+            onClick={() => setAudiencePanelOpen(true)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border rounded-md transition-colors ${
+              audienceFilters.length > 0
+                ? 'bg-primary/10 text-primary border-primary/40'
+                : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/40'
+            }`}
+            title="Open the filter builder"
+          >
+            <Filter size={11} />
+            Refine audience
+            {audienceFilters.length > 0 && (
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+                {audienceFilters.length}
+              </span>
+            )}
+          </button>
+        </div>
+        {audienceFilters.length === 0 ? (
+          <div className="text-[11px] text-text-muted italic">
+            No refinements. Play surfaces every account in the offering ICP that has at least one signal firing.
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {audienceFilters.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setAudiencePanelOpen(true)}
+                className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md text-[11px] bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15 transition-colors"
+              >
+                <span className="text-text-muted text-[9px] uppercase tracking-wider">{f.group}:</span>
+                <span className="font-medium">{f.label}</span>
+                {f.displayValue && (
+                  <span className="text-text-secondary font-mono text-[10px]">{f.displayValue}</span>
+                )}
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeAudienceFilter(f.id);
+                  }}
+                  className="ml-0.5 p-0.5 rounded hover:bg-primary/20 text-primary/70 hover:text-primary transition-colors cursor-pointer"
+                  title="Remove filter"
+                >
+                  <X size={10} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Coming soon: CRM filters preview. When a CRM is connected and the
+          feature ships, these dimensions become writable inside the
+          Audience refinement panel. For now they're shown as a preview so
+          admins know what's coming. */}
+      <div className="bg-bg/30 border border-dashed border-border rounded-md p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Database size={13} className="text-text-muted" />
+          <div className="text-sm font-semibold text-text-secondary">
+            CRM Filters (first-party)
+          </div>
+          <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+            Coming soon
+          </span>
+          {!crmConnected && (
+            <span className="text-[10px] text-text-muted italic ml-auto">
+              Connect a CRM in <span className="font-mono">Admin Hub → Integrations</span> first.
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-text-muted leading-relaxed mb-3">
+          Once CRM filters ship, you'll be able to narrow a play's audience by these
+          dimensions in addition to HG firmographics and technographics.
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: 'Opportunity Stage', desc: 'Prospect / Qualified / Discovery / Negotiation / Closed Won' },
+            { label: 'Owner', desc: 'Account owner (specific reps or unassigned)' },
+            { label: 'Last Activity', desc: 'Days since last meaningful touch (e.g. ≥ 14 = stale)' },
+            { label: 'Renewal Window', desc: 'Days until renewal date (e.g. ≤ 90 for next quarter)' },
+            { label: 'Open Opp Value', desc: 'Sum of open opportunities in USD' },
+            { label: 'CRM Region', desc: 'AMER / EMEA / APAC / LATAM' },
+          ].map((d) => (
+            <div
+              key={d.label}
+              className="px-2.5 py-1.5 rounded border border-border/60 bg-surface/60"
+            >
+              <div className="text-[11px] font-semibold text-text-secondary">{d.label}</div>
+              <div className="text-[10px] text-text-muted leading-tight mt-0.5">{d.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <FilterPanel
+        open={audiencePanelOpen}
+        onClose={() => setAudiencePanelOpen(false)}
+        filters={audienceFilters}
+        onAddOrUpdate={addOrUpdateAudienceFilter}
+        onRemove={removeAudienceFilter}
+        onClearAll={clearAudienceFilters}
+        // CRM Filters group is intentionally hidden in the play audience
+        // editor for this iteration — we preview the dimensions below the
+        // audience refinement card so admins know what's coming, but the
+        // actual filters aren't writable yet.
+        crmConnected={false}
+        title={`Audience for ${play.name}`}
+      />
 
       {/* Recommended workflows */}
       <div className="bg-surface border border-border rounded-md p-4 mb-4">

@@ -45,7 +45,12 @@ export const FILTER_GROUPS = [
   'Intent',
   'Firmographics',
   'Technographics',
+  'CRM Filters',
 ];
+
+// Groups that only show when the tenant has a CRM connected. The FilterPanel
+// checks this list against the active integrations before rendering.
+export const CRM_GATED_GROUPS = new Set(['CRM Filters']);
 
 // ─── Registry ─────────────────────────────────────────────────────────
 
@@ -360,6 +365,142 @@ export const FILTER_REGISTRY = {
       };
     },
     format: (v) => (Array.isArray(v) && v.length > 0 ? `${v.length} selected` : null),
+  },
+
+  // ----- CRM FILTERS (gated by CRM connection) -----
+  crm_stage: {
+    id: 'crm_stage',
+    group: 'CRM Filters',
+    label: 'Opportunity Stage',
+    description: 'Filter by CRM opportunity stage.',
+    widget: 'multiSelect',
+    defaultValue: [],
+    options: [
+      { id: 'prospect', label: 'Prospect' },
+      { id: 'qualified', label: 'Qualified' },
+      { id: 'discovery', label: 'Discovery' },
+      { id: 'proposal', label: 'Proposal' },
+      { id: 'negotiation', label: 'Negotiation' },
+      { id: 'closed-won', label: 'Closed Won' },
+      { id: 'customer', label: 'Customer' },
+      { id: 'renewal', label: 'Renewal' },
+    ],
+    buildPredicate: (v) => {
+      if (!Array.isArray(v) || v.length === 0) return null;
+      const set = new Set(v);
+      return (a) => set.has(String(a?.stage || '').toLowerCase());
+    },
+    format: (v) => (Array.isArray(v) && v.length > 0 ? `${v.length} selected` : null),
+  },
+  crm_owner: {
+    id: 'crm_owner',
+    group: 'CRM Filters',
+    label: 'Owner',
+    description: 'Filter by account owner (sales rep).',
+    widget: 'multiSelect',
+    defaultValue: [],
+    options: [
+      { id: 'alex', label: 'Alex Chen' },
+      { id: 'priya', label: 'Priya Sharma' },
+      { id: 'maya', label: 'Maya Patel' },
+      { id: 'unassigned', label: 'Unassigned' },
+    ],
+    buildPredicate: (v) => {
+      if (!Array.isArray(v) || v.length === 0) return null;
+      const set = new Set(v);
+      return (a) =>
+        (a?.ownerIds || []).some((id) => set.has(id)) ||
+        (set.has('unassigned') && (!a?.ownerIds || a.ownerIds.length === 0));
+    },
+    format: (v) => (Array.isArray(v) && v.length > 0 ? `${v.length} selected` : null),
+  },
+  crm_last_activity: {
+    id: 'crm_last_activity',
+    group: 'CRM Filters',
+    label: 'Last Activity',
+    description: 'Days since last meaningful touch.',
+    widget: 'minMax',
+    defaultValue: { min: '', max: '' },
+    hint: 'Days. e.g. min=14 to find stale accounts.',
+    buildPredicate: (v) => {
+      const min = parseNumeric(v?.min);
+      const max = parseNumeric(v?.max);
+      if (min == null && max == null) return null;
+      return (a) => {
+        const days = a?.lastTouchDaysAgo;
+        if (days == null) return min != null; // treat unknown as stale when filtering for stale
+        return withinRange(days, min, max);
+      };
+    },
+    format: (v) => {
+      const min = v?.min ?? '';
+      const max = v?.max ?? '';
+      if (!min && !max) return null;
+      return `${min || '0'}–${max || '∞'} days`;
+    },
+  },
+  crm_renewal_window: {
+    id: 'crm_renewal_window',
+    group: 'CRM Filters',
+    label: 'Renewal Window',
+    description: 'Customers with renewal in N days.',
+    widget: 'minMax',
+    defaultValue: { min: '', max: '' },
+    hint: 'Days until renewal. e.g. max=90 for next-quarter renewals.',
+    buildPredicate: (v) => {
+      const min = parseNumeric(v?.min);
+      const max = parseNumeric(v?.max);
+      if (min == null && max == null) return null;
+      // Mock — accounts.stage === 'renewal' implies renewal window. Real
+      // CRM data would have a concrete renewalDate field.
+      return (a) => a?.stage === 'renewal' || a?.stage === 'customer';
+    },
+    format: (v) => {
+      const min = v?.min ?? '';
+      const max = v?.max ?? '';
+      if (!min && !max) return null;
+      return `${min || '0'}–${max || '∞'} days`;
+    },
+  },
+  crm_opp_value: {
+    id: 'crm_opp_value',
+    group: 'CRM Filters',
+    label: 'Open Opp Value',
+    description: 'Minimum value of open opportunities (USD).',
+    widget: 'minMax',
+    defaultValue: { min: '', max: '' },
+    hint: 'Use suffixes like 100K or 1M.',
+    buildPredicate: (v) => {
+      const min = parseNumeric(v?.min);
+      const max = parseNumeric(v?.max);
+      if (min == null && max == null) return null;
+      return (a) => withinRange(parseNumeric(a?.oppValue), min, max);
+    },
+    format: (v) => {
+      const min = v?.min ?? '';
+      const max = v?.max ?? '';
+      if (!min && !max) return null;
+      return `${min || '0'}–${max || '∞'}`;
+    },
+  },
+  crm_region: {
+    id: 'crm_region',
+    group: 'CRM Filters',
+    label: 'CRM Region',
+    description: 'Sales region or territory from CRM.',
+    widget: 'multiSelect',
+    defaultValue: [],
+    options: [
+      { id: 'amer', label: 'AMER' },
+      { id: 'emea', label: 'EMEA' },
+      { id: 'apac', label: 'APAC' },
+      { id: 'latam', label: 'LATAM' },
+    ],
+    buildPredicate: (v) => {
+      if (!Array.isArray(v) || v.length === 0) return null;
+      return (a) => v.includes(String(a?.region || '').toLowerCase());
+    },
+    format: (v) => (Array.isArray(v) && v.length > 0 ? v.join(', ').toUpperCase() : null),
   },
 };
 

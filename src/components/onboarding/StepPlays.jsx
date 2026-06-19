@@ -310,22 +310,54 @@ function PlayCard({ play, offeringNameById, onToggleConfirm, onEdit, onDelete })
 
 // ─── Manage Play Drawer (edit + add) ───────────────────────────────────────
 
+// Pull the ICP defaults off an offering in a shape-agnostic way. Offerings
+// in this codebase carry either the normalized `targetIcp` (wizard-built)
+// or the legacy `targetICP` (older seed). Both expose industries; the rest
+// gets a sensible fallback.
+function offeringIcpDefaults(offering) {
+  if (!offering) {
+    return { industries: [], sizeBand: '', regions: [] };
+  }
+  const icp = offering.targetIcp || offering.targetICP || {};
+  const industries = Array.isArray(icp.industries)
+    ? icp.industries
+        .map((i) => (typeof i === 'string' ? i : i?.name))
+        .filter(Boolean)
+    : [];
+  const sizeBand =
+    icp.employeeBand ||
+    icp.employees ||
+    (icp.employeeBand?.low ? `${icp.employeeBand.low}+ employees` : '');
+  const regions = Array.isArray(icp.geography)
+    ? icp.geography.map((g) => (typeof g === 'string' ? g : g?.name)).filter(Boolean)
+    : Array.isArray(icp.geos)
+    ? icp.geos.map((g) => g.name).filter(Boolean)
+    : [];
+  return { industries, sizeBand, regions };
+}
+
 export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) {
   const isEdit = !!play?.id;
+  // Prefill audience from the first confirmed offering's ICP on create.
+  // Admin can narrow further or override — the soft-warn banner in PlayDetail
+  // flags reaches outside the offering or tenant ICP.
+  const seedOffering = confirmedOfferings[0];
+  const seedIcpDefaults = offeringIcpDefaults(seedOffering);
   const [draft, setDraft] = useState(
     play || {
       id: `play-custom-${Date.now()}`,
       name: '',
       motion: 'new_logo',
       description: '',
-      offerings: confirmedOfferings.length > 0 ? [confirmedOfferings[0].id] : [],
+      offerings: seedOffering ? [seedOffering.id] : [],
       audienceRoles: ['AE'],
-      firmoFilters: { industries: [], sizeBand: '', regions: [] },
+      firmoFilters: seedIcpDefaults,
       technoFilters: { hasInstalled: [], missingInstall: [], custom: [] },
       signalCount: 0,
       signalPreview: [],
       estimatedMatches: 0,
       confirmed: true,
+      visibility: 'tenant',
     }
   );
 

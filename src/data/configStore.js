@@ -106,7 +106,7 @@ const CHANGE_EVENT = 'rgi:config-store-changed';
 // Default seeds — only used on first load. Pulled in lazily from the
 // legacy data files so we don't double-import.
 import { OFFERINGS as LEGACY_OFFERINGS } from './offerings.legacy.js';
-import { PLAYS as LEGACY_PLAYS } from './plays.legacy.js';
+import { PLAYS as LEGACY_PLAYS, SEEDED_PLAY_IDS } from './plays.legacy.js';
 
 const NOW = () => new Date().toISOString();
 
@@ -191,8 +191,8 @@ function adaptLegacyPlay(legacy) {
     description: legacy.description || '',
     offerings: legacy.offering_id ? [legacy.offering_id] : [],
     audienceRoles: legacy.audience_roles || ['AE'],
-    firmoFilters: { industries: [], sizeBand: '', regions: [] },
-    technoFilters: { hasInstalled: [], missingInstall: [], custom: [] },
+    firmoFilters: legacy.firmoFilters || { industries: [], sizeBand: '', regions: [] },
+    technoFilters: legacy.technoFilters || { hasInstalled: [], missingInstall: [], custom: [] },
     signalIds: legacy.signals || [],
     signalPreview: (legacy.signals || []).slice(0, 4),
     estimatedMatches: 0,
@@ -234,11 +234,37 @@ function freshState() {
 // Apply backward-compat field synthesis to every offering + play on read.
 // This self-heals localStorage written by older versions of the wizard or
 // by an earlier broken deploy. Idempotent.
+// Map of seeded play id → canonical seed object. Used by a one-time
+// migration that overwrites stale firmoFilters/technoFilters in cached
+// localStorage from older builds (which seeded out-of-ICP industries).
+const LEGACY_PLAYS_BY_ID = Object.fromEntries(LEGACY_PLAYS.map((p) => [p.id, p]));
+
+// Schema version for the plays slice. Bump when seed audience values
+// change in a way that should overwrite cached state once. After the
+// migration runs, admin edits persist normally.
+const PLAYS_SCHEMA_VERSION = 2;
+
 function migrateStaleState(parsed) {
+  const needsPlaysReseed = (parsed.playsSchemaVersion || 0) < PLAYS_SCHEMA_VERSION;
   return {
     ...parsed,
     offerings: (parsed.offerings || []).map(ensureLegacyOfferingFields),
-    plays: (parsed.plays || []).map(ensureLegacyPlayFields),
+    plays: (parsed.plays || [])
+      .filter((p) => SEEDED_PLAY_IDS.has(p.id))
+      .map((p) => {
+        if (!needsPlaysReseed) return ensureLegacyPlayFields(p);
+        const canonical = LEGACY_PLAYS_BY_ID[p.id];
+        const merged = canonical
+          ? {
+              ...p,
+              firmoFilters: canonical.firmoFilters || p.firmoFilters,
+              technoFilters: canonical.technoFilters || p.technoFilters,
+              visibility: p.visibility || canonical.visibility || 'tenant',
+            }
+          : p;
+        return ensureLegacyPlayFields(merged);
+      }),
+    playsSchemaVersion: PLAYS_SCHEMA_VERSION,
     scoringModelStatus: parsed.scoringModelStatus || {},
   };
 }
@@ -300,6 +326,7 @@ function ensureLegacyPlayFields(play) {
     visibility: play.visibility || 'tenant',
     teamIds: play.teamIds || [],
     userIds: play.userIds || [],
+    audienceFilters: Array.isArray(play.audienceFilters) ? play.audienceFilters : [],
   };
 }
 
