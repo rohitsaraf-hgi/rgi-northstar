@@ -380,11 +380,12 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
     setDraft((prev) => ({ ...prev, technoFilters: { ...prev.technoFilters, ...updates } }));
   }
 
+  // v1 constraint: a play references exactly ONE offering. The drawer
+  // used to allow multi-select; we lock it to single-select here. Admins
+  // with multiple offerings build separate plays.
   function toggleOffering(id) {
-    const next = draft.offerings.includes(id)
-      ? draft.offerings.filter((x) => x !== id)
-      : [...draft.offerings, id];
-    patch({ offerings: next });
+    const isSelected = draft.offerings.includes(id);
+    patch({ offerings: isSelected ? [] : [id] });
   }
 
   function canSave() {
@@ -461,26 +462,33 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
             />
           </div>
 
-          {/* Offerings attached */}
+          {/* Offering — exactly one (v1 constraint). For multiple offerings,
+              build separate plays. */}
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-text-muted block mb-1.5">
-              Offerings attached <span className="text-text-muted/70 normal-case tracking-normal ml-1">(at least one)</span>
+              Offering <span className="text-text-muted/70 normal-case tracking-normal ml-1">(pick one)</span>
             </label>
             <div className="flex flex-wrap gap-1.5">
-              {confirmedOfferings.map((o) => (
-                <button
-                  key={o.id}
-                  onClick={() => toggleOffering(o.id)}
-                  className={`text-[11px] px-2.5 py-1 rounded border ${
-                    draft.offerings.includes(o.id)
-                      ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
-                      : 'bg-surface border-border text-text-secondary hover:border-primary/30'
-                  }`}
-                >
-                  {draft.offerings.includes(o.id) && <Check size={10} className="inline mr-1" />}
-                  {o.name}
-                </button>
-              ))}
+              {confirmedOfferings.map((o) => {
+                const selected = draft.offerings.includes(o.id);
+                return (
+                  <button
+                    key={o.id}
+                    onClick={() => toggleOffering(o.id)}
+                    className={`text-[11px] px-2.5 py-1 rounded border ${
+                      selected
+                        ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
+                        : 'bg-surface border-border text-text-secondary hover:border-primary/30'
+                    }`}
+                  >
+                    {selected && <Check size={10} className="inline mr-1" />}
+                    {o.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[10px] text-text-muted italic mt-1.5">
+              Each play targets one offering. Build separate plays for other offerings.
             </div>
           </div>
 

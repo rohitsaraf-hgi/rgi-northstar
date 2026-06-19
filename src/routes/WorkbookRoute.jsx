@@ -2100,6 +2100,31 @@ export default function WorkbookRoute() {
                   onEdit={() => navigate('/admin/tenant')}
                 />
               )}
+              {/* CRM upload / connect banner — shown when the tenant has
+                  neither a book nor a CRM connected. Unlocks the Tenant
+                  Book + Needs Review tabs and Enrich-with-AI. */}
+              {isAdmin && workbookState.isEmptyTenant && (
+                <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/40 text-[11px]">
+                  <Upload size={11} className="text-amber-700 dark:text-amber-300 flex-shrink-0" />
+                  <span className="text-text-secondary">
+                    <span className="font-semibold text-amber-700 dark:text-amber-300">No CRM connected.</span>{' '}
+                    Upload your book or connect a CRM to unlock Tenant Book + Enrich-with-AI.
+                  </span>
+                  <button
+                    onClick={() => navigate('/admin/territory')}
+                    className="ml-1 text-[10px] text-primary hover:underline font-semibold inline-flex items-center gap-1"
+                  >
+                    Upload CSV
+                  </button>
+                  <span className="text-text-muted">·</span>
+                  <button
+                    onClick={() => navigate('/admin/apps')}
+                    className="text-[10px] text-primary hover:underline font-semibold inline-flex items-center gap-1"
+                  >
+                    Connect CRM
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {/* Sellers always work off their book — no source toggle, no
@@ -2172,13 +2197,35 @@ export default function WorkbookRoute() {
                 <Save size={11} />
                 Save view
               </button>
-              <button
-                onClick={() => setEnrichOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
-              >
-                <Wand2 size={11} />
-                Enrich with AI
-              </button>
+              {/* Enrich-with-AI is restricted to the Tenant Book. Running
+                  AI questions across all-companies / whitespace is wasteful
+                  (hundreds of thousands of rows). Scope = your book. */}
+              {(() => {
+                const enrichEnabled = source === 'book';
+                return (
+                  <button
+                    onClick={() => enrichEnabled && setEnrichOpen(true)}
+                    disabled={!enrichEnabled}
+                    title={
+                      enrichEnabled
+                        ? 'Ask any question across your tenant book — answers become columns'
+                        : source === 'whitespace'
+                        ? 'Enrich runs on your tenant book only. Switch to Tenant Book to enrich.'
+                        : workbookState.isEmptyTenant
+                        ? 'Connect a CRM or upload accounts to unlock Enrich-with-AI.'
+                        : 'Switch to the Tenant Book tab to enrich.'
+                    }
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-opacity shadow-card ${
+                      enrichEnabled
+                        ? 'bg-gradient-to-r from-primary to-violet-500 text-white hover:opacity-90'
+                        : 'bg-surface-2 text-text-muted cursor-not-allowed opacity-60'
+                    }`}
+                  >
+                    <Wand2 size={11} />
+                    Enrich with AI
+                  </button>
+                );
+              })()}
               {/* Sync button — admin-only. Sellers don't sync books to CRM. */}
               {!isSeller && (
                 <button

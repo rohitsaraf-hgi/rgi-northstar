@@ -148,7 +148,7 @@ Read that again. Every word matters:
 |---|---|
 | **Name** | "Competitive Takeout", "Net New Logo", "Expansion / Cross-sell" |
 | **Description** | One sentence on the motion |
-| **Associated offering** | Exactly one offering. (A play can reference multiple in the future but v1 keeps it singular.) |
+| **Associated offering** | **Exactly one offering.** This is a v1 constraint we're keeping deliberately — if a tenant has 3 offerings and wants 3 takeout plays, they build 3 separate plays. Multi-offering plays complicate audience inheritance, GTM motion language, and metric attribution; the gain isn't worth it yet. |
 | **Motion type** | Competitive Takeout / New Logo / Expansion / Renewal Defense / In-Market / Catalyst |
 | **Audience** | The "who" — see below |
 | **Signals** | The "why now" — see below |
@@ -248,6 +248,245 @@ The three concentric scopes: **Tenant ICP ⊇ Offering ICP ⊇ Play Audience**. 
 
 ---
 
+## The object graph — what filters what
+
+This section is for the engineer who needs to know **exactly** what is being filtered, where, against what. Read this once and the rest of the code becomes self-explanatory.
+
+### The five objects
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ TENANT                                                   │
+│ One per customer account. Extracted on signup, edited by │
+│ admin in Admin Hub → Tenant Profile.                     │
+│                                                          │
+│   id, name, url, derivedAt                               │
+│   products[]              SKUs the tenant builds         │
+│   painPoints[]            problems they solve            │
+│   competitors[]           who they run into              │
+│   intentTopics[]          research topics they care about│
+│   buyingCommittee[]       roles they sell to (not people)│
+│   partners[]              positive-signal partners       │
+│   spendCategories[]       IT-spend lenses                │
+│   fai                     {revenue, headcount, hq, stage}│
+│   icp                     ★ the audience-defining field  │
+│     ├─ industries[]                                      │
+│     ├─ geos[]                                            │
+│     ├─ revenueBand        {low, high}                    │
+│     ├─ employeeBand       {low, high}                    │
+│     └─ techStack[]                                       │
+└──────────────────────────────────────────────────────────┘
+            │
+            │ has 1..N
+            ▼
+┌──────────────────────────────────────────────────────────┐
+│ OFFERING                                                 │
+│ How the tenant sells to market. Many offerings can share │
+│ one product (Enterprise vs Startup tier); one offering   │
+│ can bundle many products. Must be confirmed by admin.    │
+│                                                          │
+│   id, name, key (cnapp|code|cdr|custom), confirmed       │
+│   description, painPointsSolved[]                        │
+│   products[]                  refs Tenant.products       │
+│   competitors[]                                          │
+│   targetIcp                   ★ subset of Tenant.icp     │
+│     ├─ industries[]                                      │
+│     ├─ employeeBand                                      │
+│     ├─ revenueBand                                       │
+│     └─ geography[]                                       │
+│   partners[]                                             │
+│   techStack[] / techSignals[]                            │
+│   buyingCommittee[]           roles for THIS offering    │
+│   intentTopics[]                                         │
+│   gtmMotion                   displacement | new_logo |  │
+│                               expansion | renewal | ...  │
+└──────────────────────────────────────────────────────────┘
+            │
+            │ referenced by 0..N (each play picks exactly 1)
+            ▼
+┌──────────────────────────────────────────────────────────┐
+│ PLAY                                                     │
+│ A named, ranked, actionable hypothesis. v1 constraint:   │
+│ every play references EXACTLY ONE offering. Customers    │
+│ with multiple offerings build one play per offering.     │
+│                                                          │
+│   id, name, description, motion                          │
+│   offering_id                 ★ exactly 1                │
+│   audience_roles[]            AE | AM | CSM | SDR        │
+│   signals[]                   ranking signals (why now)  │
+│   firmoFilters                ★ OVERRIDES — empty fields │
+│     ├─ industries[]             inherit from offering    │
+│     ├─ sizeBand                 ICP live, no snapshot    │
+│     └─ regions[]                                         │
+│   technoFilters               play-specific (no inherit) │
+│     ├─ hasInstalled[]                                    │
+│     ├─ missingInstall[]                                  │
+│     └─ custom[]                                          │
+│   audienceFilters[]           spec-driven HG filters     │
+│                               (see FilterRegistry below) │
+│   visibility                  tenant | team | private    │
+│   teamIds[], userIds[]        gating when visibility=team│
+│   status, recommended_workflows[]                        │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│ ACCOUNT (company shown in the Workbook)                  │
+│ A row in the workbook. Source field captures origin.     │
+│                                                          │
+│   id, name, url, logoColor                               │
+│   industry, fai {revenue, employees, hq, stage}          │
+│   source                      ★ matched | crm | hg       │
+│   presentIn                   {hg, salesforce, hubspot}  │
+│   parentId, subsidiaries[]    company hierarchy          │
+│   ownerIds[]                  which sellers own it (CRM) │
+│   stage                       CRM opp stage              │
+│   meddic, stakeholdersCount, buyingCommitteeCount        │
+│   rgif                        ★ all HG enrichment        │
+│     ├─ installs[]                                        │
+│     ├─ intent[]                                          │
+│     ├─ spend                  per spendCategory          │
+│     ├─ clouds[]                                          │
+│     └─ partnerStack[]                                    │
+│   signals[]                   firing signals on this acct│
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│ WORKBOOK VIEW (saved view)                               │
+│ A LAYOUT, not an audience. Captures columns/sort/AI Q's. │
+│                                                          │
+│   id, name, ownerId, source (book|whitespace)            │
+│   columns[]              built-in + AI-enriched          │
+│   sort                   {columnId, dir}                 │
+│   visibility             private | team | tenant         │
+│   teamIds[], userIds[]                                   │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Account × Offering → Fit
+
+The most important *derived* relationship in the system. For every `(account, offering)` pair there's an entry in the FITS table:
+
+```
+FIT { accountId, offeringId, score (0–100), reasons[] }
+```
+
+This is what the Workbook displays as offering-score columns and what plays use to rank accounts. The resolver (`resolveOfferingFit` / `resolveFitScore`) tries `offering.id → offering.key → KEY_FALLBACKS[key]` so wizard-saved offering ids still resolve to canonical fit data.
+
+### What gets filtered, when, against what
+
+This is the question engineers will ask themselves over and over. Here's the answer.
+
+| Surface | Audience baseline | Additional filters applied |
+|---|---|---|
+| **Workbook — All Companies tab** | Every Account where `Account.icp` matches `Tenant.icp`* | Source partition (no filter) |
+| **Workbook — Tenant Book tab** | Same baseline, restricted to `Account.source ∈ {matched, crm}` | — |
+| **Workbook — Whitespace tab** | Same baseline, restricted to `Account.source === 'hg'` | — |
+| **Workbook — Needs Review tab** | `Account.source === 'crm'` (in CRM, no HG match) | — |
+| **Workbook + Play active** | Play's effective audience (see below) | Source partition |
+| **Sales Play (ranked list)** | Account fits Play's effective audience AND ≥1 signal fires | — |
+| **Saved View** | Inherits its parent Workbook tab's audience | None — views NEVER refine audience |
+| **Enrich-with-AI** | Restricted to Tenant Book accounts | — |
+
+\* "Matches" is the operative word here. We don't actually enforce this — `Tenant.icp` is documentation, and the Workbook today shows every Account known to the platform, on the assumption that the Account dataset is *already* filtered to ICP-relevant rows at the source. Engineering note: when scale becomes real, this is where the ICP filter has to actually run.
+
+### A Play's "effective audience" is layered
+
+When a play is active, its audience is computed by `getEffectivePlayAudience(play, offering)`:
+
+```
+effective.industries  = play.firmoFilters.industries.length > 0
+                          ? play.firmoFilters.industries
+                          : offering.targetIcp.industries     ← inherited
+effective.sizeBand    = play.firmoFilters.sizeBand
+                          || offering.targetIcp.employeeBand  ← inherited
+effective.regions     = play.firmoFilters.regions.length > 0
+                          ? play.firmoFilters.regions
+                          : offering.targetIcp.geography      ← inherited
+
+// these don't inherit — they're play-specific:
+effective.technoFilters     = play.technoFilters
+effective.audienceFilters[] = play.audienceFilters
+```
+
+Result: when admin adds an industry to an offering's ICP, every play that hasn't explicitly overridden `industries` picks up the new industry on next render. No snapshotting.
+
+### The filter chain in WorkbookRoute (in order)
+
+```
+1. Start with the full Account universe (Tenant ICP — implicit).
+2. Apply the source tab partition.            ← All / Book / Whitespace / Needs Review
+3. If a Play is active:
+     a. effective = getEffectivePlayAudience(play, offering)
+     b. require resolveFitScore(account, offering) >= 50
+     c. require at least one of play.signals fires on account
+     d. require account.industry in effective.industries (if non-empty)
+     e. require account.employees within effective.sizeBand
+     f. require account.hq matches effective.regions
+     g. require account.installs satisfies technoFilters
+     h. require all play.audienceFilters predicates pass
+4. Sort by the active view's sort column.
+```
+
+Read the workbook code with this list in hand and every `if` becomes obvious.
+
+---
+
+## Workbook view modes — Flat vs Segmented
+
+The Workbook has two view modes, and they answer two different questions.
+
+### Flat view — "show me one row per company, across all offerings"
+
+Default for admins. Use when you want a single table with offering scores side-by-side.
+
+Columns (left to right):
+- **Account** (with subsidiary hierarchy indicator)
+- **Source** (HG / SFDC / HubSpot icon stack)
+- **Score per offering** — one column per confirmed offering
+- **Employees**
+- **Revenue**
+- **Buying Committee** — count of stakeholders matched at this account
+- **IT Spend** — values for the tenant's tracked spend categories
+- **HQ location**
+- **Industry**
+- **HG Intelligence** — AI synthesis: which offering to lead with + entry point
+- *Enriched columns* (any AI questions saved as columns)
+
+### Segmented view — "show me each offering's best accounts, ranked"
+
+Use when you want to see the strongest accounts per offering, with offering-specific context (competitive landscape, intent, partners).
+
+Layout: one section per offering. Inside each section, accounts sorted **descending by that offering's fit score**.
+
+Columns (per-offering section):
+- **Account** + tier badge (A/B/C/D from score)
+- **Employees**
+- **Revenue**
+- **Buying Committee** — count of stakeholders for that offering's committee
+- **Competitive** — competitor footprint detected (offering-aware)
+- **Intent** — intent topics firing for this offering
+- **Partner Stack** — partners present in the account
+- **HG Intelligence** — *why* this offering fits this account (narrative)
+
+The two views share the same row-set (every Account in the tenant ICP). They differ only in column layout and grouping.
+
+---
+
+## CRM-gated experience
+
+Until the tenant connects a CRM or uploads a book of accounts, the Workbook only knows about HG-side accounts (whitespace). That changes the Workbook in three meaningful ways:
+
+| State | Behavior |
+|---|---|
+| **No CRM connected, no book uploaded** | Workbook shows only the **Whitespace** view. A banner at the top of the workbook reads: *"Upload your book of accounts or connect a CRM to unlock Tenant Book + Enrich-with-AI."* Source tabs are hidden — there's nothing to switch between. Enrich-with-AI is disabled. |
+| **CRM connected OR book uploaded** | Source tabs unlock: **All Companies / Tenant Book / Whitespace / Needs Review**. Enrich-with-AI is enabled — but **only on the Tenant Book tab**. |
+
+### Why Enrich-with-AI is restricted to Tenant Book
+
+Enrich-with-AI runs the asked question across every row in the current view. The HG whitespace can be hundreds of thousands of accounts. Running an LLM question across all of them is wasteful and expensive — the right scope is the tenant's owned book. So the button is enabled only when `source === 'book'`, and disabled (with a tooltip explanation) on the other tabs.
+
+---
+
 ## Where this lives in the code
 
 A light map for orientation. Treat these as starting points, not boundaries.
@@ -283,11 +522,15 @@ Things this doc deliberately does *not* solve — flagged for the next round of 
 ## What to remember
 
 - **The Workbook is the universe; Plays are the slices.** Resist adding filters to the Workbook.
-- **Tenant ICP ⊇ Offering ICP ⊇ Play Audience.** The hierarchy is the architecture.
+- **Tenant ICP ⊇ Offering ICP ⊇ Play Audience.** The hierarchy is the architecture (documented, not enforced).
 - **Offerings ≠ Products.** Offerings are how you sell. Products are what you build.
+- **One play, one offering.** Multi-offering plays are a v2 problem.
+- **Plays inherit offering ICP live.** Edit the offering ICP → every play that hasn't overridden picks it up.
 - **Plays carry actions. Saved views do not.** That's the line between them.
 - **Confirmation is the moment.** A tenant isn't real to the platform until Priya confirms an offering.
 - **Visibility makes plays leverage.** A play in "Just me" is a draft. A play in "Everyone" is the tenant's playbook.
+- **No CRM, no Tenant Book.** Source tabs and Enrich-with-AI light up only after CRM connect / book upload.
+- **Enrich-with-AI runs on Tenant Book only.** Not on whitespace. The scope is your book.
 - **Alex never configures.** If Alex has to set something up, we've failed Alex.
 
 That's the whole product.
