@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { DEFAULT_TEAMS, listSellers } from '../../data/territoryDesign.js';
 import {
   Sparkles,
   ArrowRight,
@@ -361,6 +362,12 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
     }
   );
 
+  // Teams + sellers for the visibility picker. Teams are static from
+  // territoryDesign seed; sellers come from the live territory state so
+  // newly-invited reps appear without a code change.
+  const allTeams = DEFAULT_TEAMS;
+  const allSellers = useMemo(() => listSellers().filter((s) => s.status === 'active'), []);
+
   function patch(updates) {
     setDraft((prev) => ({ ...prev, ...updates }));
   }
@@ -532,8 +539,77 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
               })}
             </div>
             {draft.visibility === 'team' && (
-              <div className="mt-2 text-[11px] text-text-muted bg-amber-500/5 border border-amber-500/20 rounded p-2">
-                Team picker ships in the next iteration — for now this saves as visible to all teams in the tenant.
+              <div className="mt-3 space-y-3 bg-bg/30 border border-border/60 rounded p-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider font-semibold text-text-muted block mb-1.5">
+                    Teams
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {allTeams.map((t) => {
+                      const selected = (draft.teamIds || []).includes(t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => {
+                            const ids = draft.teamIds || [];
+                            patch({
+                              teamIds: selected
+                                ? ids.filter((id) => id !== t.id)
+                                : [...ids, t.id],
+                            });
+                          }}
+                          className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                            selected
+                              ? 'bg-primary/10 text-primary border-primary/40 font-semibold'
+                              : 'bg-surface border-border text-text-secondary hover:border-primary/30'
+                          }`}
+                          title={t.description}
+                        >
+                          {t.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(draft.teamIds || []).length === 0 && (
+                    <div className="text-[10px] text-text-muted italic mt-1">
+                      No teams selected — this play won't appear in any team's sidebar.
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider font-semibold text-text-muted block mb-1.5">
+                    Individual sellers (optional)
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto thin-scrollbar">
+                    {allSellers.map((s) => {
+                      const selected = (draft.userIds || []).includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            const ids = draft.userIds || [];
+                            patch({
+                              userIds: selected
+                                ? ids.filter((id) => id !== s.id)
+                                : [...ids, s.id],
+                            });
+                          }}
+                          className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                            selected
+                              ? 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/40 font-semibold'
+                              : 'bg-surface border-border text-text-secondary hover:border-violet-500/30'
+                          }`}
+                          title={`${s.role} · ${s.region}`}
+                        >
+                          {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[10px] text-text-muted italic mt-1">
+                    Individual sellers see this play even if they're not in the selected teams.
+                  </div>
+                </div>
               </div>
             )}
           </div>

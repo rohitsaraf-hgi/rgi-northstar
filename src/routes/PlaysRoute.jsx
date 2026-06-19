@@ -13,6 +13,7 @@ import {
   Edit3,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Globe,
   BookOpen,
   ChevronRight,
@@ -20,7 +21,7 @@ import {
   Layers,
   Workflow,
 } from 'lucide-react';
-import { listPlays, getPlay, upsertPlay, deletePlay, subscribePlays, MOTION_LABELS } from '../data/plays.js';
+import { listPlays, getPlay, upsertPlay, deletePlay, subscribePlays, MOTION_LABELS, playReferencesCrm } from '../data/plays.js';
 import { listOfferings } from '../data/offerings.js';
 import { ManagePlayDrawer } from '../components/onboarding/StepPlays.jsx';
 import { AnimatePresence } from 'framer-motion';
@@ -31,7 +32,6 @@ import { getSignalDef, SIGNAL_CATEGORIES } from '../data/rankingSignals.js';
 import { useToast } from '../context/ToastContext.jsx';
 import FilterPanel from '../components/workbook/FilterPanel.jsx';
 import { getIntegrationGovernance } from '../data/integrationGovernance.js';
-import { useTenant } from '../context/TenantContext.jsx';
 import { Filter, X } from 'lucide-react';
 
 // CRM connection detection — used to gate the CRM Filters group inside
@@ -96,6 +96,7 @@ function PlayCard({ play, onOpen }) {
   const hgCount = signals.filter((s) => s.kind === 'hg').length;
   const crmCount = signals.filter((s) => s.kind === 'crm').length;
   const motionLabel = MOTION_LABELS[play.motion] || play.motion;
+  const crmConfigBroken = playReferencesCrm(play) && !detectCrmConnected();
   return (
     <motion.button
       onClick={() => onOpen(play.id)}
@@ -125,6 +126,15 @@ function PlayCard({ play, onOpen }) {
               </span>
             )}
             <ScopeBadge scope={play.surface_scope} />
+            {crmConfigBroken && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/40"
+                title="CRM is disconnected — CRM signals/filters won't fire"
+              >
+                <AlertTriangle size={9} />
+                CRM config
+              </span>
+            )}
           </div>
           <p className="text-xs text-text-secondary leading-relaxed">{play.description}</p>
         </div>
@@ -174,7 +184,6 @@ function VisibilityChip({ visibility }) {
 function PlayDetail({ play, onBack }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { tenant } = useTenant();
   const offering = getOffering(play.offering_id);
   const signals = (play.signals || []).map((id) => getSignalDef(id)).filter(Boolean);
   const hgSignals = signals.filter((s) => s.kind === 'hg');
@@ -183,32 +192,19 @@ function PlayDetail({ play, onBack }) {
   const crmDependent = crmSignals.length > 0;
   const motionLabel = MOTION_LABELS[play.motion] || play.motion;
 
-  // ─── ICP delta detection (soft warn) ─────────────────────────────
-  // Audience hierarchy: tenant ICP ⊇ offering ICP ⊇ play audience.
-  // We warn (never block) when the play reaches past either set.
-  const playIndustries = (play.firmoFilters?.industries || []).filter((i) => i && i !== 'Any');
-  const tenantIndustries = (tenant?.icp?.industries || []).map((i) =>
-    typeof i === 'string' ? i : i?.name,
-  ).filter(Boolean);
-  const offeringIcp =
-    offering?.targetIcp || offering?.targetICP || {};
-  const offeringIndustries = (offeringIcp.industries || []).map((i) =>
-    typeof i === 'string' ? i : i?.name,
-  ).filter(Boolean);
-  const lc = (s) => String(s || '').toLowerCase();
-  const inSet = (list, needle) =>
-    list.some((x) => lc(x) === lc(needle) || lc(x).includes(lc(needle)) || lc(needle).includes(lc(x)));
-  const industriesOutsideTenant = playIndustries.filter((i) => tenantIndustries.length > 0 && !inSet(tenantIndustries, i));
-  const industriesOutsideOffering = playIndustries.filter(
-    (i) => offeringIndustries.length > 0 && !inSet(offeringIndustries, i),
-  );
-  const hasIcpReach = industriesOutsideTenant.length > 0 || industriesOutsideOffering.length > 0;
+  // Audience hierarchy (Tenant ICP ⊇ Offering ICP ⊇ Play Audience) is
+  // documented theory, but NOT enforced at runtime — admins can configure
+  // anything they want. No subset checks, no warnings.
 
   // ─── Audience refinement (per the new model) ─────────────────────
   // Plays narrow the offering's ICP audience via optional HG-firmographic
   // refinements + first-party CRM filters (gated by CRM connection).
   // Filters live on the play and are persisted via configStore.
   const crmConnected = detectCrmConnected();
+  // CRM-disconnected warning: if the play references CRM signals or CRM
+  // filters but no CRM is connected, this play's configuration is broken.
+  const playNeedsCrm = playReferencesCrm(play);
+  const crmConfigBroken = playNeedsCrm && !crmConnected;
   const [audienceFilters, setAudienceFilters] = useState(play.audienceFilters || []);
   const [audiencePanelOpen, setAudiencePanelOpen] = useState(false);
   const persistAudienceFilters = (next) => {
@@ -274,6 +270,29 @@ function PlayDetail({ play, onBack }) {
           Edit conditions
         </button>
       </div>
+
+      {/* CRM-disconnected warning — play references CRM data but no CRM
+          is connected on the tenant. Configuration is broken. */}
+      {crmConfigBroken && (
+        <div className="bg-amber-500/10 border border-amber-500/40 rounded-md p-3 mb-4 flex items-start gap-2.5">
+          <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-0.5">
+              This play references CRM data but no CRM is connected
+            </div>
+            <div className="text-[11px] text-text-secondary leading-relaxed">
+              CRM signals and filters won't fire until a CRM is connected. Connect{' '}
+              <button
+                onClick={() => navigate('/admin/apps')}
+                className="font-mono text-primary hover:underline"
+              >
+                Admin Hub → Integrations
+              </button>{' '}
+              or remove the CRM-dependent criteria from this play.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Signals — the ranking + explanation mechanism */}
       <div className="bg-surface border border-border rounded-md p-4 mb-4">
@@ -360,58 +379,6 @@ function PlayDetail({ play, onBack }) {
         )}
       </div>
 
-      {/* Soft-warn when the play's audience reaches outside the offering
-          ICP or tenant ICP. Never blocks — admins can run plays in
-          adjacent industries with intent. */}
-      {hasIcpReach && (
-        <div className="bg-amber-500/10 border border-amber-500/40 rounded-md p-3 mb-4">
-          <div className="flex items-start gap-2.5">
-            <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-0.5">
-                Audience reaches outside your ICP
-              </div>
-              <div className="text-[11px] text-text-secondary leading-relaxed">
-                {industriesOutsideOffering.length > 0 && (
-                  <div>
-                    <span className="font-medium">{industriesOutsideOffering.length}</span>{' '}
-                    {industriesOutsideOffering.length === 1 ? 'industry' : 'industries'} not in the{' '}
-                    <span className="font-mono">{offering?.name || 'offering'}</span> ICP:{' '}
-                    {industriesOutsideOffering.map((i, idx) => (
-                      <span
-                        key={i}
-                        className="font-mono text-amber-700 dark:text-amber-300"
-                      >
-                        {i}
-                        {idx < industriesOutsideOffering.length - 1 && ', '}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {industriesOutsideTenant.length > 0 && (
-                  <div className="mt-1">
-                    <span className="font-medium">{industriesOutsideTenant.length}</span>{' '}
-                    {industriesOutsideTenant.length === 1 ? 'industry' : 'industries'} not in your{' '}
-                    <span className="font-mono">tenant ICP</span>:{' '}
-                    {industriesOutsideTenant.map((i, idx) => (
-                      <span
-                        key={i}
-                        className="font-mono text-amber-700 dark:text-amber-300"
-                      >
-                        {i}
-                        {idx < industriesOutsideTenant.length - 1 && ', '}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="text-text-muted mt-1.5">
-                  This is a warning, not a block. Plays can target adjacent industries — confirm this is intentional.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Audience refinement — optional HG + CRM filters on top of the
           play's offering ICP. Workbook itself has no filters; slicing the

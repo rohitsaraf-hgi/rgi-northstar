@@ -42,6 +42,65 @@ export function listPlaysForRole(role) {
   return plays.filter((p) => (p.audienceRoles || p.audience_roles || []).includes(role));
 }
 
+// Compute a play's *effective* audience by merging the play's explicit
+// overrides on top of the referenced offering's Target ICP.
+//
+// Per the locked model (see docs/sales-copilot-narrative.md):
+//   - The offering's Target ICP is the play's baseline audience.
+//   - The play stores OVERRIDES in firmoFilters — when a field is empty
+//     on the play, the offering's ICP value is used directly.
+//   - When the offering's ICP changes (admin adds an industry), every
+//     play that hasn't overridden that field auto-inherits the change.
+//
+// Returns the effective audience plus an `_inherited` map so the play
+// editor can render "(inherited)" badges next to inherited fields.
+export function getEffectivePlayAudience(play, offering) {
+  const icp = offering?.targetIcp || offering?.targetICP || {};
+  const offeringIndustries = (icp.industries || [])
+    .map((i) => (typeof i === 'string' ? i : i?.name))
+    .filter(Boolean);
+  const offeringSizeBand = icp.employeeBand || icp.employees || '';
+  const offeringRegions = (icp.geography || icp.geos || [])
+    .map((g) => (typeof g === 'string' ? g : g?.name))
+    .filter(Boolean);
+
+  const ff = play?.firmoFilters || {};
+  const playIndustries = Array.isArray(ff.industries) ? ff.industries.filter(Boolean) : [];
+  const playSizeBand = ff.sizeBand || '';
+  const playRegions = Array.isArray(ff.regions) ? ff.regions.filter(Boolean) : [];
+
+  const industries = playIndustries.length > 0 ? playIndustries : offeringIndustries;
+  const sizeBand = playSizeBand || offeringSizeBand;
+  const regions = playRegions.length > 0 ? playRegions : offeringRegions;
+
+  return {
+    industries,
+    sizeBand,
+    regions,
+    technoFilters: play?.technoFilters || { hasInstalled: [], missingInstall: [], custom: [] },
+    audienceFilters: play?.audienceFilters || [],
+    _inherited: {
+      industries: playIndustries.length === 0,
+      sizeBand: !playSizeBand,
+      regions: playRegions.length === 0,
+    },
+  };
+}
+
+// True if the play references first-party CRM data — either via the legacy
+// CRM signal ids (sig-crm-*) or via spec-driven audienceFilters in the CRM
+// Filters group. Callers (sidebar, play card, play detail) use this with a
+// crmConnected flag to render a config-broken warning.
+export function playReferencesCrm(play) {
+  const signalIds = play?.signals || play?.signalIds || [];
+  if (signalIds.some((id) => typeof id === 'string' && id.startsWith('sig-crm-'))) return true;
+  const audienceFilters = play?.audienceFilters || [];
+  if (audienceFilters.some((f) => f.group === 'CRM Filters' || (f.id || '').startsWith('crm_'))) {
+    return true;
+  }
+  return false;
+}
+
 // Return plays that should be visible to a given persona, honoring the
 // play.visibility setting ('tenant' | 'team' | 'private'). Admins see
 // every play in the tenant (including private ones they didn't create).

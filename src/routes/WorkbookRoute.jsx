@@ -107,7 +107,7 @@ import {
   filterByTab,
   SOURCE_BADGE,
 } from '../data/unifiedWorkbook.js';
-import { getPlay, MOTION_LABELS } from '../data/plays.js';
+import { getPlay, MOTION_LABELS, getEffectivePlayAudience } from '../data/plays.js';
 import { buildPredicates } from '../data/filterRegistry.js';
 
 // ----- Helpers -----
@@ -346,12 +346,20 @@ function SavedViewPicker({ personaId, source, currentView, onChangeView, onSaveA
 
 // ----- Save as modal -----
 
-function SaveAsModal({ open, currentView, onClose, onSave }) {
+function SaveAsModal({ open, currentView, onClose, onSave, isAdmin = false }) {
   const [name, setName] = useState('');
+  const [visibility, setVisibility] = useState('private');
   useEffect(() => {
-    if (open) setName(`${currentView.name} — copy`);
+    if (open) {
+      setName(`${currentView.name} — copy`);
+      setVisibility('private');
+    }
   }, [open, currentView]);
   if (!open) return null;
+  const submit = () => {
+    if (!name.trim()) return;
+    onSave(name.trim(), { visibility });
+  };
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6">
       <motion.div
@@ -362,34 +370,68 @@ function SaveAsModal({ open, currentView, onClose, onSave }) {
         <div className="px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-text-primary">Save current view as…</h2>
           <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-            Captures all filters, columns, and sort settings. New view is private to you.
+            Captures columns, sort, and AI enrichment. Audience stays the tenant ICP.
           </p>
         </div>
-        <div className="px-5 py-4">
-          <label className="text-[10px] uppercase tracking-wider font-semibold text-text-muted block mb-1">
-            View name
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && name.trim()) {
-                onSave(name.trim());
-              } else if (e.key === 'Escape') {
-                onClose();
-              }
-            }}
-            className="w-full px-3 py-2 text-sm bg-surface border border-border rounded text-text-primary focus:border-primary/40 focus:outline-none"
-          />
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider font-semibold text-text-muted block mb-1">
+              View name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim()) submit();
+                else if (e.key === 'Escape') onClose();
+              }}
+              className="w-full px-3 py-2 text-sm bg-surface border border-border rounded text-text-primary focus:border-primary/40 focus:outline-none"
+            />
+          </div>
+          {isAdmin && (
+            <div>
+              <label className="text-[10px] uppercase tracking-wider font-semibold text-text-muted block mb-1.5">
+                Share with
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'private', label: 'Just me', hint: 'Private — only you see this view' },
+                  { id: 'team', label: 'My team', hint: 'Shared with the Account Owners team' },
+                  { id: 'tenant', label: 'Everyone', hint: 'Shared with every seller in the tenant' },
+                ].map((v) => {
+                  const active = visibility === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={() => setVisibility(v.id)}
+                      className={`text-[11px] px-2.5 py-1 rounded border transition-colors ${
+                        active
+                          ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
+                          : 'bg-surface border-border text-text-secondary hover:border-primary/30'
+                      }`}
+                      title={v.hint}
+                    >
+                      {v.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {visibility === 'team' && (
+                <div className="mt-1.5 text-[10px] text-text-muted italic">
+                  Per-team picker ships next iteration — for now "team" shares with Account Owners.
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="px-5 py-3 border-t border-border flex items-center justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary rounded">
             Cancel
           </button>
           <button
-            onClick={() => onSave(name.trim())}
+            onClick={submit}
             disabled={!name.trim()}
             className="px-3 py-1.5 text-xs bg-primary text-white rounded hover:bg-primary-dim disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -1722,7 +1764,12 @@ export default function WorkbookRoute() {
     // panel writes spec-driven audienceFilters. The Workbook honors all of
     // them so what an admin configures is what sellers see.
     if (activePlay) {
-      const fp = activePlay.firmoFilters || {};
+      // Effective audience inherits the offering's Target ICP for any field
+      // the play hasn't explicitly overridden — admins editing the offering
+      // ICP propagate to every play that references the offering.
+      const playOfferingObj = getOffering(activePlay.offering_id || activePlay.offerings?.[0]);
+      const eff = getEffectivePlayAudience(activePlay, playOfferingObj);
+      const fp = { industries: eff.industries, sizeBand: eff.sizeBand, regions: eff.regions };
       const tp = activePlay.technoFilters || {};
 
       // Industries — case-insensitive substring match against account.industry
@@ -1924,8 +1971,14 @@ export default function WorkbookRoute() {
   };
 
   // Save as handler
-  const handleSaveAs = (name) => {
-    const next = saveCurrentAsNewView(personaId, currentView, name);
+  const handleSaveAs = (name, sharing = {}) => {
+    const visibility = sharing.visibility || 'private';
+    const teamIds = visibility === 'team' ? ['account_owners'] : sharing.teamIds || [];
+    const next = saveCurrentAsNewView(personaId, currentView, name, {
+      visibility,
+      teamIds,
+      userIds: sharing.userIds || [],
+    });
     setCurrentViewId(next.id);
     setSaveAsOpen(false);
     showToast(`Saved view "${name}"`, 'success');
@@ -2289,17 +2342,19 @@ export default function WorkbookRoute() {
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto px-6 py-4">
           {activePlay && (() => {
-            // Surface every audience criterion the play has configured so admins
-            // can see *why* this list looks the way it does. Pull from the legacy
-            // firmoFilters / technoFilters AND from the spec-driven audienceFilters.
-            const chips = [];
-            const fp = activePlay.firmoFilters || {};
+            // Surface every audience criterion in play so admins can see why
+            // the list looks the way it does. Industries / size / regions
+            // come from the effective audience (play overrides ∪ inherited
+            // offering ICP); technographic + audienceFilters are play-specific.
+            const playOfferingObj = getOffering(activePlay.offering_id || activePlay.offerings?.[0]);
+            const eff = getEffectivePlayAudience(activePlay, playOfferingObj);
             const tp = activePlay.technoFilters || {};
-            (fp.industries || []).filter((i) => i && i !== 'Any').forEach((i) =>
-              chips.push({ k: 'Industry', v: i }),
+            const chips = [];
+            eff.industries.filter((i) => i && i !== 'Any').forEach((i) =>
+              chips.push({ k: 'Industry', v: i, inherited: eff._inherited.industries }),
             );
-            if (fp.sizeBand) chips.push({ k: 'Size', v: fp.sizeBand });
-            (fp.regions || []).forEach((r) => chips.push({ k: 'Region', v: r }));
+            if (eff.sizeBand) chips.push({ k: 'Size', v: eff.sizeBand, inherited: eff._inherited.sizeBand });
+            eff.regions.forEach((r) => chips.push({ k: 'Region', v: r, inherited: eff._inherited.regions }));
             (tp.hasInstalled || []).forEach((t) => chips.push({ k: 'Has', v: t }));
             (tp.missingInstall || []).forEach((t) => chips.push({ k: 'Missing', v: t }));
             (activePlay.audienceFilters || []).forEach((f) =>
@@ -2314,10 +2369,18 @@ export default function WorkbookRoute() {
                 {chips.map((c, i) => (
                   <span
                     key={i}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-primary/5 border border-primary/20 text-primary"
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] border ${
+                      c.inherited
+                        ? 'bg-text-muted/5 border-border text-text-secondary'
+                        : 'bg-primary/5 border-primary/20 text-primary'
+                    }`}
+                    title={c.inherited ? 'Inherited from offering ICP' : 'Set on this play'}
                   >
                     <span className="text-text-muted text-[9px] uppercase tracking-wider">{c.k}:</span>
                     <span className="font-medium">{c.v}</span>
+                    {c.inherited && (
+                      <span className="text-[9px] text-text-muted italic">(inherited)</span>
+                    )}
                   </span>
                 ))}
               </div>
@@ -2433,6 +2496,7 @@ export default function WorkbookRoute() {
         currentView={currentView}
         onClose={() => setSaveAsOpen(false)}
         onSave={handleSaveAs}
+        isAdmin={isAdmin}
       />
       <EnrichmentModal
         open={enrichOpen}

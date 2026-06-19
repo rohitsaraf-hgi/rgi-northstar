@@ -24,11 +24,12 @@ import {
   Plug,
   Package,
   Gauge,
+  AlertTriangle,
 } from 'lucide-react';
 import { usePersona } from '../../context/PersonaContext.jsx';
 import { listViewsBySource, subscribeViews } from '../../data/workbookViews.js';
 import { getPinnedAccountIds } from '../../data/accounts.js';
-import { listPlays, subscribePlays } from '../../data/plays.js';
+import { listPlays, subscribePlays, playReferencesCrm } from '../../data/plays.js';
 import { getIntegrationGovernance } from '../../data/integrationGovernance.js';
 import { resolveCurrentModule } from './ModuleSwitcher.jsx';
 import PersonaSwitcher from './PersonaSwitcher.jsx';
@@ -50,7 +51,7 @@ function SectionLabel({ children, count }) {
 
 // ─── Single nav row ──────────────────────────────────────────────────
 
-function NavRow({ icon: Icon, label, active, onClick, badge, accent, collapsed, indent = false, dotColor }) {
+function NavRow({ icon: Icon, label, active, onClick, badge, accent, collapsed, indent = false, dotColor, warning, warningTitle }) {
   if (collapsed && !Icon) return null;
   return (
     <button
@@ -67,6 +68,13 @@ function NavRow({ icon: Icon, label, active, onClick, badge, accent, collapsed, 
       )}
       {Icon && <Icon size={13} className={`flex-shrink-0 ${active ? '' : 'opacity-80'}`} />}
       {!collapsed && <span className="flex-1 text-left truncate">{label}</span>}
+      {!collapsed && warning && (
+        <AlertTriangle
+          size={11}
+          className="text-amber-600 dark:text-amber-400 flex-shrink-0"
+          aria-label={warningTitle || 'Configuration warning'}
+        />
+      )}
       {!collapsed && badge && (
         <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${accent || 'bg-surface-2 text-text-muted'}`}>
           {badge}
@@ -243,6 +251,13 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
                         onClick={() => navigate(`/workbook?view=${v.id}&source=${v.source || 'book'}`)}
                         collapsed={collapsed}
                         indent
+                        badge={
+                          v.shared
+                            ? v.visibility === 'tenant'
+                              ? 'Shared'
+                              : 'Team'
+                            : undefined
+                        }
                       />
                     ))}
                     {allViews.length > 6 && (
@@ -266,6 +281,11 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
                 <div className="space-y-0.5">
                   {activePlays.slice(0, 6).map((p) => {
                     const playFilterActive = new URLSearchParams(location.search).get('play') === p.id;
+                    // Show a config warning on plays that reference CRM
+                    // data when no CRM is connected.
+                    const crmBroken =
+                      playReferencesCrm(p) && connectedIntegrations.indexOf('salesforce') === -1
+                        && connectedIntegrations.indexOf('hubspot') === -1;
                     return (
                       <NavRow
                         key={p.id}
@@ -275,6 +295,8 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
                         onClick={() => navigate(`/workbook?source=all&play=${p.id}`)}
                         collapsed={collapsed}
                         indent
+                        warning={crmBroken}
+                        warningTitle="This play references CRM data — connect a CRM to enable it"
                       />
                     );
                   })}

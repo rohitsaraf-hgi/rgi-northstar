@@ -242,7 +242,9 @@ const LEGACY_PLAYS_BY_ID = Object.fromEntries(LEGACY_PLAYS.map((p) => [p.id, p])
 // Schema version for the plays slice. Bump when seed audience values
 // change in a way that should overwrite cached state once. After the
 // migration runs, admin edits persist normally.
-const PLAYS_SCHEMA_VERSION = 2;
+// v3: stripped industries/regions from seeded plays so they inherit
+//     offering Target ICP via getEffectivePlayAudience().
+const PLAYS_SCHEMA_VERSION = 3;
 
 function migrateStaleState(parsed) {
   const needsPlaysReseed = (parsed.playsSchemaVersion || 0) < PLAYS_SCHEMA_VERSION;

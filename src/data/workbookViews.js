@@ -1,18 +1,41 @@
-// Workbook saved views — per-persona localStorage.
+// Workbook saved views.
 //
 // A view is a complete workbook configuration:
 //   - filters (offering lens, signal kinds, tier, journey stage)
 //   - columns (built-in + enriched)
 //   - sort
+//   - visibility / sharing (private | tenant | team)
 //
-// Each persona has their own views. Ship 3 starter views per persona; reps can
-// duplicate / rename / delete / mark default.
+// Storage layout:
+//   - rgi-workbook-views-{personaId}  — that persona's PRIVATE views
+//   - rgi-workbook-views-shared       — global bucket of shared views,
+//                                       filtered by visibility on read.
+//
+// listViewsBySource(personaId, source) returns the union: private views
+// owned by the persona, plus shared views the persona has access to
+// based on their team membership.
 
 const STORAGE_KEY_PREFIX = 'rgi-workbook-views-';
+const SHARED_STORAGE_KEY = 'rgi-workbook-views-shared';
 const CHANGE_EVENT = 'rgi:workbook-views-changed';
 
 function keyFor(personaId) {
   return `${STORAGE_KEY_PREFIX}${personaId}`;
+}
+
+// Persona → team membership lookup. Admins implicitly see every shared
+// view regardless of team. Sellers see tenant-wide views plus views
+// shared with teams they belong to plus views explicitly listing them.
+// Kept tiny + inline so we don't take a runtime dep on territoryDesign.
+const PERSONA_TEAM_MAP = {
+  alex: ['account_owners'],
+  riley: ['account_owners'],
+  jordan: ['csms'],
+  maya: ['account_owners'],
+  priya: ['account_owners', 'csms', 'sdrs'], // admin — sees all
+};
+function personaTeamIds(personaId) {
+  return PERSONA_TEAM_MAP[personaId] || ['account_owners'];
 }
 
 // Built-in column registry — keys reference table column renderers.
@@ -186,6 +209,44 @@ export function subscribeViews(onChange) {
   return () => window.removeEventListener(CHANGE_EVENT, handler);
 }
 
+// ─── Shared views store ──────────────────────────────────────────────
+
+function readSharedViews() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(SHARED_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSharedViews(views) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SHARED_STORAGE_KEY, JSON.stringify(views));
+    window.dispatchEvent(new Event(CHANGE_EVENT));
+  } catch {
+    // ignore quota
+  }
+}
+
+// Visibility check: is this shared view accessible to the given persona?
+function sharedViewVisibleTo(view, personaId) {
+  const v = view.visibility || 'tenant';
+  if (v === 'tenant') return true;
+  if (v === 'team') {
+    const teams = personaTeamIds(personaId);
+    return (view.teamIds || []).some((t) => teams.includes(t));
+  }
+  if (v === 'users') {
+    return (view.userIds || []).includes(personaId);
+  }
+  return false;
+}
+
 // ----- CRUD -----
 
 function genId() {
@@ -202,23 +263,52 @@ export function getDefaultView(personaId, source = 'book') {
   return views.find((v) => v.isDefault && (v.source || 'book') === source) || views.find((v) => (v.source || 'book') === source) || views[0];
 }
 
-// Views filtered to a given source (book | whitespace).
+// Views filtered to a given source (book | whitespace). Returns the
+// union of the persona's PRIVATE views plus SHARED views the persona
+// has access to (tenant-wide, team-shared they belong to, or
+// explicitly listed for the persona). Shared views are tagged with a
+// `shared: true` flag so the sidebar can render a "shared" indicator.
 export function listViewsBySource(personaId, source) {
-  return readViews(personaId).filter((v) => (v.source || 'book') === source);
+  const personal = readViews(personaId).filter((v) => (v.source || 'book') === source);
+  const shared = readSharedViews()
+    .filter((v) => (v.source || 'book') === source)
+    .filter((v) => v.ownerId !== personaId) // owner already has the private copy
+    .filter((v) => sharedViewVisibleTo(v, personaId))
+    .map((v) => ({ ...v, shared: true }));
+  return [...personal, ...shared];
 }
 
-export function saveCurrentAsNewView(personaId, currentView, name) {
-  const views = readViews(personaId);
+// Save a workbook view. Visibility decides storage routing:
+//   - 'private' (default): personal store only
+//   - 'tenant': shared store, visible to all personas
+//   - 'team':   shared store, visible only to personas in teamIds
+//   - 'users':  shared store, visible only to personas in userIds
+//
+// In all cases we also keep a copy in the OWNER's personal store so they
+// see their own view alongside others' shared ones (and can edit / delete
+// it without team-wide permissions checks).
+export function saveCurrentAsNewView(personaId, currentView, name, sharing = {}) {
+  const id = genId();
+  const visibility = sharing.visibility || 'private';
   const next = {
     ...currentView,
-    id: genId(),
+    id,
     name: name || `${currentView.name} (copy)`,
     source: currentView.source || 'book',
     isDefault: false,
+    ownerId: personaId,
+    visibility,
+    teamIds: sharing.teamIds || [],
+    userIds: sharing.userIds || [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  writeViews(personaId, [...views, next]);
+  // Always write a personal copy for the owner.
+  writeViews(personaId, [...readViews(personaId), next]);
+  // If shared, also push into the shared store so other personas see it.
+  if (visibility !== 'private') {
+    writeSharedViews([...readSharedViews(), next]);
+  }
   return next;
 }
 

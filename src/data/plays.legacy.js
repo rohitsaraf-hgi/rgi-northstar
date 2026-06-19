@@ -25,11 +25,11 @@ export const PLAYS = [
     eligibility: { min_offering_fit: 60 },
     // Audience defaults tracking the tenant ICP. The wizard / play editor
     // can narrow further; soft-warn if anyone reaches outside this set.
-    firmoFilters: {
-      industries: ['Banking and Financial Services', 'Computer and Electronic Product Manufacturing'],
-      sizeBand: '1,000+ employees',
-      regions: ['United States'],
-    },
+    // firmoFilters intentionally left empty — play inherits the offering's
+    // Target ICP at filter time via getEffectivePlayAudience(). Admin can
+    // explicitly narrow further in the play editor; those narrowings are
+    // stored here as overrides.
+    firmoFilters: { industries: [], sizeBand: '1,000+ employees', regions: [] },
     technoFilters: {
       hasInstalled: ['Palo Alto Prisma Cloud', 'Lacework Polygraph', 'Orca Security'],
       missingInstall: [],
@@ -62,11 +62,9 @@ export const PLAYS = [
     surface_scope: 'whitespace',
     is_default_chip: true,
     eligibility: { min_offering_fit: 70 },
-    firmoFilters: {
-      industries: ['Banking and Financial Services', 'Computer and Electronic Product Manufacturing'],
-      sizeBand: '500+ employees',
-      regions: ['United States'],
-    },
+    // firmoFilters left empty so the play inherits the offering's Target
+    // ICP at filter time. Admin can narrow further via the play editor.
+    firmoFilters: { industries: [], sizeBand: '500+ employees', regions: [] },
     technoFilters: {
       hasInstalled: [],
       missingInstall: ['Palo Alto Prisma Cloud', 'Lacework', 'Orca Security'],
@@ -98,11 +96,11 @@ export const PLAYS = [
     surface_scope: 'book',
     is_default_chip: true,
     eligibility: { min_offering_fit: 60 },
-    firmoFilters: {
-      industries: ['Banking and Financial Services', 'Computer and Electronic Product Manufacturing'],
-      sizeBand: '1,000+ employees',
-      regions: ['United States'],
-    },
+    // firmoFilters intentionally left empty — play inherits the offering's
+    // Target ICP at filter time via getEffectivePlayAudience(). Admin can
+    // explicitly narrow further in the play editor; those narrowings are
+    // stored here as overrides.
+    firmoFilters: { industries: [], sizeBand: '', regions: [] },
     technoFilters: {
       hasInstalled: ['Wiz Cloud Security Platform'],
       missingInstall: [],
