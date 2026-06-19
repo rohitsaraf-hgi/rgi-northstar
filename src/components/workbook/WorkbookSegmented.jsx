@@ -154,10 +154,12 @@ function CompactAccountRow({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onOpenChat(account);
+                    // Pass the section's offering id so the chat preloads
+                    // the right offering lens — context follows the click.
+                    onOpenChat(account, offering?.id);
                   }}
                   className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
-                  title={`Open AI chat for ${account.name}`}
+                  title={`Open AI chat for ${account.name} · ${offering?.name || 'all offerings'} lens`}
                 >
                   <Bot size={11} />
                 </button>

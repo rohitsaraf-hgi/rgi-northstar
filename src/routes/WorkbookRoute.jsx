@@ -1718,6 +1718,20 @@ export default function WorkbookRoute() {
     setSearchParams(params, { replace: true });
   };
 
+  // Build the URL for the account-chat hand-off. Context follows the click:
+  //   - From a segmented section → that section's offering preloads.
+  //   - From a play view → the play's offering preloads.
+  //   - From the flat / All Companies view → no lens (defaults to "All offerings").
+  const buildAccountChatUrl = (account, explicitLensId) => {
+    const lens =
+      explicitLensId ||
+      activePlay?.offering_id ||
+      activePlay?.offerings?.[0] ||
+      null;
+    const base = `/account/${account.id}?tab=chat`;
+    return lens ? `${base}&offering=${lens}` : base;
+  };
+
   // Workbook audience is the tenant ICP. Slicing happens via Sales Plays.
   // Saved views capture columns + sort + AI enrichment only — no audience
   // refinement. The play overlay (when active) is the only in-Workbook slicer.
@@ -2519,7 +2533,7 @@ export default function WorkbookRoute() {
               accounts={sortedAccounts}
               offerings={tableOfferings}
               onOpenAccount={(a) => navigate(`/account/${a.id}`)}
-              onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
+              onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
               enrichedCols={enrichedCols}
               onRemoveEnrichedColumn={handleRemoveColumn}
             />
@@ -2529,7 +2543,7 @@ export default function WorkbookRoute() {
               offerings={listOfferings()}
               source={source}
               onOpenAccount={(a) => navigate(`/account/${a.id}`)}
-              onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
+              onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
               onActivate={(a, offeringId) => navigate(`/account/${a.id}?offering=${offeringId}`)}
               onAddToBook={(a, offeringId) => {
                 setAddToBookAccount(a);
@@ -2549,7 +2563,7 @@ export default function WorkbookRoute() {
               accounts={sortedAccounts}
               offerings={tableOfferings}
               onOpenAccount={(a) => handleRowClick(a)}
-              onOpenAccountChat={(a) => navigate(`/account/${a.id}?tab=chat`)}
+              onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
               showSourceColumn
               showHgIntelligence
               columnSet="admin-flat"

@@ -221,6 +221,28 @@ The seller experience is:
 
 Alex's mental loop: *open the workbook → pick a play → work the top accounts → take the suggested actions*. That's the whole game.
 
+### Context follows the click — chat handoff
+
+When Alex (or Priya) clicks the AI-chat bot icon next to an account name, the chat opens **with the offering lens preloaded based on where the click came from**:
+
+| Click origin | Offering lens preloaded in the chat |
+|---|---|
+| **Flat / All Companies view** | `All offerings` (none — admin/seller is scanning across products) |
+| **Segmented view section** | The section's offering (e.g. clicking the bot inside the "Wiz Cloud Security Platform" section preloads CSP) |
+| **Play view** | The play's offering (one play = one offering — that's the lens) |
+| **Seller "My Book" flat view** | `All offerings` |
+
+The AccountThread reads `?offering=<id>` from the URL and seeds the lens state. The lens then drives:
+
+- Which plays surface as recommended in the Plays tab
+- Which signals are emphasized in the Overview
+- Which stakeholders the chat suggests
+- Which workflow bundle the chat offers
+
+Implementation contract: every chat-trigger surface (`WorkbookSegmented`, the SellerWorkbookTable flat row, the play-view flat row) calls `onOpenAccountChat(account, offeringId)` with the right offering. WorkbookRoute's `buildAccountChatUrl` helper centralizes the URL composition — segmented passes the section's offering; play mode falls back to `activePlay.offering_id`; flat falls back to no lens.
+
+This is the rule: **where you click determines what the AI assumes you want to talk about.** No second-guess prompt, no "what offering are we looking at?" — the click carried it.
+
 ---
 
 ## The mental model in one diagram
@@ -587,6 +609,7 @@ Things this doc deliberately does *not* solve — flagged for the next round of 
 - **One play, one offering.** Multi-offering plays are a v2 problem.
 - **Plays inherit offering ICP live.** Edit the offering ICP → every play that hasn't overridden picks it up.
 - **Every offering has a scoring model.** The attached model produces the fit score. Swap or edit the model → fit scores across the workbook shift immediately. `offering.scoringModelId` is the link.
+- **Context follows the click.** Where the seller clicks the chat bot determines which offering lens preloads — flat = all, segmented = section's offering, play = play's offering.
 - **Plays carry actions. Saved views do not.** That's the line between them.
 - **Confirmation is the moment.** A tenant isn't real to the platform until Priya confirms an offering.
 - **Visibility makes plays leverage.** A play in "Just me" is a draft. A play in "Everyone" is the tenant's playbook.
