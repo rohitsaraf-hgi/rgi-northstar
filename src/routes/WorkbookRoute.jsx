@@ -2100,6 +2100,41 @@ export default function WorkbookRoute() {
                   onEdit={() => navigate('/admin/tenant')}
                 />
               )}
+              {/* Play-mode offering tile. Each play targets exactly one
+                  offering — surface it prominently so admins know what they
+                  are filtering toward. Click navigates to the offering's
+                  config page (still under /admin/offerings for now). */}
+              {activePlay && (() => {
+                const playOffering = getOffering(
+                  activePlay.offering_id || activePlay.offerings?.[0],
+                );
+                if (!playOffering) return null;
+                return (
+                  <button
+                    onClick={() => navigate(`/admin/offerings/${playOffering.id}`)}
+                    className={`mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-md border text-[11px] hover:opacity-90 transition-opacity ${
+                      playOffering.bg || 'bg-primary/10'
+                    } ${playOffering.borderColor || 'border-primary/30'}`}
+                    title="View offering"
+                  >
+                    <Package size={11} className={playOffering.textColor || 'text-primary'} />
+                    <span className="text-text-muted text-[9px] uppercase tracking-wider font-semibold">Offering:</span>
+                    <span className={`font-semibold ${playOffering.textColor || 'text-primary'}`}>
+                      {playOffering.name}
+                    </span>
+                    {playOffering.targetIcp?.industries?.length > 0 && (
+                      <span className="text-text-muted">
+                        · {playOffering.targetIcp.industries.length} industries
+                      </span>
+                    )}
+                    {playOffering.targetIcp?.employeeBand && (
+                      <span className="text-text-muted">
+                        · {playOffering.targetIcp.employeeBand}
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
               {/* CRM upload / connect banner — shown when the tenant has
                   neither a book nor a CRM connected. Unlocks the Tenant
                   Book + Needs Review tabs and Enrich-with-AI. */}
@@ -2144,33 +2179,38 @@ export default function WorkbookRoute() {
                     isAdmin={isAdmin}
                     bookEmpty={isAdmin && workbookState.isEmptyTenant}
                   />
-                  {/* View-mode toggle — segmented (per-offering sections) vs flat (single table) */}
-                  <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
-                    <button
-                      onClick={() => setViewMode('segmented')}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                        viewMode === 'segmented'
-                          ? 'bg-primary/15 text-primary font-semibold'
-                          : 'text-text-secondary hover:text-text-primary'
-                      }`}
-                      title="Stack sections per offering"
-                    >
-                      <Layers size={11} />
-                      Segmented
-                    </button>
-                    <button
-                      onClick={() => setViewMode('flat')}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                        viewMode === 'flat'
-                          ? 'bg-primary/15 text-primary font-semibold'
-                          : 'text-text-secondary hover:text-text-primary'
-                      }`}
-                      title="Single flat table"
-                    >
-                      <TableIcon size={11} />
-                      Flat
-                    </button>
-                  </div>
+                  {/* View-mode toggle — only meaningful in the master
+                      workbook. Plays are single-offering by definition, so
+                      the segmented/flat choice doesn't apply when a play is
+                      active. We force flat and hide the toggle. */}
+                  {!activePlay && (
+                    <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
+                      <button
+                        onClick={() => setViewMode('segmented')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
+                          viewMode === 'segmented'
+                            ? 'bg-primary/15 text-primary font-semibold'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                        title="Stack sections per offering"
+                      >
+                        <Layers size={11} />
+                        Segmented
+                      </button>
+                      <button
+                        onClick={() => setViewMode('flat')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
+                          viewMode === 'flat'
+                            ? 'bg-primary/15 text-primary font-semibold'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                        title="Single flat table"
+                      >
+                        <TableIcon size={11} />
+                        Flat
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
               <SavedViewPicker
@@ -2197,35 +2237,18 @@ export default function WorkbookRoute() {
                 <Save size={11} />
                 Save view
               </button>
-              {/* Enrich-with-AI is restricted to the Tenant Book. Running
-                  AI questions across all-companies / whitespace is wasteful
-                  (hundreds of thousands of rows). Scope = your book. */}
-              {(() => {
-                const enrichEnabled = source === 'book';
-                return (
-                  <button
-                    onClick={() => enrichEnabled && setEnrichOpen(true)}
-                    disabled={!enrichEnabled}
-                    title={
-                      enrichEnabled
-                        ? 'Ask any question across your tenant book — answers become columns'
-                        : source === 'whitespace'
-                        ? 'Enrich runs on your tenant book only. Switch to Tenant Book to enrich.'
-                        : workbookState.isEmptyTenant
-                        ? 'Connect a CRM or upload accounts to unlock Enrich-with-AI.'
-                        : 'Switch to the Tenant Book tab to enrich.'
-                    }
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-opacity shadow-card ${
-                      enrichEnabled
-                        ? 'bg-gradient-to-r from-primary to-violet-500 text-white hover:opacity-90'
-                        : 'bg-surface-2 text-text-muted cursor-not-allowed opacity-60'
-                    }`}
-                  >
-                    <Wand2 size={11} />
-                    Enrich with AI
-                  </button>
-                );
-              })()}
+              {/* Enrich-with-AI runs across whichever tab is active. Per
+                  the locked product decision, enriched columns persist
+                  across All Companies / Tenant Book / Whitespace / Needs
+                  Review — they live on the saved view, not the tab. */}
+              <button
+                onClick={() => setEnrichOpen(true)}
+                title="Ask any question across the current view — answers become columns"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
+              >
+                <Wand2 size={11} />
+                Enrich with AI
+              </button>
               {/* Sync button — admin-only. Sellers don't sync books to CRM. */}
               {!isSeller && (
                 <button
@@ -2495,7 +2518,7 @@ export default function WorkbookRoute() {
               enrichedCols={enrichedCols}
               onRemoveEnrichedColumn={handleRemoveColumn}
             />
-          ) : viewMode === 'segmented' ? (
+          ) : (viewMode === 'segmented' && !activePlay) ? (
             <WorkbookSegmented
               accounts={sortedAccounts}
               offerings={listOfferings()}

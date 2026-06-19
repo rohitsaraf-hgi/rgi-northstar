@@ -461,20 +461,43 @@ Columns (per-offering section):
 
 The two views share the same row-set (every Account in the tenant ICP). They differ only in column layout and grouping.
 
+### Subsidiary hierarchy — disclosure rows
+
+When an account has known subsidiaries (e.g. JPMorgan → Chase Bank, JPM Asset Mgmt, JPM Securities), the company name carries a clickable `+N subsidiaries` chip. Clicking expands subsidiary disclosure rows below the parent — indented `↳ Subsidiary Name` with the subsidiary's employee count in the Emp column and dimmed cells everywhere else. Clicking again collapses. Per-account expansion state is local to the table component (intentional — clearing on remount is fine for the prototype).
+
+This works identically in Flat and Segmented views.
+
+---
+
+## Play mode — single flat table, single offering
+
+When a sales play is active, the Workbook switches to a focused "play view":
+
+- **Always flat.** Plays target exactly one offering, so there's no segmentation to do. The Segmented/Flat toggle is hidden in play mode.
+- **Offering tile at top.** A pill under the play header surfaces the offering this play targets, with a snapshot of its ICP (industry count, size band) and a click-through to the offering's config page. Clarifies what universe the play is filtering.
+- **Same row-set as Workbook**, narrowed by the play's effective audience (offering ICP + technographic + intent + signals + CRM filters).
+
+This makes the conceptual difference explicit:
+
+> **Segmented view in the Workbook** is *filter by offering ICP* — what does my market look like sliced by product?
+> **Play view** is *filter by offering ICP plus everything else* — narrower than ICP, with signals + technographic + CRM constraints layered on.
+
 ---
 
 ## CRM-gated experience
 
-Until the tenant connects a CRM or uploads a book of accounts, the Workbook only knows about HG-side accounts (whitespace). That changes the Workbook in three meaningful ways:
+Until the tenant connects a CRM or uploads a book of accounts, the Workbook only knows about HG-side accounts (whitespace). That changes the Workbook in two meaningful ways:
 
 | State | Behavior |
 |---|---|
-| **No CRM connected, no book uploaded** | Workbook shows only the **Whitespace** view. A banner at the top of the workbook reads: *"Upload your book of accounts or connect a CRM to unlock Tenant Book + Enrich-with-AI."* Source tabs are hidden — there's nothing to switch between. Enrich-with-AI is disabled. |
-| **CRM connected OR book uploaded** | Source tabs unlock: **All Companies / Tenant Book / Whitespace / Needs Review**. Enrich-with-AI is enabled — but **only on the Tenant Book tab**. |
+| **No CRM connected, no book uploaded** | Workbook shows only the **Whitespace** view. A banner at the top reads: *"Upload your book of accounts or connect a CRM to unlock Tenant Book + Enrich-with-AI."* Source tabs are still rendered but the Tenant Book tab is disabled. |
+| **CRM connected OR book uploaded** | Source tabs unlock fully: **All Companies / Tenant Book / Whitespace / Needs Review**. |
 
-### Why Enrich-with-AI is restricted to Tenant Book
+### Enrich-with-AI runs across the active tab
 
-Enrich-with-AI runs the asked question across every row in the current view. The HG whitespace can be hundreds of thousands of accounts. Running an LLM question across all of them is wasteful and expensive — the right scope is the tenant's owned book. So the button is enabled only when `source === 'book'`, and disabled (with a tooltip explanation) on the other tabs.
+Enrich-with-AI is **not** scoped to one tab. It runs across whatever the current source view contains. Enriched columns are stored on the saved Workbook view (not the tab), so a column added while viewing Whitespace remains visible when the admin switches to Tenant Book or All Companies. This is intentional — enriched data is account-keyed, not source-keyed.
+
+Engineering will need to decide how this scales: enriching across hundreds of thousands of whitespace rows is expensive. Options on the table: (a) lazy enrichment in batches, (b) cap enriched columns to N visible rows in the table, (c) background materialization at upload/sync time. Pick one before this hits production scale.
 
 ---
 
@@ -521,7 +544,7 @@ Things this doc deliberately does *not* solve — flagged for the next round of 
 - **Confirmation is the moment.** A tenant isn't real to the platform until Priya confirms an offering.
 - **Visibility makes plays leverage.** A play in "Just me" is a draft. A play in "Everyone" is the tenant's playbook.
 - **No CRM, no Tenant Book.** Source tabs and Enrich-with-AI light up only after CRM connect / book upload.
-- **Enrich-with-AI runs on Tenant Book only.** Not on whitespace. The scope is your book.
+- **Enrich-with-AI runs across whatever tab you're on.** Enriched columns live on the saved view, not the tab — they persist across All Companies / Book / Whitespace / Needs Review. (Engineering still owes us a scale story for whitespace enrichment.)
 - **Alex never configures.** If Alex has to set something up, we've failed Alex.
 
 That's the whole product.

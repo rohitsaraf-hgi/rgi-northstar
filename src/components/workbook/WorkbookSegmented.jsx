@@ -10,7 +10,7 @@
 //   - Empty state per section when no accounts match the offering's ICP
 //   - Section header shows offering accent + count + mini tier distribution
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -22,6 +22,7 @@ import {
   Swords,
   Handshake,
   Bot,
+  CornerDownRight,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
 import { getRGIF } from '../../data/workbookRGIF.js';
@@ -99,6 +100,8 @@ function CompactAccountRow({
   account,
   offering,
   isBook,
+  isExpanded,
+  onToggleExpand,
   onOpen,
   onActivate,
   onAddToBook,
@@ -153,7 +156,11 @@ function CompactAccountRow({
                   <Bot size={11} />
                 </button>
               )}
-              <SubsidiariesIndicator subsidiaries={account.subsidiaries} />
+              <SubsidiariesIndicator
+                subsidiaries={account.subsidiaries}
+                expanded={isExpanded}
+                onToggle={onToggleExpand}
+              />
             </div>
             <div className="text-[10px] text-text-muted truncate">
               {account.industry || '—'}{account.fai?.hq ? ` · ${account.fai.hq}` : ''}
@@ -201,6 +208,17 @@ function OfferingSection({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [topN] = useState(TOP_N_DEFAULT);
+  // Subsidiary expand/collapse, scoped per section so an account expanded
+  // in one section doesn't auto-expand in another.
+  const [expandedSubs, setExpandedSubs] = useState(() => new Set());
+  const toggleSubs = (accountId) => {
+    setExpandedSubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  };
 
   // Rank accounts by their fit-for-this-offering score; drop anything with
   // null score (didn't match the offering at all). resolveFit handles both
@@ -289,21 +307,52 @@ function OfferingSection({
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.map((r) => (
-                    <CompactAccountRow
-                      key={r.account.id}
-                      account={r.account}
-                      offering={offering}
-                      isBook={r.account.source !== 'hg'}
-                      onOpen={onOpenAccount}
-                      onOpenChat={onOpenAccountChat}
-                      onActivate={onActivate}
-                      onAddToBook={onAddToBook}
-                      tenantCompetitors={tenantCompetitors}
-                      tenantIntentTopics={tenantIntentTopics}
-                      tenantComplementaryTech={tenantComplementaryTech}
-                    />
-                  ))}
+                  {visible.map((r) => {
+                    const isExpanded = expandedSubs.has(r.account.id);
+                    const subs = Array.isArray(r.account.subsidiaries) ? r.account.subsidiaries : [];
+                    return (
+                      <Fragment key={r.account.id}>
+                        <CompactAccountRow
+                          account={r.account}
+                          offering={offering}
+                          isBook={r.account.source !== 'hg'}
+                          isExpanded={isExpanded}
+                          onToggleExpand={() => toggleSubs(r.account.id)}
+                          onOpen={onOpenAccount}
+                          onOpenChat={onOpenAccountChat}
+                          onActivate={onActivate}
+                          onAddToBook={onAddToBook}
+                          tenantCompetitors={tenantCompetitors}
+                          tenantIntentTopics={tenantIntentTopics}
+                          tenantComplementaryTech={tenantComplementaryTech}
+                        />
+                        {isExpanded && subs.map((sub, idx) => {
+                          const subName = typeof sub === 'string' ? sub : sub.name;
+                          const subEmp = typeof sub === 'object' ? sub.employees : '';
+                          return (
+                            <tr
+                              key={`${r.account.id}-sub-${idx}`}
+                              className="border-b border-border/30 bg-violet-500/[0.03]"
+                            >
+                              <td className="px-3 py-1.5">
+                                <div className="flex items-center gap-1.5 pl-8">
+                                  <CornerDownRight size={11} className="text-violet-500/70 flex-shrink-0" />
+                                  <span className="text-[12px] text-text-secondary">{subName}</span>
+                                </div>
+                              </td>
+                              <td className="px-2 py-1.5 text-right text-[11px] text-text-secondary font-mono">
+                                {subEmp || '—'}
+                              </td>
+                              {/* Revenue · BC · Competitive · Intent · Partner · HG Intelligence */}
+                              {Array.from({ length: 6 }).map((_, i) => (
+                                <td key={i} className="px-2 py-1.5 text-[10px] text-text-muted">—</td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
 

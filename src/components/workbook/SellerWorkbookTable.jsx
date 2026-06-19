@@ -1,3 +1,5 @@
+import { Fragment, useState } from 'react';
+
 // SellerWorkbookTable — opinionated flat table for sellers (Alex's view).
 //
 // Per the spec: sellers always work off their book. The workbook IS their book.
@@ -28,6 +30,9 @@ import {
   Building2,
   MapPin,
   GitBranch,
+  ChevronDown,
+  ChevronRight,
+  CornerDownRight,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
 
@@ -73,17 +78,31 @@ export function BuyingCommitteeCell({ count, roles }) {
 
 // Subsidiary hierarchy chip. Renders below the company name when the
 // account has known subsidiaries. Hover lists them.
-export function SubsidiariesIndicator({ subsidiaries }) {
+export function SubsidiariesIndicator({ subsidiaries, expanded, onToggle }) {
   if (!Array.isArray(subsidiaries) || subsidiaries.length === 0) return null;
   const names = subsidiaries.map((s) => (typeof s === 'string' ? s : s.name)).filter(Boolean);
   return (
-    <span
-      className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/30 font-medium"
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle?.();
+      }}
+      className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border font-medium transition-colors ${
+        expanded
+          ? 'bg-violet-500/20 text-violet-700 dark:text-violet-300 border-violet-500/50'
+          : 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30 hover:bg-violet-500/20'
+      }`}
       title={`Subsidiaries: ${names.join(', ')}`}
     >
+      {expanded ? (
+        <ChevronDown size={9} className="transition-transform" />
+      ) : (
+        <ChevronRight size={9} className="transition-transform" />
+      )}
       <GitBranch size={8} />
       +{names.length} {names.length === 1 ? 'subsidiary' : 'subsidiaries'}
-    </span>
+    </button>
   );
 }
 
@@ -373,6 +392,16 @@ export default function SellerWorkbookTable({
 }) {
   const isAdminFlat = columnSet === 'admin-flat';
   const { tenant } = useTenant();
+  // Expand/collapse state for subsidiary rows. Keyed by account id.
+  const [expandedSubs, setExpandedSubs] = useState(() => new Set());
+  const toggleSubsidiaries = (accountId) => {
+    setExpandedSubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  };
   const tenantSpendCategories = tenant?.spendCategories || [];
   // Aggregate tenant context from all confirmed offerings — these are the
   // signals the seller's RevOps admin configured. Dedupe across offerings.
@@ -509,10 +538,16 @@ export default function SellerWorkbookTable({
               offering: o,
               score: resolveOfferingFit(account.id, o)?.score ?? null,
             }));
+            const isExpanded = expandedSubs.has(account.id);
+            const subs = Array.isArray(account.subsidiaries) ? account.subsidiaries : [];
+            // Total table column count, for the disclosure row's spacer cells.
+            const offeringColCount = confirmedOfferings.length;
+            const middleColCount = 4; // Emp + Revenue + 4 columns (BC/Spend/HQ/Industry OR Comp/Intent/Partner/Spend) — 4 of them sit after Emp/Revenue
+            const trailingCount = (showHgIntelligence ? 1 : 0) + enrichedCols.length;
 
             return (
+              <Fragment key={account.id}>
               <tr
-                key={account.id}
                 onClick={() => onOpenAccount?.(account)}
                 className="border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors"
               >
@@ -540,7 +575,11 @@ export default function SellerWorkbookTable({
                         >
                           <Bot size={11} />
                         </button>
-                        <SubsidiariesIndicator subsidiaries={account.subsidiaries} />
+                        <SubsidiariesIndicator
+                          subsidiaries={account.subsidiaries}
+                          expanded={isExpanded}
+                          onToggle={() => toggleSubsidiaries(account.id)}
+                        />
                       </div>
                       {/* In admin-flat mode, industry + HQ live in their own
                           columns. In seller mode keep them inline under the
@@ -635,6 +674,42 @@ export default function SellerWorkbookTable({
                   );
                 })}
               </tr>
+              {/* Subsidiary disclosure rows — indented child rows for any
+                  subsidiaries the parent has, when the user clicks the
+                  "+N subsidiaries" chip. Other columns dim to keep the
+                  parent the visual focus. */}
+              {isExpanded && subs.map((sub, idx) => {
+                const subName = typeof sub === 'string' ? sub : sub.name;
+                const subEmp = typeof sub === 'object' ? sub.employees : '';
+                return (
+                  <tr
+                    key={`${account.id}-sub-${idx}`}
+                    className="border-b border-border/30 bg-violet-500/[0.03]"
+                  >
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-1.5 pl-9">
+                        <CornerDownRight size={11} className="text-violet-500/70 flex-shrink-0" />
+                        <span className="text-[12px] text-text-secondary">{subName}</span>
+                      </div>
+                    </td>
+                    {showSourceColumn && <td className="px-2 py-1.5 text-[10px] text-text-muted">—</td>}
+                    {Array.from({ length: offeringColCount }).map((_, i) => (
+                      <td key={i} className="px-2 py-1.5 text-center text-[10px] text-text-muted">—</td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right text-[11px] text-text-secondary font-mono">
+                      {subEmp || '—'}
+                    </td>
+                    <td className="px-2 py-1.5 text-[10px] text-text-muted">—</td>
+                    {Array.from({ length: middleColCount }).map((_, i) => (
+                      <td key={i} className="px-2 py-1.5 text-[10px] text-text-muted">—</td>
+                    ))}
+                    {Array.from({ length: trailingCount }).map((_, i) => (
+                      <td key={i} className="px-2 py-1.5 text-[10px] text-text-muted">—</td>
+                    ))}
+                  </tr>
+                );
+              })}
+              </Fragment>
             );
           })}
         </tbody>
