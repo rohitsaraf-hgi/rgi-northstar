@@ -72,6 +72,7 @@ An offering is a richer object than tenant context because it has to capture the
 | **Buying committee** | Roles that show up in deals for *this offering* (a CISO buys CNAPP; a VP Engineering buys Code Security) |
 | **Intent topics** | The research topics that suggest someone is shopping for this offering specifically |
 | **GTM motion** | How you sell this — Competitive Takeout, New Logo, Cross-sell / Expansion, Renewal Defense, In-Market |
+| **Scoring Model** | Reference to the scoring model that drives fit scores for this offering. Auto-built on offering creation; admin can swap to a different model or edit the attached one (see "Scoring Models" below). |
 
 ### A critical relationship: Tenant ICP ⊇ Offering ICP
 
@@ -84,6 +85,28 @@ If the tenant sells to Banking + Tech, the offering can sell to Banking only, or
 ### Why we let Priya confirm offerings explicitly
 
 The agent extracts offerings from the website. Priya **must confirm at least one**. This is the smallest possible commitment we ask for — one confirmed offering is the minimum viable configuration for the platform to do anything useful. Without a confirmed offering, we don't know which Target ICP to use, which competitors to flag, which intent topics to score. Confirmation is the moment the tenant says *"this is our offering, ship it."*
+
+### Scoring models — what produces the fit score
+
+Every offering has a **scoring model** attached. The model is what turns "this account × this offering" into a number on a 0–100 scale that the Workbook shows as a fit score, and that plays use for ranking.
+
+| Aspect | Behavior |
+|---|---|
+| **Creation** | When an offering is confirmed, an auto-built scoring model is created and attached automatically. The auto-built model follows the DC methodology (Fit 50% / Need 35% / Intent 15% pillars) with dimensions derived from the offering's Target ICP, competitors, intent topics, and tech stack. Default tuning factor = 1.0. |
+| **Variants** | We seed two variants alongside the default: a **Conservative** model (higher tier thresholds, weight skewed toward Fit, tuning 0.85 — surgical match list) and an **Aggressive** model (lower tier thresholds, weight skewed toward Intent, tuning 1.15 — wider funnel). |
+| **Attachment** | `offering.scoringModelId` points at the currently-attached model. Defaults to the auto-built one. |
+| **Picker** | The Offering detail page has a dropdown picker in the Scoring Model card. Admin selects from the offering's variant family + any cross-offering models (useful when an offering reuses another's scoring shape). |
+| **Editing** | Opening the model builder lets admin adjust dimensions / weights / thresholds / tuning on the attached model. Edits propagate immediately — the next workbook render shows updated scores. |
+| **Propagation** | The Workbook + Plays compute every account × offering fit score through the offering's attached model. Specifically: `resolveOfferingFit` (in `SellerWorkbookTable.jsx` and `WorkbookSegmented.jsx`) and `resolveFitScore` (in `WorkbookRoute.jsx`) multiply the canonical fit score by `tuningForOffering(offering)`. Swap the model → tuning changes → every row's score in the workbook shifts by that factor. |
+
+The user-visible flow:
+
+1. Admin opens an offering's detail page
+2. Sees the attached model name in the Scoring Model card with current version + tuning badge
+3. Either picks a different model from the dropdown (immediate) **or** clicks "Open model builder" to edit the attached model's dimensions / tuning
+4. Returns to the Workbook → fit scores for that offering are now computed through the new model
+
+This is the lever for tightening or loosening who shows up in the workbook for a given product — without touching the offering's ICP or the underlying account data.
 
 ---
 
@@ -351,6 +374,25 @@ This section is for the engineer who needs to know **exactly** what is being fil
 │   visibility             private | team | tenant         │
 │   teamIds[], userIds[]                                   │
 └──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│ SCORING MODEL                                            │
+│ Drives the fit score for every account × offering pair.  │
+│ Each offering attaches to exactly one model at a time    │
+│ (offering.scoringModelId). Default, Conservative, and    │
+│ Aggressive variants seeded per offering.                 │
+│                                                          │
+│   id, name, description, version                         │
+│   offering_id            canonical offering association  │
+│   is_default             true for the auto-built model   │
+│   scoreTuning            ★ multiplier on FITS scores     │
+│                          (1.0 standard, 0.85 conservative │
+│                          1.15 aggressive). Caps at 100.  │
+│   composite_weights      {fit, need, intent} sum to 100  │
+│   tier_thresholds        {A, B, C, D}                    │
+│   fit, need, intent      pillar dimensions + caps        │
+│   versions[]             audit trail                     │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### Account × Offering → Fit
@@ -360,6 +402,8 @@ The most important *derived* relationship in the system. For every `(account, of
 ```
 FIT { accountId, offeringId, score (0–100), reasons[] }
 ```
+
+The Workbook does not show the raw FITS score directly — it shows `FITS.score × scoringModel.scoreTuning`, capped at 100. So changing the offering's attached scoring model (or editing the attached model's tuning) immediately changes every row's score for that offering. This is the propagation contract.
 
 This is what the Workbook displays as offering-score columns and what plays use to rank accounts. The resolver (`resolveOfferingFit` / `resolveFitScore`) tries `offering.id → offering.key → KEY_FALLBACKS[key]` so wizard-saved offering ids still resolve to canonical fit data.
 
@@ -516,6 +560,8 @@ A light map for orientation. Treat these as starting points, not boundaries.
 | Workbook (the universe) | `src/routes/WorkbookRoute.jsx` |
 | Seller workbook table | `src/components/workbook/SellerWorkbookTable.jsx` |
 | Fit scoring (account × offering) | `src/data/accountOfferingFit.js` (FITS table + resolveFit pattern) |
+| Scoring models (default + Conservative + Aggressive variants) | `src/data/scoringModels.js` — `buildModels`, `getModelForOffering`, `listModelsForOfferingPicker`, `tuningForOffering` |
+| Offering ↔ model attachment (picker UI + persistence) | `src/routes/OfferingsRoute.jsx` (`ScoringModelSummary` picker) + `offering.scoringModelId` default in `configStore.ensureLegacyOfferingFields` |
 | Source classification | `src/data/unifiedWorkbook.js` |
 | Module switcher (Sales Co-Pilot vs Admin Hub) | `src/components/chrome/ModuleSwitcher.jsx` |
 | Admin sidebar (module-aware) | `src/components/chrome/SidebarAdmin.jsx` |
@@ -540,6 +586,7 @@ Things this doc deliberately does *not* solve — flagged for the next round of 
 - **Offerings ≠ Products.** Offerings are how you sell. Products are what you build.
 - **One play, one offering.** Multi-offering plays are a v2 problem.
 - **Plays inherit offering ICP live.** Edit the offering ICP → every play that hasn't overridden picks it up.
+- **Every offering has a scoring model.** The attached model produces the fit score. Swap or edit the model → fit scores across the workbook shift immediately. `offering.scoringModelId` is the link.
 - **Plays carry actions. Saved views do not.** That's the line between them.
 - **Confirmation is the moment.** A tenant isn't real to the platform until Priya confirms an offering.
 - **Visibility makes plays leverage.** A play in "Just me" is a draft. A play in "Everyone" is the tenant's playbook.

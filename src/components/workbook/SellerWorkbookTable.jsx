@@ -35,11 +35,15 @@ import {
   CornerDownRight,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
+import { tuningForOffering } from '../../data/scoringModels.js';
 
 // Offerings created via the wizard carry ids like `wiz-cnapp` whose fit
 // data lives under the canonical key (`cnapp`). We try the offering's
 // id first, then its `key`, then a key-fallback for product lines that
 // don't have a dedicated FITS entry (code → dspm, cdr → workload).
+// The resolved score is then multiplied by the offering's attached
+// scoring model's `scoreTuning` — swapping models in the offering page
+// visibly shifts fit scores across the workbook.
 const OFFERING_KEY_FALLBACKS = { code: 'dspm', cdr: 'workload' };
 function resolveOfferingFit(accountId, offering) {
   const keys = [offering?.id, offering?.key, OFFERING_KEY_FALLBACKS[offering?.key]];
@@ -48,7 +52,11 @@ function resolveOfferingFit(accountId, offering) {
     if (!k || tried.has(k)) continue;
     tried.add(k);
     const f = getFitFor(accountId, k);
-    if (f && f.score != null) return f;
+    if (f && f.score != null) {
+      const tuning = tuningForOffering(offering?.id, offering);
+      const tuned = Math.max(0, Math.min(100, Math.round(f.score * tuning)));
+      return { ...f, score: tuned };
+    }
   }
   return null;
 }

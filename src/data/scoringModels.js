@@ -256,53 +256,87 @@ const TIER_DISTRIBUTIONS = {
 };
 
 // Build one model per offering at module load.
+// Each model carries a `scoreTuning` factor. resolveFit (in
+// accountOfferingFit) multiplies the canonical FITS score by this tuning
+// factor and caps at 100, so swapping the model attached to an offering
+// visibly shifts every fit score in the workbook for that offering.
+// Standard model = 1.0. Conservative tightens (0.85). Aggressive loosens
+// (1.15). Tuning is part of the model spec — editing the attached model's
+// tuning propagates to every account × offering pair on next render.
 function buildModels() {
-  return OFFERINGS.map((offering, idx) => {
+  const models = [];
+  OFFERINGS.forEach((offering, idx) => {
     const dims = deriveDimensionsFromOffering(offering);
-    const version = idx === 0 ? 2 : 1;
-    return {
-      id: `${offering.id}-fit-model`,
-      offering_id: offering.id,
-      name: `${offering.name} Fit Model`,
-      description: `Scores accounts on fit for ${offering.name}. Composite of firmographic fit, technographic need, and intent research signals.`,
-      version,
-      status: 'active',
-      created_by: 'Marcus',
-      created_by_role: 'MOps',
-      auto_built_from_offering_at: idx === 0 ? 'April 28, 2026 · 2:30 PM' : 'May 5, 2026 · 11:08 AM',
-      last_evaluated: idx === 0 ? '2 hr ago' : '8 hr ago',
-      accounts_scored: 1247,
-      tier_distribution: TIER_DISTRIBUTIONS[offering.id] || TIER_DISTRIBUTIONS.cnapp,
-      composite_weights: { fit: 50, need: 35, intent: 15 },
-      tier_thresholds: { A: 75, B: 55, C: 35, D: 15 },
-      fit: { shared_across_offerings: true, dimensions: dims.fit, disqualifiers: dims.fitDisqualifiers },
-      need: { dimensions: dims.need },
-      intent: { dimensions: dims.intent },
-      versions: [
-        ...(version >= 1
-          ? [
-              {
-                version: 1,
-                published_at: 'April 14, 10:00 AM',
-                published_by: 'Marcus',
-                summary: 'Initial auto-build from offering config.',
-              },
-            ]
-          : []),
-        ...(version >= 2
-          ? [
-              {
-                version: 2,
-                published_at: 'April 28, 2:30 PM',
-                published_by: 'Marcus',
-                summary: 'Recalibrated tier bands after closed-won lift analysis (+4 pts A-tier).',
-                current: true,
-              },
-            ]
-          : []),
-      ],
-    };
+    const baseVersion = idx === 0 ? 2 : 1;
+
+    const variants = [
+      {
+        suffix: 'fit-model',
+        nameSuffix: 'Fit Model',
+        description: `Scores accounts on fit for ${offering.name}. Composite of firmographic fit, technographic need, and intent research signals. The auto-built default for this offering.`,
+        scoreTuning: 1.0,
+        tierThresholds: { A: 75, B: 55, C: 35, D: 15 },
+        compositeWeights: { fit: 50, need: 35, intent: 15 },
+      },
+      {
+        suffix: 'fit-model-conservative',
+        nameSuffix: 'Fit Model · Conservative',
+        description: `Stricter scoring of fit for ${offering.name}. Higher tier thresholds, lower tuning. Use when you want only the most surgical match list.`,
+        scoreTuning: 0.85,
+        tierThresholds: { A: 80, B: 65, C: 45, D: 20 },
+        compositeWeights: { fit: 60, need: 30, intent: 10 },
+      },
+      {
+        suffix: 'fit-model-aggressive',
+        nameSuffix: 'Fit Model · Aggressive',
+        description: `Broader scoring of fit for ${offering.name}. Lower tier thresholds, higher tuning. Use when you want to widen the funnel for top-of-funnel motion.`,
+        scoreTuning: 1.15,
+        tierThresholds: { A: 70, B: 50, C: 30, D: 10 },
+        compositeWeights: { fit: 40, need: 35, intent: 25 },
+      },
+    ];
+
+    variants.forEach((v, vIdx) => {
+      models.push({
+        id: `${offering.id}-${v.suffix}`,
+        offering_id: offering.id, // canonical/default offering association
+        name: `${offering.name} ${v.nameSuffix}`,
+        description: v.description,
+        version: vIdx === 0 ? baseVersion : 1,
+        status: 'active',
+        scoreTuning: v.scoreTuning,
+        is_default: vIdx === 0,
+        created_by: vIdx === 0 ? 'Marcus' : 'Priya',
+        created_by_role: vIdx === 0 ? 'MOps' : 'RevOps',
+        auto_built_from_offering_at:
+          vIdx === 0
+            ? idx === 0
+              ? 'April 28, 2026 · 2:30 PM'
+              : 'May 5, 2026 · 11:08 AM'
+            : 'June 14, 2026 · 9:42 AM',
+        last_evaluated: vIdx === 0 ? (idx === 0 ? '2 hr ago' : '8 hr ago') : '3 days ago',
+        accounts_scored: 1247,
+        tier_distribution: TIER_DISTRIBUTIONS[offering.id] || TIER_DISTRIBUTIONS.cnapp,
+        composite_weights: v.compositeWeights,
+        tier_thresholds: v.tierThresholds,
+        fit: { shared_across_offerings: true, dimensions: dims.fit, disqualifiers: dims.fitDisqualifiers },
+        need: { dimensions: dims.need },
+        intent: { dimensions: dims.intent },
+        versions: [
+          {
+            version: 1,
+            published_at: 'April 14, 10:00 AM',
+            published_by: vIdx === 0 ? 'Marcus' : 'Priya',
+            summary:
+              vIdx === 0
+                ? 'Initial auto-build from offering config.'
+                : `Variant created by admin for ${v.nameSuffix.toLowerCase()} motion.`,
+          },
+        ],
+      });
+    });
   });
+  return models;
 }
 
 export const SCORING_MODELS = buildModels();
@@ -317,8 +351,38 @@ export function getScoringModel(modelId) {
   return SCORING_MODELS.find((m) => m.id === modelId) || null;
 }
 
-export function getModelForOffering(offeringId) {
-  return SCORING_MODELS.find((m) => m.offering_id === offeringId) || null;
+// Resolve the active scoring model for an offering. Admin can override
+// the default by setting offering.scoringModelId — if a matching model
+// exists, it wins. Otherwise we fall back to the auto-built default
+// (the `is_default` model for this offering, or whichever model lists
+// itself as offering_id=offeringId).
+export function getModelForOffering(offeringId, offering = null) {
+  if (offering?.scoringModelId) {
+    const picked = SCORING_MODELS.find((m) => m.id === offering.scoringModelId);
+    if (picked) return picked;
+  }
+  return (
+    SCORING_MODELS.find((m) => m.offering_id === offeringId && m.is_default) ||
+    SCORING_MODELS.find((m) => m.offering_id === offeringId) ||
+    null
+  );
+}
+
+// Models that can be attached to a given offering. By default we list the
+// models that auto-bind to that offering (its variant family), but the
+// admin can also attach a cross-offering model — useful when an offering
+// reuses another's scoring shape. The picker shows all available models.
+export function listModelsForOfferingPicker(offeringId) {
+  const own = SCORING_MODELS.filter((m) => m.offering_id === offeringId);
+  const others = SCORING_MODELS.filter((m) => m.offering_id !== offeringId);
+  return [...own, ...others];
+}
+
+// Tuning factor for the currently attached model — used by the fit
+// resolver to multiply canonical FITS scores.
+export function tuningForOffering(offeringId, offering = null) {
+  const model = getModelForOffering(offeringId, offering);
+  return model?.scoreTuning ?? 1.0;
 }
 
 // Sum dimension caps to compute a "raw" maximum per pillar.

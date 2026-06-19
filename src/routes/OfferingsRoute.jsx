@@ -23,7 +23,12 @@ import {
 import { listOfferings, getOffering, upsertOffering, deleteOffering, subscribeOfferings } from '../data/offerings.js';
 import { workflowsForOffering } from '../data/workflows.js';
 import { listSignals } from '../data/signals.js';
-import { getModelForOffering, PILLARS, SCORING_TIERS } from '../data/scoringModels.js';
+import {
+  getModelForOffering,
+  listModelsForOfferingPicker,
+  PILLARS,
+  SCORING_TIERS,
+} from '../data/scoringModels.js';
 import { ManageOfferingDrawer } from '../components/onboarding/StepOfferings.jsx';
 
 function OfferingCard({ offering, onOpen, onEdit, onDelete }) {
@@ -136,8 +141,9 @@ function OfferingCard({ offering, onOpen, onEdit, onDelete }) {
   );
 }
 
-function ScoringModelSummary({ offering, onOpenBuilder }) {
-  const model = getModelForOffering(offering.id);
+function ScoringModelSummary({ offering, onOpenBuilder, onChangeModel }) {
+  const model = getModelForOffering(offering.id, offering);
+  const availableModels = listModelsForOfferingPicker(offering.id);
   if (!model) return null;
 
   const tierMap = Object.fromEntries(SCORING_TIERS.map((t) => [t.id, t]));
@@ -151,24 +157,46 @@ function ScoringModelSummary({ offering, onOpenBuilder }) {
   return (
     <div className="bg-surface border border-border rounded-md p-4 mb-6">
       <div className="flex items-start justify-between gap-4 mb-4">
-        <div className="flex items-start gap-3 min-w-0">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           <div className="w-9 h-9 rounded-md bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
             <Gauge size={16} className="text-emerald-700 dark:text-emerald-300" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-              <h3 className="text-sm font-semibold text-text-primary">{model.name}</h3>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">Attached model</span>
+              <select
+                value={model.id}
+                onChange={(e) => onChangeModel?.(e.target.value)}
+                className="text-sm font-semibold text-text-primary bg-surface border border-border rounded px-2 py-1 hover:border-primary/40 focus:outline-none focus:border-primary cursor-pointer max-w-[420px]"
+                title="Switch the scoring model attached to this offering — workbook fit scores update on save."
+              >
+                {availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                    {m.offering_id !== offering.id ? ' (cross-offering)' : ''}
+                  </option>
+                ))}
+              </select>
               <span className="text-[10px] font-mono text-text-muted">v{model.version}</span>
               <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center gap-0.5">
                 <CheckCircle2 size={9} /> Active
               </span>
+              {model.scoreTuning != null && model.scoreTuning !== 1.0 && (
+                <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                  Tuning {model.scoreTuning > 1 ? '+' : ''}{Math.round((model.scoreTuning - 1) * 100)}%
+                </span>
+              )}
             </div>
             <div className="text-[11px] text-text-secondary leading-snug">
-              Composite scoring model · DC methodology · auto-built from this offering&rsquo;s config
+              {model.description}
             </div>
             <div className="text-[10px] text-text-muted mt-1 flex items-center gap-1">
               <Wand2 size={9} />
-              Auto-built {model.auto_built_from_offering_at} by {model.created_by}
+              {model.is_default ? 'Auto-built' : 'Variant'} {model.auto_built_from_offering_at} by {model.created_by}
+              <span className="text-text-muted">·</span>
+              <span>
+                Workbook fit scores for this offering follow this model — change the picker to swap models, edit the model in the builder to tune.
+              </span>
             </div>
           </div>
         </div>
@@ -292,10 +320,15 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
       </div>
 
-      {/* Scoring model — embedded summary + builder CTA */}
+      {/* Scoring model — embedded summary + picker. Admin picks which model
+          drives fit scores for this offering. Workbook scores recompute on
+          render via tuningForOffering(). */}
       <ScoringModelSummary
         offering={offering}
         onOpenBuilder={() => navigate(`/admin/offerings/${offering.id}/model`)}
+        onChangeModel={(modelId) => {
+          upsertOffering({ ...offering, scoringModelId: modelId });
+        }}
       />
 
       <div className="grid grid-cols-2 gap-4 mb-6">

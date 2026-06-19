@@ -46,13 +46,14 @@ import { useToast } from '../context/ToastContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
 import { getFitFor, getAllFitFor, tierForScore } from '../data/accountOfferingFit.js';
+import { tuningForOffering } from '../data/scoringModels.js';
 
 // Wizard-saved offerings carry ids like `wiz-cnapp` whose fit data lives
 // under the canonical key (`cnapp`). resolveFitScore tries the id first,
 // then the offering's `key`, then a fallback for product lines that don't
-// have a dedicated FITS entry (code → dspm, cdr → workload). Mirrors the
-// behavior of WorkbookSegmented's `resolveFit` so flat view doesn't drop
-// every row when the lens is set to a wizard-saved offering.
+// have a dedicated FITS entry (code → dspm, cdr → workload). The returned
+// score is multiplied by the offering's attached scoring model tuning so
+// swapping models in the offering page shifts fit scores everywhere.
 const OFFERING_KEY_FALLBACKS = { code: 'dspm', cdr: 'workload' };
 function resolveFitScore(accountId, offeringIdOrKey, offeringRegistry) {
   if (!offeringIdOrKey || offeringIdOrKey === 'all') return null;
@@ -63,7 +64,11 @@ function resolveFitScore(accountId, offeringIdOrKey, offeringRegistry) {
     if (!k || tried.has(k)) continue;
     tried.add(k);
     const f = getFitFor(accountId, k);
-    if (f && f.score != null) return f;
+    if (f && f.score != null) {
+      const tuning = tuningForOffering(offering?.id || offeringIdOrKey, offering);
+      const tuned = Math.max(0, Math.min(100, Math.round(f.score * tuning)));
+      return { ...f, score: tuned };
+    }
   }
   return null;
 }

@@ -372,6 +372,10 @@ function ensureLegacyOfferingFields(offering) {
     activeAccounts: offering.activeAccounts ?? 0,
     avgDealSize: offering.avgDealSize || '—',
     salesMotion: offering.salesMotion || offering.groupingRationale || 'AI-derived from offering config',
+    // Scoring model attachment. Defaults to the auto-built model for this
+    // offering (named `{offering.id}-fit-model`). Admin can swap to a
+    // different model via the offering detail page — see scoringModels.js.
+    scoringModelId: offering.scoringModelId || `${offering.id}-fit-model`,
   };
 }
 

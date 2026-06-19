@@ -25,6 +25,7 @@ import {
   CornerDownRight,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
+import { tuningForOffering } from '../../data/scoringModels.js';
 import { getRGIF } from '../../data/workbookRGIF.js';
 import { useTenant } from '../../context/TenantContext.jsx';
 import {
@@ -53,14 +54,19 @@ function resolveFit(accountId, offering) {
   // Try every plausible key in order — id first (works for legacy + custom
   // tenants that happen to use canonical names), then offering.key (works
   // for wizard-saved offerings), then a key-fallback for product lines not
-  // present in the demo FITS table.
+  // present in the demo FITS table. Multiply by the attached scoring model's
+  // tuning factor so swapping the offering's model visibly shifts scores.
   const tried = new Set();
   const keys = [offering.id, offering.key, KEY_FALLBACKS[offering.key]];
   for (const k of keys) {
     if (!k || tried.has(k)) continue;
     tried.add(k);
     const f = getFitFor(accountId, k);
-    if (f && f.score != null) return f;
+    if (f && f.score != null) {
+      const tuning = tuningForOffering(offering?.id, offering);
+      const tuned = Math.max(0, Math.min(100, Math.round(f.score * tuning)));
+      return { ...f, score: tuned };
+    }
   }
   return null;
 }
