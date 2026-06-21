@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Target,
   TrendingUp,
   Settings,
-  BarChart3,
   ArrowRight,
   ArrowLeft,
   Sparkles,
@@ -15,27 +13,10 @@ import { useAIThinking } from '../context/AIThinkingContext.jsx';
 import Typewriter from '../components/shared/Typewriter.jsx';
 import ArtifactCard from '../components/thread/ArtifactCard.jsx';
 
+// Personas trimmed to the two that drive the demo: Priya (RevOps admin)
+// and Alex (PLG seller). The role chooser shows only options that route
+// to a real persona; the PLG sign-up flow continues to create Alex.
 const ROLES = [
-  {
-    id: 'maya',
-    title: 'Marketing & Strategy',
-    description: 'I define markets, segments, and ICPs',
-    icon: Target,
-    color: 'text-purple-700 dark:text-purple-300',
-    bg: 'bg-purple-500/10',
-    border: 'border-purple-500/20',
-    departments: ['Marketing', 'Strategy', 'Product Marketing', 'Demand Gen', 'GTM Strategy'],
-  },
-  {
-    id: 'jordan',
-    title: 'Sales & Pipeline',
-    description: 'I build pipeline and close deals',
-    icon: TrendingUp,
-    color: 'text-orange-700 dark:text-orange-300',
-    bg: 'bg-orange-500/10',
-    border: 'border-orange-500/20',
-    departments: ['AE / Account Executive', 'AM / Account Manager', 'Full-Cycle Rep', 'SDR / BDR', 'Sales Manager'],
-  },
   {
     id: 'priya',
     title: 'Revenue Operations',
@@ -47,14 +28,14 @@ const ROLES = [
     departments: ['RevOps', 'Sales Ops', 'Marketing Ops', 'GTM Engineering', 'Data / Analytics'],
   },
   {
-    id: 'exec',
-    title: 'Executive & Leadership',
-    description: 'I need visibility into market position and pipeline',
-    icon: BarChart3,
-    color: 'text-emerald-700 dark:text-emerald-300',
-    bg: 'bg-emerald-500/10',
-    border: 'border-emerald-500/20',
-    departments: ['CRO', 'CMO', 'VP Sales', 'VP Marketing', 'CFO / Finance'],
+    id: 'alex',
+    title: 'Sales & Pipeline',
+    description: 'I build pipeline and close deals',
+    icon: TrendingUp,
+    color: 'text-sky-700 dark:text-sky-300',
+    bg: 'bg-sky-500/10',
+    border: 'border-sky-500/20',
+    departments: ['AE / Account Executive', 'AM / Account Manager', 'Full-Cycle Rep', 'SDR / BDR', 'Sales Manager'],
   },
 ];
 
@@ -141,7 +122,8 @@ export default function OnboardingFlow() {
   };
 
   const handleContextSubmit = () => {
-    const personaTarget = selectedRole === 'exec' ? 'maya' : selectedRole;
+    // Only Priya + Alex remain. Any other selectedRole falls back to Priya.
+    const personaTarget = selectedRole === 'priya' || selectedRole === 'alex' ? selectedRole : 'priya';
     switchPersona(personaTarget);
     setScreen(3);
   };

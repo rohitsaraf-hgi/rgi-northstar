@@ -402,7 +402,6 @@ export const FILTER_REGISTRY = {
     options: [
       { id: 'alex', label: 'Alex Chen' },
       { id: 'priya', label: 'Priya Sharma' },
-      { id: 'maya', label: 'Maya Patel' },
       { id: 'unassigned', label: 'Unassigned' },
     ],
     buildPredicate: (v) => {

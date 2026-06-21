@@ -36,32 +36,6 @@ const PERMISSIONS_BY_ROLE = {
 };
 
 export const PERSONAS = {
-  maya: {
-    id: 'maya',
-    name: 'Maya Patel',
-    role: 'Marketing Strategist',
-    roleType: 'strategist',
-    initials: 'MP',
-    avatarColor: '#A855F7',
-    avatarBg: 'bg-purple-500/20',
-    avatarText: 'text-purple-700 dark:text-purple-300',
-    department: 'Marketing & Strategy',
-    permissions: PERMISSIONS_BY_ROLE.strategist,
-    tenantId: 'hg',
-  },
-  jordan: {
-    id: 'jordan',
-    name: 'Jordan Chen',
-    role: 'Account Executive',
-    roleType: 'seller',
-    salesRole: 'AE',
-    initials: 'JC',
-    avatarColor: '#F97316',
-    avatarBg: 'bg-orange-500/20',
-    avatarText: 'text-orange-700 dark:text-orange-300',
-    department: 'Sales & Pipeline',
-    permissions: PERMISSIONS_BY_ROLE.seller,
-  },
   priya: {
     id: 'priya',
     name: 'Priya Sharma',
@@ -73,28 +47,9 @@ export const PERSONAS = {
     avatarText: 'text-blue-700 dark:text-blue-300',
     department: 'Revenue Operations',
     permissions: PERMISSIONS_BY_ROLE.admin,
-  },
-  riley: {
-    id: 'riley',
-    name: 'Riley Cooper',
-    role: 'Account Executive',
-    roleType: 'seller',
-    salesRole: 'AE',
-    initials: 'RC',
-    avatarColor: '#10B981', // emerald — distinct from Jordan's orange
-    avatarBg: 'bg-emerald-500/20',
-    avatarText: 'text-emerald-700 dark:text-emerald-300',
-    department: 'Sales & Pipeline',
-    permissions: PERMISSIONS_BY_ROLE.seller,
-    isNew: true, // triggers Day-1 workspace experience
-    accountCreated: 'April 30',
-    bookSize: 247,
-    inheritedFrom: 'Aisha Patel',
-    // Admin-set policy: new AEs (<90d tenure) downgrade any agent that would
-    // 'Act' to 'Draft' so the AE always sees and approves the outgoing
-    // artifact before it leaves the platform.
-    agentPolicy: { downgradeAct: 'draft' },
-    tenantId: 'hg',
+    // Anchored to the Wiz tenant so the demo (Wiz Cloud Security Platform
+    // / Wiz Code / Wiz Defend) reads consistent data alongside Alex.
+    tenantId: 'wiz',
   },
   // PLG demo persona — created via the /signup flow targeting wiz.io.
   alex: {
@@ -116,7 +71,7 @@ export const PERSONAS = {
 };
 
 export function PersonaProvider({ children }) {
-  const [personaId, setPersonaId] = useState('maya');
+  const [personaId, setPersonaId] = useState('priya');
   const [isSwitching, setIsSwitching] = useState(false);
 
   const switchPersona = useCallback((newId) => {
@@ -128,9 +83,13 @@ export function PersonaProvider({ children }) {
     }, 600);
   }, [personaId]);
 
+  // Fallback to Priya if a stale persona id sneaks in (e.g. from an old
+  // localStorage entry from when Maya/Jordan/Riley still existed). Without
+  // this, downstream code dereferencing persona.name etc. would crash.
+  const resolvedPersona = PERSONAS[personaId] || PERSONAS.priya;
   const value = {
-    persona: PERSONAS[personaId],
-    personaId,
+    persona: resolvedPersona,
+    personaId: resolvedPersona.id,
     switchPersona,
     isSwitching,
     allPersonas: Object.values(PERSONAS),

@@ -41,7 +41,7 @@ export function DemoProvider({ children }) {
 
   const resetConfig = useCallback(() => {
     setConfig(defaultConfig);
-    switchPersona('jordan');
+    switchPersona('priya');
   }, [switchPersona]);
 
   const hasModule = useCallback(
