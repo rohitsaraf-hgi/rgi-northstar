@@ -8,8 +8,8 @@
 //   CATALOG             — Tech & Taxonomies, Saved Collections, Export History
 //
 // Routing: only Priya (admin) has Market Analyzer in her switcher today.
-// The Sales Co-Pilot module hand-off button surfaces at the bottom so
-// it's easy to jump back to the workbook surface mid-analysis.
+// Module hand-off to Sales Co-Pilot happens via the top-bar ModuleSwitcher
+// pill — the sidebar stays focused on MA surfaces only.
 
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -20,7 +20,6 @@ import {
   Layers,
   Bookmark,
   History,
-  Sparkles,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
@@ -146,17 +145,6 @@ export default function SidebarMarketAnalyzer({ collapsed, onToggle }) {
           />
         </div>
 
-        {/* PROSPECTING — quick hop into Sales Co-Pilot. */}
-        {!collapsed && <SectionLabel>Prospecting</SectionLabel>}
-        <div className="space-y-0.5">
-          <NavRow
-            icon={Sparkles}
-            label="Open Sales Co-Pilot"
-            active={false}
-            onClick={() => navigate('/workbook')}
-            collapsed={collapsed}
-          />
-        </div>
       </div>
 
       <div className="p-2 border-t border-border/60">
