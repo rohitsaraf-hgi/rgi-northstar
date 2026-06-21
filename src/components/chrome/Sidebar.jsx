@@ -197,6 +197,7 @@ function AccountBuckets({ curated, currentPath, onOpen, onViewAll }) {
 }
 
 import SidebarAdmin from './SidebarAdmin.jsx';
+import SidebarMarketAnalyzer from './SidebarMarketAnalyzer.jsx';
 
 // Top-level Sidebar: routes RevOps admins to the minimal admin shell, and
 // sellers / strategists to the rich SellerSidebar below. Keeping the routing
@@ -204,6 +205,13 @@ import SidebarAdmin from './SidebarAdmin.jsx';
 // children render unconditionally once selected.
 export default function Sidebar(props) {
   const { persona } = usePersona();
+  const location = useLocation();
+  // Market Analyzer is its own module — render its sidebar whenever the
+  // user is on a /market-analyzer/* path, regardless of role. (Today only
+  // admins have access in the switcher, but the routing is permission-clean.)
+  if (location.pathname.startsWith('/market-analyzer')) {
+    return <SidebarMarketAnalyzer collapsed={props.collapsed} onToggle={props.onToggle} />;
+  }
   if (persona.roleType === 'admin' && !persona.plgUser) {
     return <SidebarAdmin collapsed={props.collapsed} onToggle={props.onToggle} />;
   }

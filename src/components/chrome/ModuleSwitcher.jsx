@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sparkles, Wrench, Check, ChevronDown } from 'lucide-react';
+import { Sparkles, Wrench, Check, ChevronDown, LineChart } from 'lucide-react';
 import { usePersona } from '../../context/PersonaContext.jsx';
 
 // ─── Module classification ──────────────────────────────────────────
@@ -41,8 +41,20 @@ export const MODULES = [
     pillClasses: 'bg-violet-500/10 border-violet-500/30 text-violet-700 dark:text-violet-300',
     landingPath: '/workbook',
     matches: (pathname) =>
-      !pathname.startsWith('/admin') || isSalesCopilotAdminPath(pathname),
+      !pathname.startsWith('/admin') &&
+      !pathname.startsWith('/market-analyzer') || isSalesCopilotAdminPath(pathname),
     requiredRole: null, // anyone
+  },
+  {
+    id: 'market-analyzer',
+    name: 'Market Analyzer',
+    description: 'TAM/SAM/SOM projects, segments, scoring profiles',
+    icon: LineChart,
+    accentClasses: 'text-sky-700 dark:text-sky-300',
+    pillClasses: 'bg-sky-500/10 border-sky-500/30 text-sky-700 dark:text-sky-300',
+    landingPath: '/market-analyzer/projects',
+    matches: (pathname) => pathname.startsWith('/market-analyzer'),
+    requiredRole: 'admin',
   },
   {
     id: 'admin-hub',

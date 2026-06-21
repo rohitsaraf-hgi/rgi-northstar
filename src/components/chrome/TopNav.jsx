@@ -38,6 +38,15 @@ const PAGE_LABELS = {
   // Standalone
   '/onboarding': 'Onboarding',
   '/platform': 'Platform Architecture',
+  // Market Analyzer
+  '/market-analyzer': 'Projects',
+  '/market-analyzer/projects': 'Projects',
+  '/market-analyzer/companies': 'Companies',
+  '/market-analyzer/segments': 'Segments',
+  '/market-analyzer/scoring-profiles': 'Scoring Profiles',
+  '/market-analyzer/tech-taxonomies': 'Tech & Taxonomies',
+  '/market-analyzer/saved-collections': 'Saved Collections',
+  '/market-analyzer/export-history': 'Export History',
 };
 
 function resolvePageLabel(pathname) {
@@ -53,6 +62,7 @@ function resolvePageLabel(pathname) {
   }
   if (pathname.startsWith('/account/')) return 'Account';
   if (pathname.startsWith('/admin/workflows/')) return 'Workflow';
+  if (pathname.startsWith('/market-analyzer/segments/')) return 'Segment';
   if (pathname.startsWith('/admin/settings/')) return 'Settings';
   return PAGE_LABELS[pathname] || null;
 }

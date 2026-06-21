@@ -21,6 +21,16 @@ import SignalTemplatesRoute from './routes/SignalTemplatesRoute.jsx';
 import OfferingsRoute from './routes/OfferingsRoute.jsx';
 import ScoringModelBuilderRoute from './routes/ScoringModelBuilderRoute.jsx';
 import WorkbookRoute from './routes/WorkbookRoute.jsx';
+import {
+  MarketAnalyzerProjectsRoute,
+  MarketAnalyzerSegmentsRoute,
+  MarketAnalyzerSegmentDetailRoute,
+  MarketAnalyzerCompaniesRoute,
+  MarketAnalyzerScoringProfilesRoute,
+  MarketAnalyzerTechTaxonomiesRoute,
+  MarketAnalyzerSavedCollectionsRoute,
+  MarketAnalyzerExportHistoryRoute,
+} from './routes/MarketAnalyzerRoutes.jsx';
 import PlaysRoute from './routes/PlaysRoute.jsx';
 import WorkflowsRoute from './routes/WorkflowsRoute.jsx';
 import WorkflowDetailRoute from './routes/WorkflowDetailRoute.jsx';
@@ -62,6 +72,18 @@ export default function App() {
           <Route path="/home" element={<SellerHome />} />
           <Route path="/account/:id" element={<AccountThread />} />
           <Route path="/workbook" element={<WorkbookRoute />} />
+          {/* Market Analyzer routes — admin-only module (gated through
+              ModuleSwitcher visibility, not RequireAdmin here, so URL
+              hand-off from Sales Co-Pilot stays seamless). */}
+          <Route path="/market-analyzer" element={<RequireAdmin><MarketAnalyzerProjectsRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/projects" element={<RequireAdmin><MarketAnalyzerProjectsRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/companies" element={<RequireAdmin><MarketAnalyzerCompaniesRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/segments" element={<RequireAdmin><MarketAnalyzerSegmentsRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/segments/:id" element={<RequireAdmin><MarketAnalyzerSegmentDetailRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/scoring-profiles" element={<RequireAdmin><MarketAnalyzerScoringProfilesRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/tech-taxonomies" element={<RequireAdmin><MarketAnalyzerTechTaxonomiesRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/saved-collections" element={<RequireAdmin><MarketAnalyzerSavedCollectionsRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/export-history" element={<RequireAdmin><MarketAnalyzerExportHistoryRoute /></RequireAdmin>} />
           <Route path="/workbench" element={<Workbench />} />
           <Route path="/workbench/library" element={<WorkbenchLibrary />} />
           <Route path="/workbench/resources" element={<WorkbenchResources />} />
