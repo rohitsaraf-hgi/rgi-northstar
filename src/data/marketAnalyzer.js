@@ -167,3 +167,20 @@ export function listScoringProfiles() {
 export function getScoringProfile(id) {
   return MA_SCORING_PROFILES.find((p) => p.id === id) || null;
 }
+
+// Prepend a new segment created from the Companies page "Save segment" flow.
+// In production this hits the backend; here it mutates the in-memory list so
+// the Segments route sees it on next visit within the session.
+export function addSegment(segment) {
+  MA_SEGMENTS.unshift({
+    id: segment.id || `seg-${Date.now()}`,
+    name: segment.name,
+    description: segment.description || '',
+    projectId: segment.projectId || null,
+    projectName: segment.projectName || 'Unassigned',
+    companyCount: segment.companyCount || 0,
+    appliedProfileId: segment.appliedProfileId || null,
+    createdAt: new Date().toISOString().slice(0, 10),
+  });
+  return MA_SEGMENTS[0];
+}
