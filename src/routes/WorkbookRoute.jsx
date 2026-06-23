@@ -2186,59 +2186,55 @@ export default function WorkbookRoute() {
               {/* CRM warning row removed — folded into the EmptyBookHero card. */}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Unified workbook header for admin + seller. The workbook IS
-                  the book. "All offerings" = the old Flat view; picking 1+
-                  offerings switches to Segmented (one section per offering). */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
-                <BookOpen size={11} />
-                Book
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
-              </div>
-              {!activePlay && (
-                <OfferingSelector
-                  offerings={listOfferings()}
-                  selected={selectedOfferings}
-                  onChange={setSelectedOfferings}
-                />
+              {/* Populated-state toolbar — hidden in the first-time empty
+                  state so the screen reduces to the upload/connect CTA
+                  only. Book pill, offering selector, Enrich-with-AI, and
+                  Replace/Upload all gate on a non-empty book. */}
+              {!workbookState.isEmptyTenant && (
+                <>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
+                    <BookOpen size={11} />
+                    Book
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
+                  </div>
+                  {!activePlay && (
+                    <OfferingSelector
+                      offerings={listOfferings()}
+                      selected={selectedOfferings}
+                      onChange={setSelectedOfferings}
+                    />
+                  )}
+                  <button
+                    onClick={() => setEnrichOpen(true)}
+                    title="Ask any question across the current view — answers become columns"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
+                  >
+                    <Wand2 size={11} />
+                    Enrich with AI
+                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setAdminUploadOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
+                      title="Replace the book with a new CSV"
+                    >
+                      <Upload size={11} /> Replace book
+                    </button>
+                  )}
+                  {isSeller && allowSellerUpload && (
+                    <button
+                      onClick={() => setSellerUploadOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
+                      title="Upload your own book of accounts via CSV"
+                    >
+                      <Upload size={11} /> Upload my book
+                    </button>
+                  )}
+                </>
               )}
-              {/* Saved Views picker removed — the "All accounts" dropdown
-                  was adding cognitive load. Reinstate via overflow menu if
-                  the use case re-emerges. */}
-              {/* Enrich-with-AI — primary action. */}
-              <button
-                onClick={() => setEnrichOpen(true)}
-                title="Ask any question across the current view — answers become columns"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
-              >
-                <Wand2 size={11} />
-                Enrich with AI
-              </button>
-              {/* Re-upload book — admins always; sellers only when the tenant
-                  policy allows it. Triggers the Replace confirmation flow. */}
-              {isAdmin && !workbookState.isEmptyTenant && (
-                <button
-                  onClick={() => setAdminUploadOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
-                  title="Replace the book with a new CSV"
-                >
-                  <Upload size={11} /> Replace book
-                </button>
-              )}
-              {isSeller && allowSellerUpload && (
-                <button
-                  onClick={() => setSellerUploadOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
-                  title="Upload your own book of accounts via CSV"
-                >
-                  <Upload size={11} /> Upload my book
-                </button>
-              )}
-              {/* Sync to Salesforce + Setup Coach pill removed — both
-                  re-introduce later under an "Advanced" menu once we land
-                  the right grouping pattern. */}
               {/* Demo state toggle — admin-only. Flips between first-time
                   (no book, no CRM) and populated views without disturbing
-                  seeded data. */}
+                  seeded data. Always visible so the operator can flip back. */}
               {isAdmin && (
                 <button
                   onClick={() => setDemoEmptyMode(!workbookState.isEmptyTenant)}
@@ -2337,7 +2333,11 @@ export default function WorkbookRoute() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table — gated on a non-empty book. In the first-time empty state
+          (no book + no CRM) the workbook reduces to the upload/connect
+          hero only; the table, count line, and how-it-works footer all
+          disappear so the screen is a single clear CTA. */}
+      {!workbookState.isEmptyTenant && (
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto px-6 py-4">
           {activePlay && (() => {
@@ -2463,6 +2463,7 @@ export default function WorkbookRoute() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Modals */}
       <SaveAsModal
