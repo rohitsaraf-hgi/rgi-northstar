@@ -38,6 +38,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { useAIThinking } from '../context/AIThinkingContext.jsx';
 import { listOfferings, getOffering } from '../data/offerings.js';
 import { getFitFor, getAllFitFor, tierForScore, bestOfferingFor } from '../data/accountOfferingFit.js';
+import { getHgIntelligence, OFFERING_CODES } from '../data/hgIntelligence.js';
 import { workflowsForOffering, listWorkflows } from '../data/workflows.js';
 import { listSignals } from '../data/signals.js';
 import { analyzeAccountCoverage, PRIORITY_TREATMENTS, getAccountStakeholders } from '../data/buyingCommittees.js';
@@ -518,6 +519,19 @@ function OverviewTab({ account, onRunPlay, offeringId, onChangeLens, onFindLooka
   const recommendedWorkflows = useMemo(() => recommendedPlaysForOffering(offeringId), [offeringId]);
   const hiddenSignalCount = (account.signals?.length || 0) - lensedSignals.length;
 
+  // HG Intelligence — synthesized "what's happening here + where to lead"
+  // for this account. Same data source as the workbook's HG Intelligence
+  // column; we render it inline here as the centerpiece of Overview.
+  const intel = getHgIntelligence(account.id);
+  const leadOfferingKey = intel?.lead?.code ? OFFERING_CODES?.[intel.lead.code]?.key : null;
+  const leadOffering = leadOfferingKey
+    ? listOfferings().find((o) => o.key === leadOfferingKey || o.id === leadOfferingKey)
+    : null;
+  const nextOfferingKey = intel?.next?.code ? OFFERING_CODES?.[intel.next.code]?.key : null;
+  const nextOffering = nextOfferingKey
+    ? listOfferings().find((o) => o.key === nextOfferingKey || o.id === nextOfferingKey)
+    : null;
+
   // Tailored thread starter — refer to lens
   const lensedStarter = useMemo(() => {
     if (!isLensed) return account.threadStarter;
@@ -540,6 +554,83 @@ function OverviewTab({ account, onRunPlay, offeringId, onChangeLens, onFindLooka
           >
             Clear lens
           </button>
+        </div>
+      )}
+
+      {/* What's happening + where to lead — the centerpiece. Mirrors the
+          workbook's HG Intelligence column: a synthesized narrative,
+          which offering to lead with + entry point, plus the natural
+          co-sell / expansion follow-on. */}
+      {intel && (
+        <div className="bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/30 rounded-md p-4">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-9 h-9 rounded-md bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+              <Sparkles size={16} className="text-violet-700 dark:text-violet-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-violet-700 dark:text-violet-300 mb-0.5">
+                What's happening at {account.name}
+              </div>
+              <p className="text-[13px] text-text-secondary leading-relaxed">{intel.narrative}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            {/* Lead with */}
+            <div className="bg-surface/80 border border-border rounded p-3">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1">
+                Lead with
+              </div>
+              <div className="flex items-center gap-1.5 mb-1">
+                {leadOffering && (
+                  <span className={`w-5 h-5 rounded ${leadOffering.bg} flex items-center justify-center flex-shrink-0`}>
+                    <Package size={11} className={leadOffering.textColor} />
+                  </span>
+                )}
+                <span className="text-[13px] font-semibold text-text-primary truncate">
+                  {intel.lead.name}
+                </span>
+              </div>
+              <div className="text-[11px] text-text-secondary leading-snug">
+                Entry point: <span className="font-medium text-text-primary">{intel.lead.entryPoint}</span>
+              </div>
+              {leadOffering && (
+                <button
+                  onClick={() => onChangeLens(leadOffering.id)}
+                  className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
+                >
+                  Open this offering's lens <ArrowRight size={9} />
+                </button>
+              )}
+            </div>
+
+            {/* Next — co-sell or expansion */}
+            <div className="bg-surface/80 border border-border rounded p-3">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1 inline-flex items-center gap-1.5">
+                {intel.next.type === 'expansion' ? 'Expansion follow-on' : 'Co-sell follow-on'}
+                <span
+                  className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded border ${
+                    intel.next.type === 'expansion'
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                      : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
+                  }`}
+                >
+                  {intel.next.type === 'expansion' ? 'Expand' : 'Co-sell'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 mb-1">
+                {nextOffering && (
+                  <span className={`w-5 h-5 rounded ${nextOffering.bg} flex items-center justify-center flex-shrink-0`}>
+                    <Package size={11} className={nextOffering.textColor} />
+                  </span>
+                )}
+                <span className="text-[13px] font-semibold text-text-primary truncate">
+                  {intel.next.name}
+                </span>
+              </div>
+              <div className="text-[11px] text-text-secondary leading-snug">{intel.next.reasoning}</div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1189,14 +1280,20 @@ function StubTab({ label, icon: Icon, hint }) {
 }
 
 // ===== MAIN ROUTE =====
+//
+// Tabs reduced to three primary surfaces:
+//   1. Account AI (chat, default landing)
+//   2. Contacts (stakeholders + Find new contacts in HG/CRM)
+//   3. Overview (pain points, lead-with offering recommendation, signals,
+//      recommended plays, find lookalikes)
+//
+// Activity / MEDDIC / Plays / Artifacts collapsed: Plays content lives in
+// Overview as "Recommended plays"; MEDDIC, Activity, and Artifacts are
+// available via the Account Brief artifact + chat history.
 const TABS = [
+  { id: 'chat', label: 'Account AI', icon: Sparkles },
+  { id: 'stakeholders', label: 'Contacts', icon: UsersIcon },
   { id: 'overview', label: 'Overview', icon: Layers },
-  { id: 'activity', label: 'Activity', icon: Activity },
-  { id: 'meddic', label: 'MEDDIC', icon: CheckCircle2 },
-  { id: 'plays', label: 'Plays', icon: Compass },
-  { id: 'artifacts', label: 'Artifacts', icon: FileText },
-  { id: 'stakeholders', label: 'Stakeholders', icon: UsersIcon },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
 ];
 
 export default function AccountThread() {
@@ -1252,8 +1349,18 @@ export default function AccountThread() {
   // Initial tab from URL — lets the seller workbook deep-link via ?tab=chat.
   const initialTab = (() => {
     const t = searchParams.get('tab');
-    const valid = ['overview', 'activity', 'meddic', 'plays', 'artifacts', 'stakeholders', 'chat'];
-    return valid.includes(t) ? t : 'overview';
+    // Honor legacy tab ids by mapping to the new three-tab set so old
+    // links/URLs don't dead-end.
+    const valid = ['chat', 'stakeholders', 'overview'];
+    const legacyMap = {
+      activity: 'overview',
+      meddic: 'overview',
+      plays: 'overview',
+      artifacts: 'chat',
+    };
+    if (valid.includes(t)) return t;
+    if (legacyMap[t]) return legacyMap[t];
+    return 'chat';
   })();
   const [tab, setTab] = useState(initialTab);
   const [turns, setTurns] = useState([]);
@@ -1433,9 +1540,25 @@ export default function AccountThread() {
                 <FAIPill label="Employees" value={account.fai.employees} />
                 <FAIPill label="HQ" value={account.fai.hq} />
                 <FAIPill label="Industry" value={account.industry.split(' ').slice(0, 3).join(' ')} />
-                <FAIPill label="Cloud" value={account.cloud} />
-                <FAIPill label="ICP fit" value={`${account.icpFit}/100`} />
-                <FAIPill label="Combined" value={account.combinedScore} />
+                {/* Per-offering fit scores replace the old Cloud / ICP fit /
+                    Combined tiles — sellers care about how this account
+                    scores across the products they sell, not the legacy
+                    composite. */}
+                {listOfferings()
+                  .filter((o) => o.confirmed !== false)
+                  .map((o) => {
+                    const fit = getFitFor(account.id, o.id) || getFitFor(account.id, o.key);
+                    const score = fit?.score ?? null;
+                    const tier = score != null ? tierForScore(score) : null;
+                    const display = score != null ? `${tier?.label || ''} ${score}`.trim() : '—';
+                    return (
+                      <FAIPill
+                        key={o.id}
+                        label={(o.shortName || o.name).replace(/^Wiz\s+/i, '')}
+                        value={display}
+                      />
+                    );
+                  })}
               </div>
               <div className="flex items-center gap-3 text-[11px] text-text-muted">
                 <span>{account.signals?.length || 0} signals</span>
@@ -1482,18 +1605,6 @@ export default function AccountThread() {
               onFindLookalikes={() => setLookalikesOpen(true)}
             />
           )}
-          {tab === 'activity' && <ActivityTab account={account} turns={turns} />}
-          {tab === 'meddic' && <MeddicTab account={account} offeringId={offeringId} />}
-          {tab === 'plays' && (
-            <PlaysTab
-              onRunPlay={runPlay}
-              runHistory={runHistory}
-              salesRole={persona.salesRole}
-              offeringId={offeringId}
-              onChangeLens={handleChangeLens}
-            />
-          )}
-          {tab === 'artifacts' && <ArtifactsTab account={account} turns={turns} />}
           {tab === 'stakeholders' && (
             <StakeholdersTab account={account} offeringId={offeringId} onRunPlay={runPlay} />
           )}
