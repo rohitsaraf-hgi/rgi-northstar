@@ -25,7 +25,7 @@ import { listPlays, getPlay, upsertPlay, deletePlay, subscribePlays, MOTION_LABE
 import { listOfferings } from '../data/offerings.js';
 import { ManagePlayDrawer } from '../components/onboarding/StepPlays.jsx';
 import { AnimatePresence } from 'framer-motion';
-import { Edit2, Trash2 } from 'lucide-react';
+import { Edit2, Trash2, Save } from 'lucide-react';
 import { getOffering } from '../data/offerings.js';
 import { getWorkflow } from '../data/workflows.js';
 import { getSignalDef, SIGNAL_CATEGORIES } from '../data/rankingSignals.js';
@@ -33,6 +33,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import FilterPanel from '../components/workbook/FilterPanel.jsx';
 import { getIntegrationGovernance } from '../data/integrationGovernance.js';
 import { Filter, X } from 'lucide-react';
+import { listWorkbooksForPersona } from '../data/workbooks.js';
 
 // CRM connection detection — used to gate the CRM Filters group inside
 // the Plays audience builder. Matches what WorkbookRoute uses for the
@@ -181,6 +182,81 @@ function VisibilityChip({ visibility }) {
   );
 }
 
+// Inline workbook picker for the play detail page — admin can swap the
+// workbook this play targets without leaving the detail view. One play,
+// one workbook (locked v1 constraint).
+function PlayWorkbookSection({ play, workbooks, onSave }) {
+  const currentId = Array.isArray(play.workbookIds) ? play.workbookIds[0] : null;
+  const current = workbooks.find((w) => w.id === currentId) || null;
+  const [selectedId, setSelectedId] = useState(currentId || (workbooks[0]?.id ?? null));
+  const dirty = selectedId !== currentId;
+
+  return (
+    <div className="bg-surface border border-border rounded-md p-4 mb-4">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-text-primary">Workbook</div>
+          <div className="text-[11px] text-text-muted leading-relaxed mt-0.5 max-w-2xl">
+            Each play targets exactly one workbook. Switch the workbook here and click Save —
+            the play's audience will refresh against the new source list.
+          </div>
+        </div>
+        {dirty && (
+          <button
+            onClick={() => onSave(selectedId)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors flex-shrink-0"
+          >
+            <Save size={11} /> Save workbook
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {workbooks.map((wb) => {
+          const active = selectedId === wb.id;
+          const isCurrent = currentId === wb.id;
+          return (
+            <button
+              key={wb.id}
+              onClick={() => setSelectedId(wb.id)}
+              className={`text-left px-3 py-2.5 rounded border transition-colors ${
+                active
+                  ? 'bg-primary/10 border-primary/40'
+                  : 'bg-surface border-border hover:border-primary/30'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                    active ? 'border-primary bg-primary' : 'border-border'
+                  }`}
+                >
+                  {active && <CheckCircle2 size={10} className="text-white" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[12px] font-semibold text-text-primary truncate">
+                      {wb.name}
+                    </span>
+                    {isCurrent && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                        Current
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-text-muted">
+                    {(wb.accountCount || 0).toLocaleString()} accounts
+                  </div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PlayDetail({ play, onBack }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -191,6 +267,18 @@ function PlayDetail({ play, onBack }) {
   const recommendedWorkflows = (play.recommended_workflows || []).map((wid) => getWorkflow(wid)).filter(Boolean);
   const crmDependent = crmSignals.length > 0;
   const motionLabel = MOTION_LABELS[play.motion] || play.motion;
+
+  // Workbook attachment — single-select (one play = one workbook).
+  // Pull the tenant-visible workbook list so the picker matches what
+  // the workbook switcher shows in Sales Co-Pilot.
+  const availableWorkbooks = useMemo(
+    () => listWorkbooksForPersona({ personaId: 'priya', isAdmin: true, crmConnected: false }),
+    [],
+  );
+  const handleSaveWorkbook = (workbookId) => {
+    upsertPlay({ ...play, workbookIds: workbookId ? [workbookId] : [] });
+    showToast('Workbook attached to play — sellers will see the new audience on next run.', 'success');
+  };
 
   // Audience hierarchy (Tenant ICP ⊇ Offering ICP ⊇ Play Audience) is
   // documented theory, but NOT enforced at runtime — admins can configure
@@ -248,7 +336,17 @@ function PlayDetail({ play, onBack }) {
                 {offering.name}
               </span>
             )}
-            <ScopeBadge scope={play.surface_scope} />
+            {(() => {
+              const wbId = Array.isArray(play.workbookIds) ? play.workbookIds[0] : null;
+              const wb = wbId ? availableWorkbooks.find((w) => w.id === wbId) : null;
+              if (!wb) return null;
+              return (
+                <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/30">
+                  <Layers size={9} />
+                  {wb.name}
+                </span>
+              );
+            })()}
             <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1">
               <CheckCircle2 size={9} />
               {play.status}
@@ -293,6 +391,13 @@ function PlayDetail({ play, onBack }) {
           </div>
         </div>
       )}
+
+      {/* Workbook attachment — single workbook per play (locked v1). */}
+      <PlayWorkbookSection
+        play={play}
+        workbooks={availableWorkbooks}
+        onSave={handleSaveWorkbook}
+      />
 
       {/* Signals — the ranking + explanation mechanism */}
       <div className="bg-surface border border-border rounded-md p-4 mb-4">

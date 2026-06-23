@@ -510,31 +510,21 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
             </div>
           </div>
 
-          {/* Workbooks — which workbook(s) this play filters against.
-              Default to ICP Match. Multi-select: a play can apply across
-              several workbooks at the same time (e.g. ICP Match + CRM
-              Accounts), in which case only the first one is shown in the
-              header but the play's criteria intersect every selected
-              workbook. */}
+          {/* Workbook — exactly one per play (locked v1 constraint).
+              Default to ICP Match. Picking a workbook replaces the
+              previous selection. */}
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-text-muted block mb-1.5">
-              Apply to workbook(s)
-              <span className="text-text-muted/70 normal-case tracking-normal ml-1">
-                · play filters intersect every selected workbook
-              </span>
+              Workbook
+              <span className="text-text-muted/70 normal-case tracking-normal ml-1">(pick one)</span>
             </label>
             <div className="flex flex-wrap gap-1.5">
               {playWorkbookOptions.map((wb) => {
-                const selected = (draft.workbookIds || []).includes(wb.id);
+                const selected = (draft.workbookIds || [])[0] === wb.id;
                 return (
                   <button
                     key={wb.id}
-                    onClick={() => {
-                      const cur = new Set(draft.workbookIds || []);
-                      if (cur.has(wb.id)) cur.delete(wb.id);
-                      else cur.add(wb.id);
-                      patch({ workbookIds: Array.from(cur) });
-                    }}
+                    onClick={() => patch({ workbookIds: [wb.id] })}
                     className={`text-[11px] px-2.5 py-1 rounded border inline-flex items-center gap-1 ${
                       selected
                         ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
@@ -551,7 +541,7 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
               })}
             </div>
             <div className="text-[10px] text-text-muted italic mt-1.5">
-              Default is <strong>ICP Match</strong>. Pick CRM Accounts or My Book to scope to existing book; pick a custom workbook to run the play over a focused list.
+              Each play targets one workbook. Default is <strong>ICP Match</strong>. Build separate plays to range over different workbooks.
             </div>
           </div>
 
