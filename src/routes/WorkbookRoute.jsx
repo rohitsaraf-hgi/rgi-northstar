@@ -36,12 +36,15 @@ import {
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
 import { useTenant } from '../context/TenantContext.jsx';
+import { useDemo } from '../context/DemoContext.jsx';
 import SetupCoach from '../components/onboarding/SetupCoach.jsx';
 import { getCoverageStats } from '../data/territoryDesign.js';
 import { getCoachState, subscribeCoach, setCoachExpanded, restoreCoach } from '../data/onboardingCoach.js';
 import WorkbookSegmented from '../components/workbook/WorkbookSegmented.jsx';
 import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx';
 import IcpPill from '../components/workbook/IcpPill.jsx';
+import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
+import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
@@ -973,8 +976,14 @@ function getWorkbookState() {
 }
 
 // ----- Empty-book hero CTA — first-entry experience -----
+//
+// Sales Co-Pilot is CRM/book-only. The two paths a new admin has are:
+//   1) Upload a CSV (account_name + account_owner_email)
+//   2) Connect Salesforce / HubSpot and sync automatically
+// Net-new logo discovery and whitespace exploration live in Market Analyzer
+// — explicitly out of scope for Sales Co-Pilot.
 
-function EmptyBookHero({ onUploadCsv, onConnectCrm, whitespaceCount, onExploreWhitespace }) {
+function EmptyBookHero({ onUploadCsv, onConnectCrm, onExploreMarketAnalyzer, hasMarketAnalyzer = false }) {
   return (
     <div className="bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/20 rounded-lg p-6 mb-5">
       <div className="flex items-start gap-4 max-w-3xl">
@@ -986,13 +995,13 @@ function EmptyBookHero({ onUploadCsv, onConnectCrm, whitespaceCount, onExploreWh
             Add your book of accounts
           </h2>
           <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
-            See your customers and pipeline ranked alongside whitespace. Upload a CSV with{' '}
+            Sales Co-Pilot works off your CRM book. Upload a CSV with{' '}
             <code className="bg-surface-2 text-text-primary px-1 py-0.5 rounded text-[11px] font-mono">
-              owner_email, account_name, account_domain
+              account_name, account_owner_email
             </code>{' '}
-            or connect Salesforce / HubSpot to sync automatically.
+            or connect Salesforce / HubSpot to sync automatically. Owners must be existing platform users.
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={onUploadCsv}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-violet-600 text-white rounded-md hover:bg-violet-500 transition-colors"
@@ -1007,13 +1016,13 @@ function EmptyBookHero({ onUploadCsv, onConnectCrm, whitespaceCount, onExploreWh
               <Plug size={12} />
               Connect CRM
             </button>
-            {whitespaceCount > 0 && (
+            {hasMarketAnalyzer && (
               <button
-                onClick={onExploreWhitespace}
+                onClick={onExploreMarketAnalyzer}
                 className="ml-2 inline-flex items-center gap-1 text-[11px] text-text-secondary hover:text-primary"
               >
                 <Sparkles size={11} className="text-violet-500" />
-                <span>Or explore <strong className="text-text-primary">{whitespaceCount.toLocaleString()}</strong> whitespace accounts first</span>
+                <span>Looking for net-new logos? Use <strong className="text-text-primary">Market Analyzer</strong></span>
                 <ChevronRight size={10} />
               </button>
             )}
@@ -1604,7 +1613,10 @@ export default function WorkbookRoute() {
   const navigate = useNavigate();
   const { personaId, persona } = usePersona();
   const { tenant } = useTenant();
+  const { hasModule } = useDemo();
   const { showToast } = useToast();
+  const allowSellerUpload = tenant?.policies?.allowSellerBookUpload !== false;
+  const hasMarketAnalyzer = hasModule('market_analyzer');
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Compute persona-derived flag here (before source state) so admins can
@@ -1612,13 +1624,15 @@ export default function WorkbookRoute() {
   // for the rest of the component — this is the canonical computation site.
   const isAdminPersona = persona?.roleType === 'admin';
 
-  // Source state — 4 tabs: all | book | whitespace | needs_review.
-  // URL ?source= takes precedence. Admins default to 'all' (All Companies);
-  // sellers default to 'book' (My Book).
+  // Source state — Sales Co-Pilot is book-only now. The 'all' / 'whitespace'
+  // / 'needs_review' values from the legacy SourceToggle still exist in this
+  // state field so any persisted URL params don't crash, but everything is
+  // normalized to 'book' at the data-fetch boundary. Net-new logo discovery
+  // lives in Market Analyzer.
   const VALID_SOURCES = ['all', 'book', 'whitespace', 'needs_review'];
   const initialSource = VALID_SOURCES.includes(searchParams.get('source'))
     ? searchParams.get('source')
-    : isAdminPersona ? 'all' : 'book';
+    : 'book';
   const [source, setSource] = useState(initialSource);
   // Legacy saved-views are keyed off 'book' | 'whitespace'. Map 4-tab source → 2-state for views compat.
   const viewsSourceKey = source === 'whitespace' ? 'whitespace' : 'book';
@@ -1922,6 +1936,8 @@ export default function WorkbookRoute() {
   const [enrichOpen, setEnrichOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [adminUploadOpen, setAdminUploadOpen] = useState(false);
+  const [sellerUploadOpen, setSellerUploadOpen] = useState(false);
   const [previewAccount, setPreviewAccount] = useState(null);
   const [addToBookAccount, setAddToBookAccount] = useState(null);
   const [addToBookDefaultOffering, setAddToBookDefaultOffering] = useState(null);
@@ -2061,7 +2077,7 @@ export default function WorkbookRoute() {
               onClick={clearPlayFilter}
               className="flex items-center gap-1 text-xs text-text-muted hover:text-primary mb-2 transition-colors"
             >
-              <ArrowLeft size={11} /> {isAdmin ? 'Master Workbook' : 'Workbook'}
+              <ArrowLeft size={11} /> Workbook
             </button>
           ) : (
             <button
@@ -2076,22 +2092,11 @@ export default function WorkbookRoute() {
               <div className="flex items-center gap-2 mb-1">
                 {activePlay ? <Swords size={16} className="text-primary" /> : <TableIcon size={16} className="text-primary" />}
                 <h1 className="text-xl font-semibold tracking-tight">
-                  {activePlay
-                    ? activePlay.name
-                    : isAdmin ? 'Master Workbook' : 'Workbook'}
+                  {activePlay ? activePlay.name : 'Workbook'}
                 </h1>
-                {activePlay ? (
+                {activePlay && (
                   <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
                     Sales Play
-                  </span>
-                ) : (
-                  <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30">
-                    Enrichable
-                  </span>
-                )}
-                {!activePlay && isAdmin && (
-                  <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                    Admin
                   </span>
                 )}
                 {activePlay?.motion && (
@@ -2102,10 +2107,10 @@ export default function WorkbookRoute() {
               </div>
               <div className="text-xs text-text-secondary">
                 {activePlay
-                  ? (activePlay.description || `Companies matching the ${activePlay.name} criteria across your tenant book and HG whitespace.`)
+                  ? (activePlay.description || `Accounts in your book matching the ${activePlay.name} criteria.`)
                   : isAdmin
-                  ? `Every company in your tenant ICP, enriched with HG signals. To change scope, edit your ICP. To work a slice, open a Sales Play.`
-                  : 'Your full book · ranked by opportunity · ask anything across rows'}
+                  ? 'Your book of accounts — uploaded via CSV or synced from your CRM.'
+                  : 'Your book of accounts · ranked by opportunity'}
               </div>
               {isAdmin && lastSync && (
                 <div className="text-[10px] text-text-muted mt-1 flex items-center gap-1">
@@ -2154,31 +2159,7 @@ export default function WorkbookRoute() {
                   </button>
                 );
               })()}
-              {/* CRM upload / connect banner — shown when the tenant has
-                  neither a book nor a CRM connected. Unlocks the Tenant
-                  Book + Needs Review tabs and Enrich-with-AI. */}
-              {isAdmin && workbookState.isEmptyTenant && (
-                <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/40 text-[11px]">
-                  <Upload size={11} className="text-amber-700 dark:text-amber-300 flex-shrink-0" />
-                  <span className="text-text-secondary">
-                    <span className="font-semibold text-amber-700 dark:text-amber-300">No CRM connected.</span>{' '}
-                    Upload your book or connect a CRM to unlock Tenant Book + Enrich-with-AI.
-                  </span>
-                  <button
-                    onClick={() => navigate('/admin/territory')}
-                    className="ml-1 text-[10px] text-primary hover:underline font-semibold inline-flex items-center gap-1"
-                  >
-                    Upload CSV
-                  </button>
-                  <span className="text-text-muted">·</span>
-                  <button
-                    onClick={() => navigate('/admin/apps')}
-                    className="text-[10px] text-primary hover:underline font-semibold inline-flex items-center gap-1"
-                  >
-                    Connect CRM
-                  </button>
-                </div>
-              )}
+              {/* CRM warning row removed — folded into the EmptyBookHero card. */}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {/* Sellers always work off their book — no source toggle, no
@@ -2191,17 +2172,15 @@ export default function WorkbookRoute() {
                 </div>
               ) : (
                 <>
-                  <SourceToggle
-                    source={source}
-                    onChange={handleSourceChange}
-                    counts={tabCounts}
-                    isAdmin={isAdmin}
-                    bookEmpty={isAdmin && workbookState.isEmptyTenant}
-                  />
-                  {/* View-mode toggle — only meaningful in the master
-                      workbook. Plays are single-offering by definition, so
-                      the segmented/flat choice doesn't apply when a play is
-                      active. We force flat and hide the toggle. */}
+                  {/* Sales Co-Pilot is CRM/book-only. No more All Companies /
+                      Whitespace / Needs Review tabs — net-new logo discovery
+                      lives in Market Analyzer. The workbook IS the book. */}
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
+                    <BookOpen size={11} />
+                    Book
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
+                  </div>
+                  {/* Segmented vs flat — kept only for admin's master view. */}
                   {!activePlay && (
                     <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
                       <button
@@ -2294,6 +2273,26 @@ export default function WorkbookRoute() {
                   {workbookState.hasCrm ? 'Sync to Salesforce' : 'Sync · Connect CRM'}
                 </button>
               )}
+              {/* Re-upload book — admins always; sellers only when the tenant
+                  policy allows it. Triggers the Replace confirmation flow. */}
+              {isAdmin && !workbookState.isEmptyTenant && (
+                <button
+                  onClick={() => setAdminUploadOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
+                  title="Replace the book with a new CSV"
+                >
+                  <Upload size={11} /> Replace book
+                </button>
+              )}
+              {isSeller && allowSellerUpload && (
+                <button
+                  onClick={() => setSellerUploadOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
+                  title="Upload your own book of accounts via CSV"
+                >
+                  <Upload size={11} /> Upload my book
+                </button>
+              )}
               {/* Setup Coach trigger — always-visible entry to the coach
                   panel. Admin can re-open it any time during onboarding. */}
               {isAdmin && (
@@ -2329,45 +2328,23 @@ export default function WorkbookRoute() {
           </div>
 
           {/* Empty-book hero — first-entry experience for admins post-signup.
-              Shown when no territory book AND no CRM connected. Disappears
-              once the admin uploads a CSV or connects Salesforce/HubSpot. */}
+              Sales Co-Pilot is gated until the admin uploads a CSV or
+              connects a CRM. No more whitespace fallback — that lives in
+              Market Analyzer now. */}
           {isAdmin && workbookState.isEmptyTenant && (
             <div className="mt-4">
               <EmptyBookHero
-                onUploadCsv={() => navigate('/admin/territory')}
+                onUploadCsv={() => setAdminUploadOpen(true)}
                 onConnectCrm={() => navigate('/admin/apps')}
-                whitespaceCount={whitespaceCount}
-                onExploreWhitespace={() => handleSourceChange('whitespace')}
+                onExploreMarketAnalyzer={() => navigate('/market-analyzer/companies')}
+                hasMarketAnalyzer={hasMarketAnalyzer}
               />
             </div>
           )}
 
-          {/* Value-prop banner — Enrich → Sync → Activate */}
-          <div className="mt-3 px-3 py-2 rounded-md bg-gradient-to-r from-primary/5 via-violet-500/5 to-emerald-500/5 border border-border flex items-center gap-3 text-[11px] flex-wrap">
-            <Sparkles size={11} className="text-primary flex-shrink-0" />
-            <div className="flex items-center gap-1.5 text-text-secondary">
-              <Wand2 size={10} className="text-violet-700 dark:text-violet-300" />
-              <span><span className="font-semibold text-text-primary">Enrich</span> with HG signals</span>
-              <span className="text-text-muted mx-0.5">→</span>
-              <Upload size={10} className="text-emerald-700 dark:text-emerald-300" />
-              <span><span className="font-semibold text-text-primary">Sync</span> to Salesforce</span>
-              <span className="text-text-muted mx-0.5">→</span>
-              <Sparkles size={10} className="text-primary" />
-              <span><span className="font-semibold text-text-primary">Activate</span> with briefs, emails, contacts</span>
-            </div>
-            {isAdmin ? (
-              <button
-                onClick={() => navigate('/admin/plays')}
-                className="ml-auto inline-flex items-center gap-1 text-primary hover:underline font-semibold"
-              >
-                Configure Plays →
-              </button>
-            ) : (
-              <span className="ml-auto text-[10px] text-text-muted italic">
-                Powered by HG technographic · intent · IT spend · AI spend data
-              </span>
-            )}
-          </div>
+          {/* Enrich → Sync → Activate banner removed — the CTAs in the header
+              (Enrich with AI, Sync) already communicate the workflow without
+              a redundant horizontal strip. */}
 
           {/* Filter strip — lens + signal kinds. Hidden for sellers (their
               workbook columns already show per-offering scores + signal
@@ -2475,35 +2452,13 @@ export default function WorkbookRoute() {
               </div>
             );
           })()}
-          {currentView?.filters?.lookalikeOf && source === 'whitespace' && (
-            <div className="mb-2 px-3 py-2 rounded-md bg-violet-500/5 border border-violet-500/30 text-[11px] text-violet-700 dark:text-violet-300 inline-flex items-center gap-2">
-              <Wand2 size={11} />
-              <span>
-                Lookalike list — accounts similar to{' '}
-                <span className="font-semibold">{currentView.filters.lookalikeOf}</span>. Add the strongest
-                fits to your book.
-              </span>
-            </div>
-          )}
+          {/* Lookalike-list hint removed — that affordance lived on whitespace
+              and now belongs in Market Analyzer. */}
           <div className="text-[11px] text-text-muted mb-2">
-            {source === 'all'
-              ? 'All Companies · '
-              : source === 'whitespace'
-              ? 'Whitespace · '
-              : source === 'needs_review'
-              ? 'Needs Review · '
-              : isAdmin ? 'Tenant Book · ' : 'My book · '}
-            {sortedAccounts.length} accounts in your ICP
+            {isAdmin ? 'Book of accounts · ' : 'My book · '}
+            {sortedAccounts.length} accounts
             {enrichedCols.length > 0 && <> · {enrichedCols.length} AI-enriched column{enrichedCols.length === 1 ? '' : 's'}</>}
-            {source === 'whitespace' && (
-              <> · click a row to preview · <span className="font-mono">Add to book</span> writes to Salesforce via the agent</>
-            )}
-            {source === 'needs_review' && (
-              <> · CRM accounts with no HG match — resolve domain or accept as private</>
-            )}
-            {source === 'all' && (
-              <> · companies in HG + your CRM · the <span className="font-semibold">Source</span> column shows origin · slice via Sales Plays</>
-            )}
+            {isAdmin && <> · slice via Sales Plays</>}
           </div>
 
           {sortedAccounts.length === 0 ? (
@@ -2639,6 +2594,39 @@ export default function WorkbookRoute() {
       {/* Setup Coach — floating widget for RevOps admins to complete remaining
           onboarding steps (scoring, CRM/CSV, territory, sellers, SSO). */}
       {persona.roleType === 'admin' && <SetupCoach />}
+
+      {/* Book upload modals — admin maps owner_email → platform users.
+          Seller upload is gated by tenant.policies.allowSellerBookUpload. */}
+      <BookUploadModal
+        open={adminUploadOpen}
+        onClose={() => setAdminUploadOpen(false)}
+        hasExistingBook={!workbookState.isEmptyTenant}
+        existingBookSize={bookCount}
+        onComplete={(summary) => {
+          setAdminUploadOpen(false);
+          setDemoEmptyMode(false);
+          showToast(
+            `${summary.replaced ? 'Replaced' : 'Imported'} ${summary.matchedAccounts} accounts${
+              summary.skippedAccounts ? ` · ${summary.skippedAccounts} skipped` : ''
+            }`,
+            'success',
+          );
+        }}
+      />
+      <SellerBookUploadModal
+        open={sellerUploadOpen}
+        onClose={() => setSellerUploadOpen(false)}
+        hasExistingBook={bookCount > 0}
+        existingBookSize={bookCount}
+        ownerName={persona.name || 'you'}
+        onComplete={(summary) => {
+          setSellerUploadOpen(false);
+          showToast(
+            `${summary.replaced ? 'Replaced' : 'Imported'} ${summary.importedAccounts} accounts`,
+            'success',
+          );
+        }}
+      />
     </div>
   );
 }

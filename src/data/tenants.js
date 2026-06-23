@@ -144,6 +144,18 @@ export const WIZ_TENANT = {
     fundingDate: 'May 2024 · $1B at $12B valuation',
     growthSignal: 'Fastest-growing software company in history',
   },
+
+  // Tenant-level permissions controlled by the RevOps admin. Surfaced in
+  // the Tenant Profile editor.
+  policies: {
+    // When true, sellers see an Upload button on their Workbook and can
+    // bring their own book of accounts via CSV (account_name +
+    // account_domain). All rows uploaded by a seller are auto-assigned
+    // to that seller — owner_email is NOT in the seller schema.
+    // Default ON so PLG / mid-market motions just work; enterprise can
+    // toggle OFF to enforce admin-curated books.
+    allowSellerBookUpload: true,
+  },
 };
 
 // ===== Empty / new-tenant skeleton (for non-Wiz signups) =====
@@ -163,6 +175,7 @@ export const EMPTY_TENANT_SKELETON = {
   icp: { industries: [], geos: [], revenueBand: null, employeeBand: null, techStack: [] },
   buyingCommittee: [],
   fai: {},
+  policies: { allowSellerBookUpload: true },
 };
 
 // HG-as-tenant fixture — what the existing HG personas operate inside.
@@ -223,6 +236,7 @@ export const HG_TENANT = {
     fundingDate: '2018 (Riverwood)',
     growthSignal: 'Steady GTM Intelligence growth',
   },
+  policies: { allowSellerBookUpload: true },
 };
 
 export const TENANT_FIXTURES = {
