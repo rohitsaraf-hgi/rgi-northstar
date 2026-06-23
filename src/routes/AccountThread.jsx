@@ -30,7 +30,7 @@ import {
   MinusCircle,
 } from 'lucide-react';
 import { getAccountById, ACCOUNT_STAGES, SIGNAL_TYPES, togglePinned, getPinnedAccountIds } from '../data/accounts.js';
-import { Pin, Package, ChevronDown, Wand2, Search, Save } from 'lucide-react';
+import { Pin, Package, ChevronDown, Wand2, Search, Save, ArrowRight } from 'lucide-react';
 import { useTenant } from '../context/TenantContext.jsx';
 import { usePersona } from '../context/PersonaContext.jsx';
 import { getAgentConfig, getPlaybookConfig, subscribeAdminConfig } from '../data/adminConfig.js';
