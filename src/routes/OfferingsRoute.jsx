@@ -19,6 +19,7 @@ import {
   Edit2,
   Trash2,
   X,
+  Lock,
 } from 'lucide-react';
 import { listOfferings, getOffering, upsertOffering, deleteOffering, subscribeOfferings } from '../data/offerings.js';
 import { workflowsForOffering } from '../data/workflows.js';
@@ -141,12 +142,169 @@ function OfferingCard({ offering, onOpen, onEdit, onDelete }) {
   );
 }
 
-// Scoring profile picker — replaces the legacy ScoringModelSummary.
-// Profiles are authored in Market Analyzer; this surface just attaches
-// one to the offering. Without MA entitlement, the picker is read-only
-// (system default only) and shows a "Customize with Market Analyzer →"
-// upsell card under it.
-function ScoringProfileSection({ offering, onChangeProfile, hasMarketAnalyzer }) {
+// Scoring profile section — branches by MA entitlement.
+//
+// With MA: full picker (system defaults + custom profiles), "Manage profiles"
+// button, dimensions chip row.
+//
+// Without MA: collapsed to a read-only default profile card. The only knob
+// admins have is editing offering attributes — so we surface the mapping
+// (which attribute feeds which dimension), call out locked capabilities,
+// and reposition the upsell card as a tier-upgrade pitch.
+
+const ATTRIBUTE_TO_DIMENSION = [
+  {
+    attribute: 'Target ICP — industries',
+    dimension: 'Industry Fit',
+    scrollTo: 'target-icp',
+  },
+  {
+    attribute: 'Target ICP — company size + revenue',
+    dimension: 'Company Size',
+    scrollTo: 'target-icp',
+  },
+  {
+    attribute: 'Competitors / displacement targets',
+    dimension: 'Displacement Targets · Competitor Intent',
+    scrollTo: 'competitors',
+  },
+  {
+    attribute: 'Complementary tech stack',
+    dimension: 'Tech Demand',
+    scrollTo: 'complementary-tech',
+  },
+  {
+    attribute: 'Intent topics',
+    dimension: 'Direct Product Intent · Category Intent',
+    scrollTo: 'intent-topics',
+  },
+];
+
+const LOCKED_CAPABILITIES = [
+  {
+    label: 'Custom dimensions',
+    description: 'Add or remove scoring dimensions per GTM motion.',
+  },
+  {
+    label: 'Weight tuning',
+    description: 'Re-balance Fit / Need / Intent contributions.',
+  },
+  {
+    label: 'Threshold customization',
+    description: 'Move A / B / C / D cutoffs to match your funnel.',
+  },
+];
+
+function MaUpsellCard({ navigate, variant = 'card' }) {
+  if (variant === 'inline') {
+    return (
+      <div className="mt-3 px-3 py-2.5 rounded bg-gradient-to-r from-violet-500/5 to-primary/5 border border-violet-500/20 text-[11px] text-text-secondary flex items-center gap-2">
+        <Sparkles size={11} className="text-violet-700 dark:text-violet-300 flex-shrink-0" />
+        <span className="flex-1">
+          Want full control? <strong className="text-text-primary">Market Analyzer</strong> unlocks
+          custom dimensions, weights, and thresholds.{' '}
+          <button
+            onClick={() => navigate('/platform')}
+            className="text-violet-700 dark:text-violet-300 font-semibold hover:underline"
+          >
+            See Market Analyzer →
+          </button>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 p-4 rounded-md bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/30">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-md bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+          <Sparkles size={16} className="text-violet-700 dark:text-violet-300" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="text-sm font-semibold text-text-primary">
+              You're using the default scoring tier
+            </h3>
+            <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-text-muted/15 text-text-secondary border border-border">
+              Basic
+            </span>
+          </div>
+          <p className="text-[11px] text-text-secondary leading-relaxed mb-2">
+            Default profiles give you directional fit scores derived from each offering's
+            configuration. To tighten scoring per GTM motion or business rules, upgrade to{' '}
+            <strong className="text-text-primary">Market Analyzer</strong> — author custom profiles,
+            tune dimensions and weights, and apply scoring across both your book and the broader
+            HG universe.
+          </p>
+          <button
+            onClick={() => navigate('/platform')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-md hover:bg-violet-500 transition-colors"
+          >
+            See Market Analyzer <ArrowRight size={11} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LockedCapabilityTile({ label, description, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-left px-3 py-2.5 rounded border border-dashed border-border bg-bg/30 hover:border-violet-500/40 hover:bg-violet-500/5 transition-colors group"
+    >
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <Lock size={10} className="text-text-muted group-hover:text-violet-700 dark:group-hover:text-violet-300 flex-shrink-0" />
+        <span className="text-[11px] font-semibold text-text-secondary group-hover:text-text-primary">
+          {label}
+        </span>
+      </div>
+      <div className="text-[10px] text-text-muted leading-snug">{description}</div>
+      <div className="text-[9px] uppercase tracking-wider font-bold text-violet-700 dark:text-violet-300 mt-1">
+        Market Analyzer
+      </div>
+    </button>
+  );
+}
+
+function WhatDrivesScoreGrid({ rows, onJump }) {
+  return (
+    <div className="mt-4 rounded-md border border-border bg-bg/30 overflow-hidden">
+      <div className="px-3 py-2 border-b border-border/60 flex items-center gap-1.5">
+        <Wand2 size={11} className="text-text-muted" />
+        <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+          What drives this score?
+        </span>
+        <span className="text-[10px] text-text-muted ml-auto italic">
+          Edit any attribute below — we'll prompt to recalculate
+        </span>
+      </div>
+      <div className="divide-y divide-border/40">
+        {rows.map((row) => (
+          <button
+            key={row.attribute}
+            onClick={() => onJump?.(row.scrollTo)}
+            className="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-surface-2 transition-colors group"
+          >
+            <div className="text-[11px] text-text-secondary flex-1 truncate">{row.attribute}</div>
+            <ArrowRight size={10} className="text-text-muted group-hover:text-primary flex-shrink-0" />
+            <div className="text-[11px] font-semibold text-text-primary truncate max-w-[260px]">
+              {row.dimension}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScoringProfileSection({
+  offering,
+  onChangeProfile,
+  hasMarketAnalyzer,
+  lastRecalculated,
+  onJumpToAttribute,
+}) {
   const navigate = useNavigate();
   const systemDefault = listSystemDefaultProfiles().find((p) => p.offeringId === offering.id);
   const customProfiles = listCustomProfiles();
@@ -155,6 +313,77 @@ function ScoringProfileSection({ offering, onChangeProfile, hasMarketAnalyzer })
 
   const isSystem = active.kind === 'system';
 
+  // ─── No-MA tier: collapsed read-only default + attribute mapping ───
+  if (!hasMarketAnalyzer) {
+    return (
+      <div className="bg-surface border border-border rounded-md p-4 mb-6">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-9 h-9 rounded-md bg-sky-500/10 flex items-center justify-center flex-shrink-0">
+            <Gauge size={16} className="text-sky-700 dark:text-sky-300" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-0.5">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+                Default scoring profile
+              </span>
+              <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-text-muted/15 text-text-secondary border border-border">
+                Read-only · auto-derived
+              </span>
+            </div>
+            <div className="text-sm font-semibold text-text-primary mb-1">{active.name}</div>
+            <p className="text-[11px] text-text-secondary leading-snug">{active.description}</p>
+            <div className="text-[10px] text-text-muted mt-1 flex items-center gap-1.5 flex-wrap">
+              <CheckCircle2 size={9} className="text-emerald-700 dark:text-emerald-300" />
+              <span>
+                Last recalculated <strong className="text-text-secondary">{lastRecalculated}</strong>
+                {' · '}1,247 accounts scored across your book
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dimensions (read-only) */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-3 border-t border-border/60">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mr-1">
+            Dimensions
+          </span>
+          {(active.dimensions || []).map((d) => (
+            <span
+              key={d}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-bg/40 text-text-secondary border border-border/60"
+            >
+              {d}
+            </span>
+          ))}
+        </div>
+
+        {/* What drives this score */}
+        <WhatDrivesScoreGrid rows={ATTRIBUTE_TO_DIMENSION} onJump={onJumpToAttribute} />
+
+        {/* Locked capabilities */}
+        <div className="mt-4">
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-2">
+            Advanced controls
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {LOCKED_CAPABILITIES.map((cap) => (
+              <LockedCapabilityTile
+                key={cap.label}
+                label={cap.label}
+                description={cap.description}
+                onClick={() => navigate('/platform')}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Upsell card */}
+        <MaUpsellCard navigate={navigate} variant="card" />
+      </div>
+    );
+  }
+
+  // ─── MA tier: full picker ──────────────────────────────────────────
   return (
     <div className="bg-surface border border-border rounded-md p-4 mb-6">
       <div className="flex items-start justify-between gap-4 mb-3">
@@ -216,17 +445,15 @@ function ScoringProfileSection({ offering, onChangeProfile, hasMarketAnalyzer })
             </div>
           </div>
         </div>
-        {hasMarketAnalyzer && (
-          <button
-            onClick={() => navigate('/market-analyzer/scoring-profiles')}
-            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-primary-dim transition-colors"
-          >
-            Manage profiles <ArrowRight size={11} />
-          </button>
-        )}
+        <button
+          onClick={() => navigate('/market-analyzer/scoring-profiles')}
+          className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-primary-dim transition-colors"
+        >
+          Manage profiles <ArrowRight size={11} />
+        </button>
       </div>
 
-      {/* Dimensions chip row — gives the admin a glance at what's inside. */}
+      {/* Dimensions chip row */}
       <div className="flex items-center gap-1.5 flex-wrap pt-3 border-t border-border/60">
         <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mr-1">
           Dimensions
@@ -240,24 +467,17 @@ function ScoringProfileSection({ offering, onChangeProfile, hasMarketAnalyzer })
           </span>
         ))}
       </div>
-
-      {/* MA upsell — shown only when the tenant does NOT own MA. Inline,
-          discoverable, not blocking the picker. */}
-      {!hasMarketAnalyzer && (
-        <div className="mt-3 px-3 py-2.5 rounded bg-gradient-to-r from-violet-500/5 to-primary/5 border border-violet-500/20 text-[11px] text-text-secondary flex items-center gap-2">
-          <Sparkles size={11} className="text-violet-700 dark:text-violet-300 flex-shrink-0" />
-          <span className="flex-1">
-            Want to author your own scoring profiles per offering or segment?{' '}
-            <button
-              onClick={() => navigate('/platform')}
-              className="text-violet-700 dark:text-violet-300 font-semibold hover:underline"
-            >
-              Customize with Market Analyzer →
-            </button>
-          </span>
-        </div>
-      )}
     </div>
+  );
+}
+
+// Attributes that feed scoring. When admin edits any of these and the
+// signature changes, we surface a recalc banner.
+const SCORING_RELEVANT_KEYS = ['targetICP', 'gtmMotion', 'competitors', 'complementaryTech', 'intentTopics'];
+
+function offeringScoringSignature(offering) {
+  return JSON.stringify(
+    SCORING_RELEVANT_KEYS.reduce((acc, k) => ({ ...acc, [k]: offering?.[k] ?? null }), {}),
   );
 }
 
@@ -269,6 +489,27 @@ function OfferingDetailView({ offering, onBack }) {
     (s) => Array.isArray(s.relevant_offerings) && (s.relevant_offerings.includes(offering.id) || s.relevant_offerings.includes('all')),
   );
   const workflows = workflowsForOffering(offering.id).filter((w) => w.offering_id === offering.id);
+
+  // Recalc banner state — fires when a scoring-relevant attribute on the
+  // offering changes. The signature ref captures the *last recalculated*
+  // shape; any drift surfaces the banner.
+  const [lastRecalculated, setLastRecalculated] = useState('2 hours ago');
+  const [recalcSignature, setRecalcSignature] = useState(() => offeringScoringSignature(offering));
+  const currentSignature = offeringScoringSignature(offering);
+  const needsRecalc = currentSignature !== recalcSignature;
+
+  const handleRecalculate = () => {
+    setRecalcSignature(currentSignature);
+    setLastRecalculated('just now');
+    window.alert(
+      `Recalculating fit scores across your book using the updated ${offering.name} configuration. (Mock — in production this kicks off a background job.)`,
+    );
+  };
+
+  const jumpToAttribute = (anchorId) => {
+    const el = document.getElementById(anchorId);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-8">
@@ -312,13 +553,45 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
       </div>
 
-      {/* Scoring profile — embedded picker. Profiles are authored in
-          Market Analyzer; this surface only attaches one to the offering.
-          The system default is always available; custom profiles require
-          MA entitlement to create. */}
+      {/* Recalc banner — surfaces when scoring-relevant attributes
+          (ICP, GTM motion, competitors, complementary tech, intent topics)
+          have changed since the last recalculation. The only explicit
+          scoring action a non-MA admin has. */}
+      {needsRecalc && (
+        <div className="mb-4 px-4 py-3 rounded-md bg-amber-500/10 border border-amber-500/40 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-md bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={14} className="text-amber-700 dark:text-amber-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-semibold text-text-primary">
+              Offering attributes changed
+            </div>
+            <div className="text-[11px] text-text-secondary leading-snug">
+              ICP, competitors, or intent topics were updated since the last scoring run.
+              Recalculate to refresh fit scores across your book.
+            </div>
+          </div>
+          <button
+            onClick={() => setRecalcSignature(currentSignature)}
+            className="text-[11px] text-text-muted hover:text-text-secondary"
+          >
+            Later
+          </button>
+          <button
+            onClick={handleRecalculate}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded-md hover:bg-amber-500 transition-colors flex-shrink-0"
+          >
+            <Sparkles size={11} /> Recalculate scores
+          </button>
+        </div>
+      )}
+
+      {/* Scoring profile section — branches by MA entitlement. */}
       <ScoringProfileSection
         offering={offering}
         hasMarketAnalyzer={hasMarketAnalyzer}
+        lastRecalculated={lastRecalculated}
+        onJumpToAttribute={jumpToAttribute}
         onChangeProfile={(profileId) => {
           upsertOffering({ ...offering, scoringProfileId: profileId });
         }}
@@ -342,7 +615,7 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
 
         {/* Intent topics */}
-        <div className="bg-surface border border-border rounded-md p-4">
+        <div id="intent-topics" className="bg-surface border border-border rounded-md p-4 scroll-mt-20">
           <div className="flex items-center gap-1.5 mb-3">
             <Sparkles size={12} className="text-emerald-700 dark:text-emerald-300" />
             <h3 className="text-xs uppercase tracking-wider font-semibold text-text-muted">Intent topics tracked</h3>
@@ -357,7 +630,7 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
 
         {/* Complementary tech */}
-        <div className="bg-surface border border-border rounded-md p-4">
+        <div id="complementary-tech" className="bg-surface border border-border rounded-md p-4 scroll-mt-20">
           <div className="flex items-center gap-1.5 mb-3">
             <Layers size={12} className="text-sky-700 dark:text-sky-300" />
             <h3 className="text-xs uppercase tracking-wider font-semibold text-text-muted">Complementary tech</h3>
@@ -375,7 +648,7 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
 
         {/* Competitors */}
-        <div className="bg-surface border border-border rounded-md p-4">
+        <div id="competitors" className="bg-surface border border-border rounded-md p-4 scroll-mt-20">
           <div className="flex items-center gap-1.5 mb-3">
             <Shield size={12} className="text-rose-700 dark:text-rose-300" />
             <h3 className="text-xs uppercase tracking-wider font-semibold text-text-muted">Competitors / displacement targets</h3>
@@ -394,7 +667,7 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
 
         {/* Target ICP */}
-        <div className="bg-surface border border-border rounded-md p-4 col-span-2">
+        <div id="target-icp" className="bg-surface border border-border rounded-md p-4 col-span-2 scroll-mt-20">
           <div className="flex items-center gap-1.5 mb-3">
             <Target size={12} className="text-primary" />
             <h3 className="text-xs uppercase tracking-wider font-semibold text-text-muted">Target ICP</h3>
