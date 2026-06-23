@@ -32,111 +32,32 @@ import {
 import { ManageOfferingDrawer } from '../components/onboarding/StepOfferings.jsx';
 import { useDemo } from '../context/DemoContext.jsx';
 
-function OfferingCard({ offering, onOpen, onEdit, onDelete }) {
-  const signals = listSignals().filter(
-    (s) => Array.isArray(s.relevant_offerings) && (s.relevant_offerings.includes(offering.id) || s.relevant_offerings.includes('all')),
-  );
-  const workflows = workflowsForOffering(offering.id).filter((w) => w.offering_id === offering.id);
+// Slim offering tile — just icon + name + short description. Click anywhere
+// to open the offering detail page. Edit / Delete moved into the detail page
+// header to keep the list scannable.
+function OfferingCard({ offering, onOpen }) {
   return (
     <motion.button
       onClick={() => onOpen(offering.id)}
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`w-full text-left bg-surface border ${offering.borderColor} rounded-md p-4 hover:shadow-card transition-all group`}
+      className={`w-full text-left bg-surface border ${offering.borderColor} rounded-md p-4 hover:shadow-card hover:border-primary/40 transition-all group`}
     >
-      <div className="flex items-start gap-3 mb-3">
+      <div className="flex items-start gap-3">
         <div
           className={`w-10 h-10 rounded-md ${offering.bg} flex items-center justify-center flex-shrink-0`}
         >
           <Package size={16} className={offering.textColor} />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className={`text-sm font-semibold text-text-primary leading-tight group-hover:${offering.textColor.replace('text-', 'text-')} transition-colors`}>
+          <h3 className="text-sm font-semibold text-text-primary leading-tight group-hover:text-primary transition-colors">
             {offering.name}
           </h3>
-          <div className="text-[10px] text-text-muted mt-0.5">{offering.fullName}</div>
+          <p className="text-[12px] text-text-secondary leading-snug mt-1 line-clamp-2">
+            {offering.description}
+          </p>
         </div>
-      </div>
-
-      <p className="text-xs text-text-secondary leading-relaxed mb-3">{offering.description}</p>
-
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="px-2 py-1.5 bg-bg/40 border border-border rounded">
-          <div className="text-[9px] uppercase tracking-wider text-text-muted font-semibold">Active</div>
-          <div className="text-sm font-semibold text-text-primary">{offering.activeAccounts}</div>
-        </div>
-        <div className="px-2 py-1.5 bg-bg/40 border border-border rounded">
-          <div className="text-[9px] uppercase tracking-wider text-text-muted font-semibold">Avg deal</div>
-          <div className="text-sm font-semibold text-text-primary">{offering.avgDealSize}</div>
-        </div>
-        <div className="px-2 py-1.5 bg-bg/40 border border-border rounded">
-          <div className="text-[9px] uppercase tracking-wider text-text-muted font-semibold">Workflows</div>
-          <div className="text-sm font-semibold text-text-primary">{workflows.length}</div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1 mb-2">
-        {offering.competitors.slice(0, 3).map((c) => {
-          const label = typeof c === 'string' ? c : c.name;
-          return (
-            <span key={label} className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-              vs. {label}
-            </span>
-          );
-        })}
-        {offering.competitors.length > 3 && (
-          <span className="text-[10px] text-text-muted">+{offering.competitors.length - 3} more</span>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/60">
-        <div className="text-[10px] text-text-muted">
-          {signals.length} relevant signals · {offering.complementaryTech.length} complementary tech
-        </div>
-        {(onEdit || onDelete) && (
-          <div className="flex items-center gap-1">
-            {onEdit && (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onEdit();
-                  }
-                }}
-                className="text-[11px] text-text-secondary hover:text-primary inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-bg/40 cursor-pointer"
-                title="Edit offering"
-              >
-                <Edit2 size={11} /> Edit
-              </span>
-            )}
-            {onDelete && (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onDelete();
-                  }
-                }}
-                className="text-[11px] text-text-muted hover:text-rose-600 inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-rose-500/10 cursor-pointer"
-                title="Delete offering"
-              >
-                <Trash2 size={11} /> Delete
-              </span>
-            )}
-          </div>
-        )}
+        <ArrowRight size={12} className="text-text-muted group-hover:text-primary flex-shrink-0 mt-1 transition-colors" />
       </div>
     </motion.button>
   );
@@ -483,20 +404,34 @@ function offeringScoringSignature(offering) {
 
 function OfferingDetailView({ offering, onBack }) {
   const navigate = useNavigate();
-  const { hasModule } = useDemo();
+  const { config, updateConfig, hasModule } = useDemo();
   const hasMarketAnalyzer = hasModule('market_analyzer');
   const signals = listSignals().filter(
     (s) => Array.isArray(s.relevant_offerings) && (s.relevant_offerings.includes(offering.id) || s.relevant_offerings.includes('all')),
   );
   const workflows = workflowsForOffering(offering.id).filter((w) => w.offering_id === offering.id);
 
+  // Local edit + delete state — moved here from the list view now that
+  // tiles are name-only.
+  const [editing, setEditing] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   // Recalc banner state — fires when a scoring-relevant attribute on the
-  // offering changes. The signature ref captures the *last recalculated*
-  // shape; any drift surfaces the banner.
+  // offering changes.
   const [lastRecalculated, setLastRecalculated] = useState('2 hours ago');
   const [recalcSignature, setRecalcSignature] = useState(() => offeringScoringSignature(offering));
   const currentSignature = offeringScoringSignature(offering);
   const needsRecalc = currentSignature !== recalcSignature;
+
+  // In-context MA entitlement toggle — flips market_analyzer in/out of
+  // modulesOwned so admins can preview the no-MA scoring tier without
+  // hunting through Demo Controls.
+  const toggleMarketAnalyzer = () => {
+    const next = hasMarketAnalyzer
+      ? config.modulesOwned.filter((m) => m !== 'market_analyzer')
+      : [...config.modulesOwned, 'market_analyzer'];
+    updateConfig({ modulesOwned: next });
+  };
 
   const handleRecalculate = () => {
     setRecalcSignature(currentSignature);
@@ -527,10 +462,26 @@ function OfferingDetailView({ offering, onBack }) {
         <div className={`w-12 h-12 rounded-md ${offering.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
           <Package size={22} className={offering.textColor} />
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">{offering.name}</h1>
           <div className="text-sm text-text-muted">{offering.fullName}</div>
           <p className="text-sm text-text-secondary mt-2 max-w-3xl leading-relaxed">{offering.description}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setEditing(offering)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
+            title="Edit offering"
+          >
+            <Edit2 size={11} /> Edit
+          </button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border border-border text-text-muted hover:text-rose-600 hover:border-rose-500/40 rounded-md transition-colors"
+            title="Delete offering"
+          >
+            <Trash2 size={11} />
+          </button>
         </div>
       </div>
 
@@ -551,6 +502,32 @@ function OfferingDetailView({ offering, onBack }) {
           <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">Offering-specific workflows</div>
           <div className="text-2xl font-semibold text-text-primary">{workflows.length}</div>
         </div>
+      </div>
+
+      {/* In-context demo toggle — flips the Market Analyzer entitlement
+          right next to the scoring section. Discoverable without hunting
+          through Demo Controls; the badge state makes the current tier
+          obvious. */}
+      <div className="mb-3 inline-flex items-center gap-2 px-2.5 py-1.5 text-[11px] rounded-md border border-dashed border-violet-500/40 bg-violet-500/5">
+        <Sparkles size={10} className="text-violet-700 dark:text-violet-300" />
+        <span className="text-text-muted uppercase tracking-wider font-semibold text-[10px]">Demo</span>
+        <span className="text-text-secondary">Market Analyzer entitlement:</span>
+        <span
+          className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${
+            hasMarketAnalyzer
+              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
+              : 'bg-text-muted/15 text-text-secondary border-border'
+          }`}
+        >
+          {hasMarketAnalyzer ? 'ON' : 'OFF'}
+        </span>
+        <button
+          onClick={toggleMarketAnalyzer}
+          className="ml-1 text-violet-700 dark:text-violet-300 font-semibold hover:underline"
+          title="Toggle Market Analyzer entitlement to preview both scoring tiers"
+        >
+          {hasMarketAnalyzer ? 'Preview without MA →' : 'Restore MA →'}
+        </button>
       </div>
 
       {/* Recalc banner — surfaces when scoring-relevant attributes
@@ -739,6 +716,64 @@ function OfferingDetailView({ offering, onBack }) {
         signals sellers see, and a routing key for which workflows surface where. Sellers pick an offering
         lens on their home and the system curates everything around it.
       </div>
+
+      {/* Edit drawer */}
+      {editing && (
+        <ManageOfferingDrawer
+          open
+          mode="edit"
+          offering={editing}
+          onClose={() => setEditing(null)}
+          onSave={(data) => {
+            upsertOffering({ ...editing, ...data });
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setConfirmDelete(false)}
+        >
+          <div
+            className="w-[420px] max-w-[95vw] bg-bg border border-border rounded-md shadow-elev p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-9 h-9 rounded-md bg-rose-500/10 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={15} className="text-rose-700 dark:text-rose-300" />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-text-primary mb-0.5">Delete offering?</div>
+                <p className="text-[12px] text-text-secondary leading-snug">
+                  Remove <strong>{offering.name}</strong>. Its default scoring profile, attached
+                  plays, and workbook columns for this offering will be removed.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  deleteOffering(offering.id);
+                  setConfirmDelete(false);
+                  onBack();
+                }}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-md hover:bg-rose-500"
+              >
+                <Trash2 size={11} /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -826,8 +861,6 @@ function OfferingsListView() {
             key={o.id}
             offering={o}
             onOpen={(id) => navigate(`/admin/offerings/${id}`)}
-            onEdit={() => setEditing(o)}
-            onDelete={() => setConfirmDelete(o.id)}
           />
         ))}
       </div>
