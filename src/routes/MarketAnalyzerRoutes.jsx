@@ -13,7 +13,7 @@
 // Design follows the RGI Northstar tokens — same Tailwind utilities,
 // DM Sans, lucide-react icons. Don't import HG Insights chrome.
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Folder,
@@ -46,6 +46,9 @@ import {
   Users,
   DollarSign,
   X,
+  Send,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   listProjects,
@@ -63,6 +66,12 @@ import {
 } from '../data/marketAnalyzerCompanies.js';
 import FilterPanel from '../components/workbook/FilterPanel.jsx';
 import { FILTER_REGISTRY } from '../data/filterRegistry.js';
+import {
+  promoteSegmentToWorkbook,
+  isWorkbookNameTaken,
+} from '../data/workbooks.js';
+import { useDemo } from '../context/DemoContext.jsx';
+import { usePersona } from '../context/PersonaContext.jsx';
 
 // ─── Shared layout helpers ──────────────────────────────────────────
 
@@ -195,12 +204,181 @@ export function MarketAnalyzerProjectsRoute() {
   );
 }
 
+// ─── Push-segment-to-Sales-Co-Pilot modal ──────────────────────────
+//
+// One-way snapshot. Asks for a unique workbook name (defaulted from the
+// segment) + visibility. On confirm, snapshots the segment rows into a
+// PROMOTED_SEGMENT workbook and surfaces a deep-link toast.
+
+function PushSegmentModal({ open, segment, onClose, onPushed }) {
+  const { persona } = usePersona();
+  const [name, setName] = useState('');
+  const [visibility, setVisibility] = useState('organization');
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open && segment) {
+      setName(segment.name || '');
+      setVisibility('organization');
+      setError(null);
+      setSubmitting(false);
+    }
+  }, [open, segment?.id]);
+
+  if (!open || !segment) return null;
+
+  const trimmed = name.trim();
+  const isDuplicate = trimmed && isWorkbookNameTaken(trimmed);
+  const canSubmit = trimmed.length > 0 && !isDuplicate && !submitting;
+
+  const handleSubmit = () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    // Snapshot rows from the curated company universe for the prototype.
+    // In production this re-runs the segment's saved filters.
+    const universe = getMarketAnalyzerCompanies();
+    const sampleSize = Math.min(segment.companyCount || 20, universe.length);
+    const rows = universe.slice(0, sampleSize).map((c) => ({ ...c, source: 'icp_match' }));
+    const result = promoteSegmentToWorkbook({
+      segmentId: segment.id,
+      segmentName: segment.name,
+      name: trimmed,
+      rows,
+      ownerId: persona?.id,
+      ownerName: persona?.name,
+      visibility,
+    });
+    if (result?.error === 'name_taken') {
+      setError('A workbook with this name already exists. Pick a different name.');
+      setSubmitting(false);
+      return;
+    }
+    onPushed?.(result);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="w-[520px] max-w-[95vw] bg-bg border border-border rounded-md shadow-elev"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Send size={14} className="text-primary" />
+            <div className="text-sm font-semibold text-text-primary">Push to Sales Co-Pilot</div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-surface-2 text-text-muted hover:text-text-primary"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <div className="text-[12px] text-text-secondary leading-relaxed">
+            Snapshot{' '}
+            <span className="font-mono font-semibold text-text-primary">
+              {(segment.companyCount || 0).toLocaleString()}
+            </span>{' '}
+            companies from <strong className="text-text-primary">{segment.name}</strong> into a
+            Sales Co-Pilot workbook. Accounts land unassigned — admins can route owners via
+            Territory Design.
+          </div>
+
+          <label className="block">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1">
+              Workbook name
+            </div>
+            <input
+              type="text"
+              autoFocus
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError(null);
+              }}
+              placeholder="e.g. Fintech CNAPP-ready · Jun 23"
+              className={`w-full px-3 py-2 text-sm rounded border ${
+                isDuplicate || error ? 'border-rose-500/50' : 'border-border'
+              } bg-surface focus:outline-none focus:border-primary`}
+            />
+            {isDuplicate && !error && (
+              <div className="mt-1 text-[11px] text-rose-600 inline-flex items-center gap-1">
+                <AlertTriangle size={10} /> A workbook with this name already exists — pick a unique one.
+              </div>
+            )}
+            {error && (
+              <div className="mt-1 text-[11px] text-rose-600 inline-flex items-center gap-1">
+                <AlertTriangle size={10} /> {error}
+              </div>
+            )}
+          </label>
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1">
+              Visibility
+            </div>
+            <div className="flex gap-2">
+              {[
+                { id: 'organization', label: 'Org-visible', desc: 'Everyone in the tenant can see + use it' },
+                { id: 'private', label: 'Private', desc: 'Only you' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => setVisibility(opt.id)}
+                  className={`flex-1 text-left px-3 py-2 rounded border transition-colors ${
+                    visibility === opt.id
+                      ? 'bg-primary/10 border-primary/40 text-primary'
+                      : 'bg-surface border-border text-text-secondary hover:border-primary/30'
+                  }`}
+                >
+                  <div className="text-[12px] font-semibold">{opt.label}</div>
+                  <div className="text-[10px] text-text-muted leading-snug mt-0.5">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-surface/40">
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Send size={11} /> Push to Sales Co-Pilot
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Segments ───────────────────────────────────────────────────────
 
 export function MarketAnalyzerSegmentsRoute() {
   const navigate = useNavigate();
   const segments = listSegments();
   const profiles = listScoringProfiles();
+  const { hasModule } = useDemo();
+  const hasSalesCopilot = hasModule('sales_copilot');
+  const [pushTarget, setPushTarget] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const handlePushed = (workbook) => {
+    if (!workbook) return;
+    setPushTarget(null);
+    setToast({ workbook });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-8">
@@ -217,6 +395,7 @@ export function MarketAnalyzerSegmentsRoute() {
               <th className="px-4 py-2 w-32">Applied profile</th>
               <th className="px-4 py-2 w-28 text-right">Companies</th>
               <th className="px-4 py-2 w-28">Created</th>
+              {hasSalesCopilot && <th className="px-4 py-2 w-20"></th>}
             </tr>
           </thead>
           <tbody>
@@ -225,15 +404,25 @@ export function MarketAnalyzerSegmentsRoute() {
               return (
                 <tr
                   key={s.id}
-                  onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
-                  className="border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors"
+                  className="border-b border-border/40 hover:bg-bg/40 transition-colors"
                 >
-                  <td className="px-4 py-2.5 align-top">
+                  <td
+                    onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
+                    className="px-4 py-2.5 align-top cursor-pointer"
+                  >
                     <div className="text-text-primary font-medium">{s.name}</div>
                     <div className="text-[11px] text-text-muted truncate max-w-md">{s.description}</div>
                   </td>
-                  <td className="px-4 py-2.5 text-text-secondary text-[12px]">{s.projectName}</td>
-                  <td className="px-4 py-2.5">
+                  <td
+                    onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
+                    className="px-4 py-2.5 text-text-secondary text-[12px] cursor-pointer"
+                  >
+                    {s.projectName}
+                  </td>
+                  <td
+                    onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
+                    className="px-4 py-2.5 cursor-pointer"
+                  >
                     {profile ? (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/30">
                         <Gauge size={9} />
@@ -243,10 +432,32 @@ export function MarketAnalyzerSegmentsRoute() {
                       <span className="text-[10px] text-text-muted italic">None applied</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-text-secondary font-mono text-[12px]">
+                  <td
+                    onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
+                    className="px-4 py-2.5 text-right text-text-secondary font-mono text-[12px] cursor-pointer"
+                  >
                     {s.companyCount.toLocaleString()}
                   </td>
-                  <td className="px-4 py-2.5 text-text-muted text-[11px]">{s.createdAt}</td>
+                  <td
+                    onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
+                    className="px-4 py-2.5 text-text-muted text-[11px] cursor-pointer"
+                  >
+                    {s.createdAt}
+                  </td>
+                  {hasSalesCopilot && (
+                    <td className="px-4 py-2.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPushTarget(s);
+                        }}
+                        title="Push this segment to Sales Co-Pilot as a workbook"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-primary/30 text-primary rounded hover:bg-primary/5 transition-colors"
+                      >
+                        <Send size={10} /> Push
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -254,10 +465,33 @@ export function MarketAnalyzerSegmentsRoute() {
         </table>
       </div>
       <div className="mt-4 text-[11px] text-text-muted max-w-3xl leading-relaxed">
-        Click a segment to open the company list with the applied scoring profile. From the segment
-        page you can also <span className="font-semibold text-text-secondary">add a profile</span>{' '}
-        to score, then export or push the result to Sales Co-Pilot as a play audience.
+        Click a segment to open the company list with the applied scoring profile. Use{' '}
+        <span className="font-semibold text-text-secondary">Push</span> to snapshot a segment into a
+        Sales Co-Pilot workbook sellers can work off of.
       </div>
+
+      <PushSegmentModal
+        open={!!pushTarget}
+        segment={pushTarget}
+        onClose={() => setPushTarget(null)}
+        onPushed={handlePushed}
+      />
+      {toast?.workbook && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600 text-white text-sm rounded-md shadow-elev flex items-center gap-3">
+          <CheckCircle2 size={14} />
+          <span>
+            Pushed{' '}
+            <strong>{toast.workbook.accountCount.toLocaleString()}</strong> accounts to{' '}
+            <strong>{toast.workbook.name}</strong>
+          </span>
+          <button
+            onClick={() => navigate(`/workbook/${toast.workbook.id}`)}
+            className="ml-2 text-xs underline hover:no-underline"
+          >
+            View workbook →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -272,6 +506,10 @@ export function MarketAnalyzerSegmentDetailRoute() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [appliedProfileId, setAppliedProfileId] = useState(segment?.appliedProfileId || null);
   const appliedProfile = appliedProfileId ? getScoringProfile(appliedProfileId) : null;
+  const { hasModule } = useDemo();
+  const hasSalesCopilot = hasModule('sales_copilot');
+  const [pushOpen, setPushOpen] = useState(false);
+  const [pushToast, setPushToast] = useState(null);
 
   if (!segment) {
     return (
@@ -298,6 +536,16 @@ export function MarketAnalyzerSegmentDetailRoute() {
       <PageHeader
         title={segment.name}
         subtitle={segment.description}
+        primaryCta={
+          hasSalesCopilot ? (
+            <button
+              onClick={() => setPushOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors"
+            >
+              <Send size={12} /> Push to Sales Co-Pilot
+            </button>
+          ) : null
+        }
       />
 
       <div className="bg-surface border border-border rounded-md p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
@@ -372,6 +620,35 @@ export function MarketAnalyzerSegmentDetailRoute() {
           downstream company table against.
         </p>
       </div>
+
+      <PushSegmentModal
+        open={pushOpen}
+        segment={segment}
+        onClose={() => setPushOpen(false)}
+        onPushed={(workbook) => {
+          setPushOpen(false);
+          if (workbook) {
+            setPushToast({ workbook });
+            setTimeout(() => setPushToast(null), 5000);
+          }
+        }}
+      />
+      {pushToast?.workbook && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600 text-white text-sm rounded-md shadow-elev flex items-center gap-3">
+          <CheckCircle2 size={14} />
+          <span>
+            Pushed{' '}
+            <strong>{pushToast.workbook.accountCount.toLocaleString()}</strong> accounts to{' '}
+            <strong>{pushToast.workbook.name}</strong>
+          </span>
+          <button
+            onClick={() => navigate(`/workbook/${pushToast.workbook.id}`)}
+            className="ml-2 text-xs underline hover:no-underline"
+          >
+            View workbook →
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -373,19 +373,50 @@ export function createCustomWorkbook({ name, rows, ownerId, ownerName, visibilit
   return wb;
 }
 
+// True when a workbook with this name already exists (case-insensitive,
+// trimmed). Used by the push-segment modal to enforce uniqueness so the
+// switcher dropdown never shows two identically-named workbooks.
+export function isWorkbookNameTaken(name) {
+  if (!name) return false;
+  const target = String(name).trim().toLowerCase();
+  return WORKBOOKS.some((w) => !w.archived && (w.name || '').trim().toLowerCase() === target);
+}
+
 // Promote a Market Analyzer segment into a Sales Co-Pilot workbook.
-// Snapshot — rows are frozen at promotion time. Re-promote to refresh.
-export function promoteSegmentToWorkbook({ segmentId, segmentName, rows, ownerId, ownerName }) {
-  const wb = seedWorkbook({
-    id: `wb-promoted-${segmentId}-${Date.now()}`,
-    kind: WORKBOOK_KINDS.PROMOTED_SEGMENT,
-    name: `${segmentName} (from MA)`,
-    ownerId,
-    ownerName,
-    visibility: 'organization',
-    rows,
-    accountCount: rows.length,
-  });
+// Snapshot — rows are frozen at promotion time. Returns the new
+// workbook on success, or { error } if the name is already taken.
+// Caller must pick a unique name (user-supplied or system-derived).
+export function promoteSegmentToWorkbook({
+  segmentId,
+  segmentName,
+  name,
+  rows,
+  ownerId,
+  ownerName,
+  visibility = 'organization',
+}) {
+  const effectiveName = (name && name.trim()) || `${segmentName} (from MA)`;
+  if (isWorkbookNameTaken(effectiveName)) {
+    return { error: 'name_taken', triedName: effectiveName };
+  }
+  const wb = {
+    ...seedWorkbook({
+      id: `wb-promoted-${segmentId}-${Date.now()}`,
+      kind: WORKBOOK_KINDS.PROMOTED_SEGMENT,
+      name: effectiveName,
+      ownerId,
+      ownerName,
+      visibility,
+      rows,
+      accountCount: rows.length,
+    }),
+    // Provenance — surfaced on the workbook header so sellers can trace
+    // a promoted workbook back to the MA segment that produced it.
+    sourceSegmentId: segmentId,
+    sourceSegmentName: segmentName,
+    promotedAt: new Date().toISOString(),
+    promotedBy: ownerName || ownerId || null,
+  };
   WORKBOOKS.unshift(wb);
   return wb;
 }

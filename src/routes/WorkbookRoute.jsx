@@ -2262,6 +2262,32 @@ export default function WorkbookRoute() {
                   )}
                 </div>
               )}
+              {/* Provenance chip — when the active workbook came from a
+                  promoted MA segment, expose the source so sellers know
+                  the workbook isn't hand-curated. Click → opens the
+                  source segment in Market Analyzer. */}
+              {!activePlay && activeWorkbook?.kind === WORKBOOK_KINDS.PROMOTED_SEGMENT && (
+                <button
+                  onClick={() =>
+                    activeWorkbook.sourceSegmentId &&
+                    navigate(`/market-analyzer/segments/${activeWorkbook.sourceSegmentId}`)
+                  }
+                  className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-violet-500/30 bg-violet-500/5 text-[10px] text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 transition-colors"
+                  title="Open the source segment in Market Analyzer"
+                >
+                  <Sparkles size={9} />
+                  <span className="uppercase tracking-wider font-semibold">From Market Analyzer:</span>
+                  <span className="font-semibold">{activeWorkbook.sourceSegmentName || activeWorkbook.name}</span>
+                  {activeWorkbook.promotedAt && (
+                    <span className="opacity-70">
+                      · pushed {new Date(activeWorkbook.promotedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
+                  {activeWorkbook.promotedBy && (
+                    <span className="opacity-70">by {activeWorkbook.promotedBy}</span>
+                  )}
+                </button>
+              )}
               {/* Last-sync timestamp removed — Sync to Salesforce ships
                   later under an Advanced grouping. */}
               {/* ICP-filtered chip removed — the workbook is the book of
