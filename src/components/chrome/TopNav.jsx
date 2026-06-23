@@ -29,7 +29,7 @@ const PAGE_LABELS = {
   '/admin/workflows': 'Workflows',
   '/admin/tenant': 'Tenant Profile',
   '/admin/territory': 'Territory Design',
-  '/admin/scoring': 'Scoring Models',
+  '/admin/scoring': 'Scoring · Market Analyzer',
   '/admin/settings': 'Settings',
   '/admin/users': 'Users',
   '/admin/teams': 'Teams',

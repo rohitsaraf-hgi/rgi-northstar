@@ -224,12 +224,12 @@ export default function AdminHub() {
         />
         <AdminTile
           icon={Gauge}
-          title="Scoring Models"
-          subtitle="Per-offering Fit / Need / Intent models. Fluid — attach to one, many, or zero offerings."
+          title="Scoring Profiles"
+          subtitle="Authored in Market Analyzer · system defaults per offering, plus custom profiles. Attach to any offering."
           stat={SCORING_MODELS.length}
-          statLabel={`${liveModelCount} live`}
+          statLabel="in Market Analyzer"
           accent={{ bg: 'bg-emerald-500/10', color: 'text-emerald-700 dark:text-emerald-300' }}
-          onClick={() => navigate('/admin/scoring')}
+          onClick={() => navigate('/market-analyzer/scoring-profiles')}
           aiPrepared
         />
         <AdminTile

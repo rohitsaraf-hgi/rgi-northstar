@@ -157,7 +157,9 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
   const isWorkbookActive = location.pathname === '/workbook';
   const isAdminActive = location.pathname.startsWith('/admin');
   const isOfferingsActive = location.pathname.startsWith('/admin/offerings');
-  const isScoringActive = location.pathname.startsWith('/admin/scoring');
+  const isScoringActive =
+    location.pathname.startsWith('/admin/scoring') ||
+    location.pathname.startsWith('/market-analyzer/scoring-profiles');
   const isPlaysActive = location.pathname.startsWith('/admin/plays') || location.pathname.startsWith('/plays');
 
   // Which module are we in right now? Drives which sidebar we render.
@@ -332,9 +334,9 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
                   />
                   <NavRow
                     icon={Gauge}
-                    label="Scoring Models"
+                    label="Scoring · in Market Analyzer"
                     active={isScoringActive}
-                    onClick={() => navigate('/admin/scoring')}
+                    onClick={() => navigate('/market-analyzer/scoring-profiles')}
                     collapsed={collapsed}
                     indent
                   />
