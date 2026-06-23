@@ -1762,7 +1762,18 @@ export default function WorkbookRoute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [personaId, isAdminPersona],
   );
+  // Play-aware workbook resolution. When ?play= is set and the play
+  // attached one or more workbooks at creation, those take precedence so
+  // the play view always filters within its declared workbook(s) — even
+  // if the URL lands on a different workbook id.
+  const activePlayId = searchParams.get('play') || null;
   const activeWorkbook = useMemo(() => {
+    const activePlayObj = activePlayId ? getPlay(activePlayId) : null;
+    const playWorkbooks = Array.isArray(activePlayObj?.workbookIds) ? activePlayObj.workbookIds : [];
+    if (playWorkbooks.length > 0) {
+      const wb = workbooksList.find((w) => w.id === playWorkbooks[0]) || getWorkbook(playWorkbooks[0]);
+      if (wb) return wb;
+    }
     if (urlWorkbookId) {
       const wb = workbooksList.find((w) => w.id === urlWorkbookId) || getWorkbook(urlWorkbookId);
       if (wb) return wb;
@@ -1773,11 +1784,14 @@ export default function WorkbookRoute() {
       crmConnected: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlWorkbookId, personaId, isAdminPersona, workbooksList]);
+  }, [urlWorkbookId, personaId, isAdminPersona, workbooksList, activePlayId]);
 
   useEffect(() => {
     if (!urlWorkbookId && activeWorkbook) {
-      navigate(`/workbook/${activeWorkbook.id}`, { replace: true });
+      // Preserve query params (?play=, ?source=, ?offerings=, etc.) so
+      // deep-linked play overlays survive the bare-route redirect.
+      const qs = searchParams.toString();
+      navigate(`/workbook/${activeWorkbook.id}${qs ? `?${qs}` : ''}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlWorkbookId, activeWorkbook?.id]);
@@ -1803,7 +1817,8 @@ export default function WorkbookRoute() {
   // Sales-play filter — sidebar links the workbook to a specific play via
   // ?play=<id>. We resolve the play and overlay its audience criteria
   // (offering lens + signals) on top of the current view's filters.
-  const activePlayId = searchParams.get('play') || null;
+  // activePlayId is declared above (used by the workbook-resolution
+  // useMemo); just memoize the play object here.
   const activePlay = useMemo(() => (activePlayId ? getPlay(activePlayId) : null), [activePlayId]);
 
   // Offerings shown as fit columns / segmented sections in the table.
@@ -2223,7 +2238,7 @@ export default function WorkbookRoute() {
               </div>
               <div className="text-xs text-text-secondary">
                 {activePlay
-                  ? (activePlay.description || `Accounts in your book matching the ${activePlay.name} criteria.`)
+                  ? (activePlay.description || `Accounts matching the ${activePlay.name} criteria.`)
                   : (() => {
                       const meta = activeWorkbook
                         ? WORKBOOK_KIND_META?.[activeWorkbook.kind]
@@ -2231,6 +2246,22 @@ export default function WorkbookRoute() {
                       return meta?.description || 'Switch workbooks from the dropdown above.';
                     })()}
               </div>
+              {/* When viewing a play, show the workbook(s) it sources
+                  from + an Account count line so the user understands
+                  which slice they're looking at. */}
+              {activePlay && activeWorkbook && (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-border bg-bg/40 text-[10px] text-text-secondary">
+                  <Layers size={9} className="text-text-muted" />
+                  <span className="uppercase tracking-wider font-semibold text-text-muted">Sourced from:</span>
+                  <span className="text-text-primary font-semibold">{activeWorkbook.name}</span>
+                  {activeWorkbook.accountCount > 0 && (
+                    <span className="text-text-muted">· {activeWorkbook.accountCount.toLocaleString()} candidates</span>
+                  )}
+                  {Array.isArray(activePlay.workbookIds) && activePlay.workbookIds.length > 1 && (
+                    <span className="text-text-muted">+ {activePlay.workbookIds.length - 1} more</span>
+                  )}
+                </div>
+              )}
               {/* Last-sync timestamp removed — Sync to Salesforce ships
                   later under an Advanced grouping. */}
               {/* ICP-filtered chip removed — the workbook is the book of

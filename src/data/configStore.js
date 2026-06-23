@@ -329,6 +329,11 @@ function ensureLegacyPlayFields(play) {
     teamIds: play.teamIds || [],
     userIds: play.userIds || [],
     audienceFilters: Array.isArray(play.audienceFilters) ? play.audienceFilters : [],
+    // Workbook attachment — which workbook(s) this play filters against.
+    // Empty array means "default" — the route picks ICP Match. Multi-
+    // select supported so a play can range over (e.g.) ICP Match + the
+    // seller's My Book at the same time.
+    workbookIds: Array.isArray(play.workbookIds) ? play.workbookIds : [],
   };
 }
 

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DEFAULT_TEAMS, listSellers } from '../../data/territoryDesign.js';
+import { listWorkbooksForPersona } from '../../data/workbooks.js';
 import {
   Sparkles,
   ArrowRight,
@@ -66,6 +67,7 @@ function seedProposalsFor(confirmedOfferings) {
       motion: 'displacement',
       description: 'Displace incumbent CNAPP vendors at accounts where their renewal cliff is approaching.',
       offerings: [cnapp?.id].filter(Boolean),
+      workbookIds: ['wb-icp-match'],
       audienceRoles: ['AE'],
       firmoFilters: {
         industries: ['Banking & Financial Services', 'Technology', 'Healthcare'],
@@ -88,6 +90,7 @@ function seedProposalsFor(confirmedOfferings) {
       motion: 'new_logo',
       description: 'High-fit prospects with no CNAPP incumbent and active in-market signals — pure pursuit territory.',
       offerings: [cnapp?.id].filter(Boolean),
+      workbookIds: ['wb-icp-match'],
       audienceRoles: ['AE'],
       firmoFilters: {
         industries: ['Technology', 'Healthcare', 'Banking & Financial Services'],
@@ -110,6 +113,7 @@ function seedProposalsFor(confirmedOfferings) {
       motion: 'in_market',
       description: 'Accounts surging on CNAPP topics with pricing page visits and comparison research — buying right now.',
       offerings: allConfirmed, // applies across the portfolio
+      workbookIds: ['wb-icp-match'],
       audienceRoles: ['AE', 'BDR'],
       firmoFilters: {
         industries: ['Any'],
@@ -132,6 +136,7 @@ function seedProposalsFor(confirmedOfferings) {
       motion: 'opportunity_window',
       description: 'Recent breach disclosures, M&A activity, or compliance pressure that opens a near-term buying window.',
       offerings: [defend?.id, cnapp?.id].filter(Boolean),
+      workbookIds: ['wb-icp-match'],
       audienceRoles: ['AE', 'CSM'],
       firmoFilters: {
         industries: ['Banking & Financial Services', 'Healthcare', 'Public Sector'],
@@ -154,6 +159,7 @@ function seedProposalsFor(confirmedOfferings) {
       motion: 'new_logo',
       description: 'Engineering-led pursuits where DevSecOps maturity signals suggest Wiz Code fit.',
       offerings: [code?.id].filter(Boolean),
+      workbookIds: ['wb-icp-match'],
       audienceRoles: ['AE', 'BDR'],
       firmoFilters: {
         industries: ['Technology', 'Financial Technology'],
@@ -359,6 +365,10 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
       estimatedMatches: 0,
       confirmed: true,
       visibility: 'tenant',
+      // Default new plays to ICP Match. Admin can pick more workbooks
+      // (multi-select) from the picker; an empty list also implies
+      // "apply against ICP Match" at runtime.
+      workbookIds: ['wb-icp-match'],
     }
   );
 
@@ -367,6 +377,14 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
   // newly-invited reps appear without a code change.
   const allTeams = DEFAULT_TEAMS;
   const allSellers = useMemo(() => listSellers().filter((s) => s.status === 'active'), []);
+
+  // Workbook options for the play attachment picker. Admin builder
+  // sees every tenant-visible workbook so they can range a play over
+  // ICP Match, CRM Accounts, or a custom uploaded book.
+  const playWorkbookOptions = useMemo(
+    () => listWorkbooksForPersona({ personaId: 'priya', isAdmin: true, crmConnected: false }),
+    [],
+  );
 
   function patch(updates) {
     setDraft((prev) => ({ ...prev, ...updates }));
@@ -489,6 +507,51 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
             </div>
             <div className="text-[10px] text-text-muted italic mt-1.5">
               Each play targets one offering. Build separate plays for other offerings.
+            </div>
+          </div>
+
+          {/* Workbooks — which workbook(s) this play filters against.
+              Default to ICP Match. Multi-select: a play can apply across
+              several workbooks at the same time (e.g. ICP Match + CRM
+              Accounts), in which case only the first one is shown in the
+              header but the play's criteria intersect every selected
+              workbook. */}
+          <div>
+            <label className="text-[10px] uppercase tracking-wider font-bold text-text-muted block mb-1.5">
+              Apply to workbook(s)
+              <span className="text-text-muted/70 normal-case tracking-normal ml-1">
+                · play filters intersect every selected workbook
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {playWorkbookOptions.map((wb) => {
+                const selected = (draft.workbookIds || []).includes(wb.id);
+                return (
+                  <button
+                    key={wb.id}
+                    onClick={() => {
+                      const cur = new Set(draft.workbookIds || []);
+                      if (cur.has(wb.id)) cur.delete(wb.id);
+                      else cur.add(wb.id);
+                      patch({ workbookIds: Array.from(cur) });
+                    }}
+                    className={`text-[11px] px-2.5 py-1 rounded border inline-flex items-center gap-1 ${
+                      selected
+                        ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
+                        : 'bg-surface border-border text-text-secondary hover:border-primary/30'
+                    }`}
+                  >
+                    {selected && <Check size={10} />}
+                    {wb.name}
+                    {wb.accountCount > 0 && (
+                      <span className="text-[10px] font-mono opacity-70">· {wb.accountCount.toLocaleString()}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[10px] text-text-muted italic mt-1.5">
+              Default is <strong>ICP Match</strong>. Pick CRM Accounts or My Book to scope to existing book; pick a custom workbook to run the play over a focused list.
             </div>
           </div>
 
