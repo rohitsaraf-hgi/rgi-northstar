@@ -45,6 +45,7 @@ import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx'
 import IcpPill from '../components/workbook/IcpPill.jsx';
 import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
+import OfferingSelector from '../components/workbook/OfferingSelector.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
@@ -1641,8 +1642,25 @@ export default function WorkbookRoute() {
   // URL ?view_mode= takes precedence; sellers default to segmented since
   // their book is always offering-grouped; admins default to segmented as
   // their master pane-of-glass.
-  const initialViewMode = searchParams.get('view_mode') === 'flat' ? 'flat' : 'segmented';
-  const [viewMode, setViewMode] = useState(initialViewMode);
+  // Offering selector — drives both "what offerings render as columns/sections"
+  // and "is this a flat or segmented view".
+  //   selectedOfferings = []      → flat view, all offerings as columns
+  //   selectedOfferings.length>0  → segmented view, one section per selected
+  // URL ?offerings=a,b survives reloads. Older ?view_mode=flat URLs are
+  // honored for backwards compatibility (mapped to []).
+  const initialSelectedOfferings = (() => {
+    const param = searchParams.get('offerings');
+    if (param) return param.split(',').filter(Boolean);
+    if (searchParams.get('view_mode') === 'flat') return [];
+    return [];
+  })();
+  const [selectedOfferings, setSelectedOfferings] = useState(initialSelectedOfferings);
+  const viewMode = selectedOfferings.length === 0 ? 'flat' : 'segmented';
+  const setViewMode = (m) => {
+    // Backwards-compat shim — internal callers used to call this.
+    if (m === 'flat') setSelectedOfferings([]);
+    // (no useful behavior for 'segmented' without a list — ignore)
+  };
 
   // View state
   const initialViewId = searchParams.get('view');
@@ -1665,7 +1683,7 @@ export default function WorkbookRoute() {
     if (def) setCurrentViewId(def.id);
   };
 
-  // Keep URL in sync with view id + source + viewMode
+  // Keep URL in sync with view id + source + offerings selection.
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
     let changed = false;
@@ -1677,13 +1695,20 @@ export default function WorkbookRoute() {
       params.set('source', source);
       changed = true;
     }
-    if (params.get('view_mode') !== viewMode) {
-      params.set('view_mode', viewMode);
+    const offeringsParam = selectedOfferings.join(',');
+    if ((params.get('offerings') || '') !== offeringsParam) {
+      if (offeringsParam) params.set('offerings', offeringsParam);
+      else params.delete('offerings');
+      changed = true;
+    }
+    // Legacy param — clear it once on first run
+    if (params.has('view_mode')) {
+      params.delete('view_mode');
       changed = true;
     }
     if (changed) setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentViewId, source, viewMode]);
+  }, [currentViewId, source, selectedOfferings]);
 
   // Subscribe to added-from-whitespace changes
   const [addedTick, setAddedTick] = useState(0);
@@ -1712,19 +1737,25 @@ export default function WorkbookRoute() {
   const activePlayId = searchParams.get('play') || null;
   const activePlay = useMemo(() => (activePlayId ? getPlay(activePlayId) : null), [activePlayId]);
 
-  // Offerings shown as fit columns in the table. In play-mode, narrow to the
-  // play's offerings so the table feels purpose-built for the play instead of
-  // showing every product the tenant sells.
+  // Offerings shown as fit columns / segmented sections in the table.
+  // Precedence: play overlay > user's OfferingSelector pick > all offerings.
   const tableOfferings = useMemo(() => {
     const all = listOfferings();
-    if (!activePlay) return all;
-    const ids = new Set();
-    if (activePlay.offering_id) ids.add(activePlay.offering_id);
-    if (Array.isArray(activePlay.offerings)) activePlay.offerings.forEach((id) => ids.add(id));
-    if (ids.size === 0) return all;
-    const matched = all.filter((o) => ids.has(o.id));
-    return matched.length > 0 ? matched : all;
-  }, [activePlay]);
+    if (activePlay) {
+      const ids = new Set();
+      if (activePlay.offering_id) ids.add(activePlay.offering_id);
+      if (Array.isArray(activePlay.offerings)) activePlay.offerings.forEach((id) => ids.add(id));
+      if (ids.size === 0) return all;
+      const matched = all.filter((o) => ids.has(o.id));
+      return matched.length > 0 ? matched : all;
+    }
+    if (selectedOfferings.length > 0) {
+      const ids = new Set(selectedOfferings);
+      const matched = all.filter((o) => ids.has(o.id));
+      return matched.length > 0 ? matched : all;
+    }
+    return all;
+  }, [activePlay, selectedOfferings]);
 
   const clearPlayFilter = () => {
     const params = new URLSearchParams(searchParams);
@@ -2155,54 +2186,20 @@ export default function WorkbookRoute() {
               {/* CRM warning row removed — folded into the EmptyBookHero card. */}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Sellers always work off their book — no source toggle, no
-                  view-mode toggle, no offering/signal filter chips. */}
-              {isSeller ? (
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
-                  <BookOpen size={11} />
-                  My Book
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
-                </div>
-              ) : (
-                <>
-                  {/* Sales Co-Pilot is CRM/book-only. No more All Companies /
-                      Whitespace / Needs Review tabs — net-new logo discovery
-                      lives in Market Analyzer. The workbook IS the book. */}
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
-                    <BookOpen size={11} />
-                    Book
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
-                  </div>
-                  {/* Segmented vs flat — kept only for admin's master view. */}
-                  {!activePlay && (
-                    <div className="inline-flex items-center bg-surface border border-border rounded-md p-0.5">
-                      <button
-                        onClick={() => setViewMode('segmented')}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                          viewMode === 'segmented'
-                            ? 'bg-primary/15 text-primary font-semibold'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                        title="Stack sections per offering"
-                      >
-                        <Layers size={11} />
-                        Segmented
-                      </button>
-                      <button
-                        onClick={() => setViewMode('flat')}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                          viewMode === 'flat'
-                            ? 'bg-primary/15 text-primary font-semibold'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                        title="Single flat table"
-                      >
-                        <TableIcon size={11} />
-                        Flat
-                      </button>
-                    </div>
-                  )}
-                </>
+              {/* Unified workbook header for admin + seller. The workbook IS
+                  the book. "All offerings" = the old Flat view; picking 1+
+                  offerings switches to Segmented (one section per offering). */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
+                <BookOpen size={11} />
+                Book
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
+              </div>
+              {!activePlay && (
+                <OfferingSelector
+                  offerings={listOfferings()}
+                  selected={selectedOfferings}
+                  onChange={setSelectedOfferings}
+                />
               )}
               {/* Saved Views picker removed — the "All accounts" dropdown
                   was adding cognitive load. Reinstate via overflow menu if
@@ -2419,19 +2416,12 @@ export default function WorkbookRoute() {
                 </button>
               </div>
             )
-          ) : isSeller ? (
-            <SellerWorkbookTable
-              accounts={sortedAccounts}
-              offerings={tableOfferings}
-              onOpenAccount={(a) => navigate(`/account/${a.id}`)}
-              onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
-              enrichedCols={enrichedCols}
-              onRemoveEnrichedColumn={handleRemoveColumn}
-            />
           ) : (viewMode === 'segmented' && !activePlay) ? (
+            // Segmented view (admin + seller) — one section per selected
+            // offering. Driven by OfferingSelector in the header.
             <WorkbookSegmented
               accounts={sortedAccounts}
-              offerings={listOfferings()}
+              offerings={tableOfferings}
               source={source}
               onOpenAccount={(a) => navigate(`/account/${a.id}`)}
               onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
@@ -2441,23 +2431,23 @@ export default function WorkbookRoute() {
                 setAddToBookDefaultOffering(offeringId);
               }}
               onViewAll={(offeringId) => {
-                setViewMode('flat');
+                // "View all" from a segmented section drops to flat (All
+                // offerings) and pins the lens to that offering.
+                setSelectedOfferings([]);
                 updateLens(offeringId);
               }}
             />
           ) : (
-            // Admin flat view: across-offering scan with one row per company.
-            // Columns: Account (with subsidiary hierarchy) · Source · per-
-            // offering scores · Emp · Revenue · BC contacts · IT Spend · HQ ·
-            // Industry. Competitive / Intent / Partner live in segmented view.
+            // Flat view (admin + seller, default) — one row per company,
+            // every offering as a fit column. Same column set Alex sees.
             <SellerWorkbookTable
               accounts={sortedAccounts}
               offerings={tableOfferings}
-              onOpenAccount={(a) => handleRowClick(a)}
+              onOpenAccount={(a) => (isAdmin ? handleRowClick(a) : navigate(`/account/${a.id}`))}
               onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
-              showSourceColumn
-              showHgIntelligence
-              columnSet="admin-flat"
+              showSourceColumn={isAdmin}
+              showHgIntelligence={isAdmin}
+              columnSet={isAdmin ? 'admin-flat' : 'seller'}
               enrichedCols={enrichedCols}
               onRemoveEnrichedColumn={handleRemoveColumn}
             />
