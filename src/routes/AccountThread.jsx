@@ -512,56 +512,43 @@ function LookalikesDrawer({ open, sourceAccount, onClose, onSaveAsList, onOpenAc
   );
 }
 
-function OverviewTab({ account, onRunPlay, offeringId, onChangeLens, onFindLookalikes }) {
-  const offering = getOffering(offeringId);
-  const isLensed = !!offering;
-  const lensedSignals = useMemo(() => offeringFilterSignals(account.signals || [], offeringId), [account.signals, offeringId]);
-  const recommendedWorkflows = useMemo(() => recommendedPlaysForOffering(offeringId), [offeringId]);
-  const hiddenSignalCount = (account.signals?.length || 0) - lensedSignals.length;
+function OverviewTab({ account, onChangeLens, onFindLookalikes }) {
+  // Per the spec: Overview shows what's happening, the pain points this
+  // account is facing, which offerings to lead with, and the agentic
+  // lookalikes callout at the bottom. Defensive null checks throughout
+  // so a missing HG_INTELLIGENCE entry or offering-id mismatch never
+  // crashes the tab.
 
-  // HG Intelligence — synthesized "what's happening here + where to lead"
-  // for this account. Same data source as the workbook's HG Intelligence
-  // column; we render it inline here as the centerpiece of Overview.
   const intel = getHgIntelligence(account.id);
-  const leadOfferingKey = intel?.lead?.code ? OFFERING_CODES?.[intel.lead.code]?.key : null;
-  const leadOffering = leadOfferingKey
-    ? listOfferings().find((o) => o.key === leadOfferingKey || o.id === leadOfferingKey)
-    : null;
-  const nextOfferingKey = intel?.next?.code ? OFFERING_CODES?.[intel.next.code]?.key : null;
-  const nextOffering = nextOfferingKey
-    ? listOfferings().find((o) => o.key === nextOfferingKey || o.id === nextOfferingKey)
-    : null;
 
-  // Tailored thread starter — refer to lens
-  const lensedStarter = useMemo(() => {
-    if (!isLensed) return account.threadStarter;
-    return `Exploring ${offering.name}. ${account.threadStarter}`;
-  }, [isLensed, offering, account.threadStarter]);
+  // Resolve the lead / next offerings against the tenant's offering
+  // catalog. Falls through OFFERING_CODES → offering.key → offering.id
+  // so wizard-saved offerings (wiz-cnapp, wiz-code, wiz-defend) resolve
+  // alongside legacy ids.
+  const resolveOfferingByCode = (code) => {
+    if (!code) return null;
+    const key = OFFERING_CODES?.[code]?.key;
+    const offerings = listOfferings();
+    return (
+      offerings.find((o) => o.key === key || o.id === key) ||
+      offerings.find((o) => o.id === code) ||
+      null
+    );
+  };
+  const leadOffering = resolveOfferingByCode(intel?.lead?.code);
+  const nextOffering = resolveOfferingByCode(intel?.next?.code);
+
+  // Pain points — pulled from the lead offering's painPoints. Tenant
+  // config is authored as an array of strings; fall back to the
+  // narrative if no offering painPoints exist.
+  const painPoints = Array.isArray(leadOffering?.painPoints)
+    ? leadOffering.painPoints
+    : [];
 
   return (
     <div className="space-y-4">
-      {/* Lens banner — shown when a specific offering is selected */}
-      {isLensed && (
-        <div className={`px-3 py-2 rounded-md border ${offering.borderColor} ${offering.bg} flex items-center gap-2 text-[11px] ${offering.textColor}`}>
-          <Wand2 size={11} />
-          <span>
-            Viewing through the <span className="font-semibold">{offering.name}</span> lens. Signals, plays,
-            and stakeholders below are tailored to this offering.
-          </span>
-          <button
-            onClick={() => onChangeLens('all')}
-            className="ml-auto text-[10px] underline hover:no-underline"
-          >
-            Clear lens
-          </button>
-        </div>
-      )}
-
-      {/* What's happening + where to lead — the centerpiece. Mirrors the
-          workbook's HG Intelligence column: a synthesized narrative,
-          which offering to lead with + entry point, plus the natural
-          co-sell / expansion follow-on. */}
-      {intel && (
+      {/* What's happening + Lead with + Co-sell follow-on */}
+      {intel ? (
         <div className="bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/30 rounded-md p-4">
           <div className="flex items-start gap-3 mb-3">
             <div className="w-9 h-9 rounded-md bg-violet-500/15 flex items-center justify-center flex-shrink-0">
@@ -571,167 +558,112 @@ function OverviewTab({ account, onRunPlay, offeringId, onChangeLens, onFindLooka
               <div className="text-[10px] uppercase tracking-wider font-semibold text-violet-700 dark:text-violet-300 mb-0.5">
                 What's happening at {account.name}
               </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed">{intel.narrative}</p>
+              <p className="text-[13px] text-text-secondary leading-relaxed">
+                {intel.narrative}
+              </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2 mt-3">
             {/* Lead with */}
-            <div className="bg-surface/80 border border-border rounded p-3">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1">
-                Lead with
-              </div>
-              <div className="flex items-center gap-1.5 mb-1">
-                {leadOffering && (
-                  <span className={`w-5 h-5 rounded ${leadOffering.bg} flex items-center justify-center flex-shrink-0`}>
-                    <Package size={11} className={leadOffering.textColor} />
+            {intel.lead && (
+              <div className="bg-surface/80 border border-border rounded p-3">
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1">
+                  Lead with
+                </div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  {leadOffering && (
+                    <span className={`w-5 h-5 rounded ${leadOffering.bg || 'bg-primary/10'} flex items-center justify-center flex-shrink-0`}>
+                      <Package size={11} className={leadOffering.textColor || 'text-primary'} />
+                    </span>
+                  )}
+                  <span className="text-[13px] font-semibold text-text-primary truncate">
+                    {intel.lead.name}
                   </span>
+                </div>
+                {intel.lead.entryPoint && (
+                  <div className="text-[11px] text-text-secondary leading-snug">
+                    Entry point:{' '}
+                    <span className="font-medium text-text-primary">{intel.lead.entryPoint}</span>
+                  </div>
                 )}
-                <span className="text-[13px] font-semibold text-text-primary truncate">
-                  {intel.lead.name}
-                </span>
+                {leadOffering && onChangeLens && (
+                  <button
+                    onClick={() => onChangeLens(leadOffering.id)}
+                    className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
+                  >
+                    Open this offering's lens <ArrowRight size={9} />
+                  </button>
+                )}
               </div>
-              <div className="text-[11px] text-text-secondary leading-snug">
-                Entry point: <span className="font-medium text-text-primary">{intel.lead.entryPoint}</span>
-              </div>
-              {leadOffering && (
-                <button
-                  onClick={() => onChangeLens(leadOffering.id)}
-                  className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
-                >
-                  Open this offering's lens <ArrowRight size={9} />
-                </button>
-              )}
-            </div>
+            )}
 
             {/* Next — co-sell or expansion */}
-            <div className="bg-surface/80 border border-border rounded p-3">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1 inline-flex items-center gap-1.5">
-                {intel.next.type === 'expansion' ? 'Expansion follow-on' : 'Co-sell follow-on'}
-                <span
-                  className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded border ${
-                    intel.next.type === 'expansion'
-                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                      : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
-                  }`}
-                >
-                  {intel.next.type === 'expansion' ? 'Expand' : 'Co-sell'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 mb-1">
-                {nextOffering && (
-                  <span className={`w-5 h-5 rounded ${nextOffering.bg} flex items-center justify-center flex-shrink-0`}>
-                    <Package size={11} className={nextOffering.textColor} />
+            {intel.next && (
+              <div className="bg-surface/80 border border-border rounded p-3">
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1 inline-flex items-center gap-1.5">
+                  {intel.next.type === 'expansion' ? 'Expansion follow-on' : 'Co-sell follow-on'}
+                  <span
+                    className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded border ${
+                      intel.next.type === 'expansion'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                        : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
+                    }`}
+                  >
+                    {intel.next.type === 'expansion' ? 'Expand' : 'Co-sell'}
                   </span>
+                </div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  {nextOffering && (
+                    <span className={`w-5 h-5 rounded ${nextOffering.bg || 'bg-primary/10'} flex items-center justify-center flex-shrink-0`}>
+                      <Package size={11} className={nextOffering.textColor || 'text-primary'} />
+                    </span>
+                  )}
+                  <span className="text-[13px] font-semibold text-text-primary truncate">
+                    {intel.next.name}
+                  </span>
+                </div>
+                {intel.next.reasoning && (
+                  <div className="text-[11px] text-text-secondary leading-snug">
+                    {intel.next.reasoning}
+                  </div>
                 )}
-                <span className="text-[13px] font-semibold text-text-primary truncate">
-                  {intel.next.name}
-                </span>
               </div>
-              <div className="text-[11px] text-text-secondary leading-snug">{intel.next.reasoning}</div>
-            </div>
+            )}
           </div>
+        </div>
+      ) : (
+        <div className="bg-surface border border-dashed border-border rounded-md p-6 text-center text-[12px] text-text-muted">
+          AI intelligence for this account is generating. Refresh in a moment, or run an Account Brief from the Account AI tab.
         </div>
       )}
 
-      {/* Thread overview */}
-      <div className="bg-surface border border-border rounded-md p-4">
-        <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1.5">Thread overview</div>
-        <p className="text-sm text-text-secondary leading-relaxed">{lensedStarter}</p>
-      </div>
-
-      {/* Why-this-offering card (lens-aware) */}
-      {isLensed && (
-        <WhyOfferingCard
-          account={account}
-          offeringId={offeringId}
-          onChangeLens={() => {}}
-        />
-      )}
-
-      <div className="grid grid-cols-2 gap-4">
-        {/* Latest signals (lens-filtered) */}
+      {/* Pain points this account is facing */}
+      {painPoints.length > 0 && (
         <div className="bg-surface border border-border rounded-md p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs font-semibold text-text-primary inline-flex items-center gap-1.5">
-              <Sparkles size={11} className="text-primary" />
-              {isLensed ? `Signals · ${offering.name}` : 'Latest signals'}
-            </div>
-            <span className="text-[10px] text-text-muted">
-              {lensedSignals.length}{hiddenSignalCount > 0 && ` of ${account.signals?.length || 0}`}
-            </span>
-          </div>
-          {lensedSignals.length > 0 ? (
-            <div className="space-y-0">
-              {lensedSignals.slice(0, 3).map((s) => <SignalRow key={s.id} signal={s} onRunPlay={onRunPlay} />)}
-            </div>
-          ) : isLensed ? (
-            <div className="text-[11px] text-text-muted italic leading-snug">
-              No {offering.name}-relevant signals on this account. Switch lens to see other signals.
-            </div>
-          ) : (
-            <div className="text-[11px] text-text-muted italic">No signals yet — agents will surface them as they appear.</div>
-          )}
-          {isLensed && hiddenSignalCount > 0 && (
-            <button
-              onClick={() => onChangeLens('all')}
-              className="text-[10px] text-primary hover:underline mt-2"
-            >
-              {hiddenSignalCount} more signal{hiddenSignalCount === 1 ? '' : 's'} hidden by lens — show all →
-            </button>
-          )}
-        </div>
-
-        {/* Recommended plays — offering-tagged workflows */}
-        <div className="bg-surface border border-border rounded-md p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-xs font-semibold text-text-primary inline-flex items-center gap-1.5">
-              <Compass size={11} className="text-primary" />
-              {isLensed ? `Recommended for ${offering.name}` : 'Recommended plays'}
-            </div>
-            {isLensed && (
-              <span className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded ${offering.bg} ${offering.textColor}`}>
-                {offering.name}
+          <div className="flex items-center gap-1.5 mb-2">
+            <AlertTriangle size={12} className="text-amber-700 dark:text-amber-300" />
+            <h3 className="text-xs uppercase tracking-wider font-semibold text-text-secondary">
+              Pain points {account.name} is facing
+            </h3>
+            {leadOffering && (
+              <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${leadOffering.bg || 'bg-primary/10'} ${leadOffering.textColor || 'text-primary'}`}>
+                {leadOffering.name.replace(/^Wiz\s+/i, '')}
               </span>
             )}
           </div>
-          <div className="space-y-1.5">
-            {recommendedWorkflows.map((w) => {
-              const isOfferingSpecific = w.offering_id !== 'all';
-              return (
-                <button
-                  key={w.id}
-                  onClick={() => onRunPlay(w.id)}
-                  className="w-full text-left p-2.5 border border-border rounded hover:border-primary/30 transition-colors group"
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <Sparkles size={11} className={isOfferingSpecific && offering ? offering.textColor : 'text-emerald-700 dark:text-emerald-300'} />
-                    <span className="text-xs font-semibold text-text-primary flex-1 truncate">{w.name}</span>
-                    {isOfferingSpecific && offering && (
-                      <span className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded ${offering.bg} ${offering.textColor}`}>
-                        {offering.name.replace('Wiz ', '')}
-                      </span>
-                    )}
-                    <ChevronRight size={11} className="text-text-muted group-hover:text-primary" />
-                  </div>
-                  <div className="text-[10px] text-text-muted ml-6 leading-snug line-clamp-1">{w.description}</div>
-                </button>
-              );
-            })}
-          </div>
+          <ul className="space-y-1.5">
+            {painPoints.map((p, i) => (
+              <li key={i} className="flex items-start gap-2 text-[12px] text-text-secondary leading-snug">
+                <span className="text-amber-700 dark:text-amber-300 mt-0.5">·</span>
+                <span>{p}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
-
-      {/* Cross-offering pivot card — only shown when a specific lens is active */}
-      {isLensed && (
-        <OtherOfferingFitsCard
-          accountId={account.id}
-          currentOfferingId={offeringId}
-          onChangeLens={onChangeLens}
-        />
       )}
 
-      {/* Find lookalikes CTA — the AI-native discovery moment */}
+      {/* Find lookalikes — agentic callout */}
       {onFindLookalikes && (
         <div className="bg-gradient-to-r from-primary/5 to-violet-500/5 border border-primary/20 rounded-md p-3 flex items-center gap-3">
           <div className="w-9 h-9 rounded-md bg-gradient-to-br from-primary to-violet-500 flex items-center justify-center flex-shrink-0">
@@ -742,8 +674,8 @@ function OverviewTab({ account, onRunPlay, offeringId, onChangeLens, onFindLooka
               Find more accounts like {account.name}
             </div>
             <div className="text-[11px] text-text-secondary leading-relaxed">
-              HG searches its universe for whitespace accounts matching by industry, cloud, tech stack,
-              size, intent, and best-fit offering — and lets you save as a workbook view.
+              An agent will search HG's universe for whitespace accounts that mirror {account.name}'s
+              industry, cloud, tech stack, size, and intent — and save the result as a workbook.
             </div>
           </div>
           <button
@@ -1084,149 +1016,98 @@ function PriorityChip({ priority }) {
   );
 }
 
-function StakeholdersTab({ account, offeringId, onRunPlay }) {
-  const isAllLens = offeringId === 'all' || !offeringId;
-  // For "All lens", default to the best-fit offering's committee to keep the page useful.
-  const best = bestOfferingFor(account.id);
-  const effectiveOfferingId = isAllLens ? best?.offeringId || 'cnapp' : offeringId;
-  const offering = getOffering(effectiveOfferingId);
-  const analysis = useMemo(() => analyzeAccountCoverage(account.id, effectiveOfferingId), [account.id, effectiveOfferingId]);
-
-  if (!analysis) {
-    return (
-      <div className="bg-surface border border-dashed border-border rounded-md p-8 text-center">
-        <UsersIcon size={18} className="mx-auto text-text-muted mb-2" />
-        <h3 className="text-sm font-semibold text-text-primary mb-1">No buying committee defined</h3>
-      </div>
-    );
-  }
-
-  const { committee, mapping, gaps, coverage } = analysis;
-  const coverageColor =
-    coverage.coveragePct >= 75 ? 'text-emerald-700 dark:text-emerald-300' : coverage.coveragePct >= 50 ? 'text-amber-700 dark:text-amber-300' : 'text-rose-700 dark:text-rose-300';
+function StakeholdersTab({ account, onRunPlay }) {
+  // Contacts — show the list of known stakeholders for this account
+  // (sourced from CRM) plus a "Discover new contacts" agentic CTA.
+  // No offering-specific committee mapping here — that lives behind
+  // the persona-discovery agent run.
+  const stakeholders = useMemo(() => {
+    try {
+      return getAccountStakeholders(account.id) || [];
+    } catch {
+      return [];
+    }
+  }, [account.id]);
 
   return (
     <div className="space-y-4">
-      {/* Lens banner */}
-      {isAllLens && (
-        <div className="bg-amber-500/5 border border-amber-500/30 rounded-md p-2 flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-300">
-          <AlertTriangle size={11} />
-          Showing committee for <span className="font-semibold">{offering.name}</span> (best-fit). Pick an
-          explicit offering lens in the header to scope to a different motion.
-        </div>
-      )}
-
-      {/* Coverage card */}
+      {/* Header card */}
       <div className="bg-surface border border-border rounded-md p-4">
         <div className="flex items-start gap-3">
-          <div className={`w-10 h-10 rounded-md ${offering.bg} flex items-center justify-center flex-shrink-0`}>
-            <UsersIcon size={16} className={offering.textColor} />
+          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <UsersIcon size={16} className="text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-sm font-semibold text-text-primary">{committee.name}</h3>
-              <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${offering.bg} ${offering.textColor}`}>
-                {offering.name}
-              </span>
-            </div>
-            <div className="text-[11px] text-text-secondary leading-relaxed">
-              <span className={`font-semibold ${coverageColor}`}>
-                {coverage.requiredFilled} of {coverage.requiredTotal} required roles identified
-              </span>
-              {' · '}
-              <span className={coverageColor}>{coverage.coveragePct}% coverage</span>
-              {gaps.length > 0 && (
-                <span className="text-text-muted">
-                  {' · '}
-                  <span className="text-rose-700 dark:text-rose-300 font-semibold">{gaps.length} gap{gaps.length === 1 ? '' : 's'}</span>
-                </span>
-              )}
-            </div>
-            {gaps.length > 0 && (
-              <button
-                onClick={() => onRunPlay('persona-discovery-probe')}
-                className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-primary text-white text-[11px] font-semibold rounded hover:bg-primary-dim"
-              >
-                <Sparkles size={10} />
-                Find missing stakeholders
-              </button>
-            )}
+            <h3 className="text-sm font-semibold text-text-primary mb-0.5">
+              Contacts at {account.name}
+            </h3>
+            <p className="text-[11px] text-text-secondary leading-relaxed">
+              Known stakeholders synced from your CRM.{' '}
+              {stakeholders.length === 0
+                ? 'No contacts yet — discover stakeholders with an agent run.'
+                : `${stakeholders.length} contact${stakeholders.length === 1 ? '' : 's'} on file.`}
+            </p>
           </div>
+          {onRunPlay && (
+            <button
+              onClick={() => onRunPlay('persona-discovery-probe')}
+              className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-primary to-violet-500 text-white text-xs font-semibold rounded-md hover:opacity-90 shadow-card"
+            >
+              <Sparkles size={11} />
+              Discover new contacts
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Role-by-role mapping */}
-      <div className="bg-surface border border-border rounded-md overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <div className="text-xs font-semibold text-text-primary">Committee coverage</div>
-          <div className="text-[11px] text-text-muted mt-0.5">
-            Each role is matched against your CRM contacts by title. Click a gap to run persona discovery.
-          </div>
-        </div>
-        <div className="divide-y divide-border">
-          {mapping.map(({ role, matchedStakeholders, filled }) => {
-            const isGap = !filled && role.priority !== 'optional';
-            return (
-              <div key={role.id} className="px-4 py-3 flex items-start gap-3">
-                <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                  filled ? 'bg-emerald-500/10' : isGap ? 'bg-rose-500/10' : 'bg-surface-2'
-                }`}>
-                  {filled ? (
-                    <CheckCircle2 size={11} className="text-emerald-700 dark:text-emerald-300" />
-                  ) : isGap ? (
-                    <CircleSlash2 size={11} className="text-rose-700 dark:text-rose-300" />
-                  ) : (
-                    <MinusCircle size={11} className="text-text-muted" />
-                  )}
+      {/* Contacts list */}
+      {stakeholders.length > 0 ? (
+        <div className="bg-surface border border-border rounded-md overflow-hidden">
+          <div className="divide-y divide-border">
+            {stakeholders.map((s) => (
+              <div key={s.id} className="px-4 py-3 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-primary/15 text-primary text-[11px] flex items-center justify-center font-semibold flex-shrink-0">
+                  {(s.name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                    <span className="text-xs font-semibold text-text-primary">{role.title}</span>
-                    <span className="text-[10px] text-text-muted">·</span>
-                    <span className="text-[10px] text-text-secondary">{role.function}</span>
-                    <PriorityChip priority={role.priority} />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[13px] font-semibold text-text-primary truncate">
+                      {s.name}
+                    </span>
+                    {s.isChampion && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-0.5">
+                        <Crown size={8} /> Champion
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-text-secondary leading-snug mb-1">{role.notes}</p>
-                  {filled ? (
-                    <div className="space-y-0.5">
-                      {matchedStakeholders.map((s) => (
-                        <div key={s.id} className="flex items-center gap-1.5 text-[11px]">
-                          <span className="text-text-primary font-semibold">{s.name}</span>
-                          <span className="text-text-muted">·</span>
-                          <span className="text-text-secondary">{s.title}</span>
-                          {s.isChampion && (
-                            <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ml-1">
-                              <Crown size={8} className="inline -mt-0.5 mr-0.5" />
-                              Champion
-                            </span>
-                          )}
-                          <span className="text-[10px] text-text-muted ml-2 font-mono">{s.email}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : isGap ? (
-                    <button
-                      onClick={() => onRunPlay('persona-discovery-probe')}
-                      className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
-                    >
-                      <Sparkles size={9} />
-                      Run @persona_discovery — find {role.title}
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-text-muted italic">Optional — fill if relevant to motion</span>
-                  )}
+                  <div className="text-[11px] text-text-secondary truncate">{s.title}</div>
+                </div>
+                <div className="text-[11px] text-text-muted font-mono flex-shrink-0 truncate max-w-[200px]">
+                  {s.email}
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      </div>
-
-      <div className="text-[11px] text-text-muted leading-relaxed max-w-3xl border-t border-border pt-3">
-        <span className="font-semibold text-text-secondary">Committee shape varies by offering.</span>{' '}
-        Switch the lens in the header to see the buying committee for a different motion — e.g., DSPM
-        requires a Chief Privacy Officer that CNAPP doesn&rsquo;t.
-      </div>
+      ) : (
+        <div className="bg-surface border border-dashed border-border rounded-md p-8 text-center">
+          <UsersIcon size={20} className="mx-auto text-text-muted/60 mb-2" />
+          <h3 className="text-sm font-semibold text-text-primary mb-1">No contacts in CRM yet</h3>
+          <p className="text-[12px] text-text-secondary max-w-md mx-auto leading-relaxed mb-3">
+            Discover key stakeholders at {account.name} by running the persona discovery agent. It pulls
+            candidate contacts from HG's universe, scored against your offering's buying committee.
+          </p>
+          {onRunPlay && (
+            <button
+              onClick={() => onRunPlay('persona-discovery-probe')}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary to-violet-500 text-white text-xs font-semibold rounded-md hover:opacity-90"
+            >
+              <Sparkles size={11} />
+              Discover contacts with AI
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1543,11 +1424,18 @@ export default function AccountThread() {
                 {/* Per-offering fit scores replace the old Cloud / ICP fit /
                     Combined tiles — sellers care about how this account
                     scores across the products they sell, not the legacy
-                    composite. */}
+                    composite. Fallback chain mirrors the workbook table so
+                    wizard-saved offering ids (wiz-cnapp, wiz-code,
+                    wiz-defend) still resolve to curated FITS keyed by
+                    canonical product line (cnapp, dspm, workload). */}
                 {listOfferings()
                   .filter((o) => o.confirmed !== false)
                   .map((o) => {
-                    const fit = getFitFor(account.id, o.id) || getFitFor(account.id, o.key);
+                    const KEY_FALLBACKS = { code: 'dspm', cdr: 'workload' };
+                    const fit =
+                      getFitFor(account.id, o.id) ||
+                      getFitFor(account.id, o.key) ||
+                      getFitFor(account.id, KEY_FALLBACKS[o.key]);
                     const score = fit?.score ?? null;
                     const tier = score != null ? tierForScore(score) : null;
                     const display = score != null ? `${tier?.label || ''} ${score}`.trim() : '—';
@@ -1599,14 +1487,12 @@ export default function AccountThread() {
           {tab === 'overview' && (
             <OverviewTab
               account={account}
-              onRunPlay={runPlay}
-              offeringId={offeringId}
               onChangeLens={handleChangeLens}
               onFindLookalikes={() => setLookalikesOpen(true)}
             />
           )}
           {tab === 'stakeholders' && (
-            <StakeholdersTab account={account} offeringId={offeringId} onRunPlay={runPlay} />
+            <StakeholdersTab account={account} onRunPlay={runPlay} />
           )}
           {tab === 'chat' && (
             <div className="flex flex-col h-full">
