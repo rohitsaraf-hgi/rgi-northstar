@@ -89,10 +89,74 @@ const ICP_MATCH_CAP = 1000;
 // already knows how to render this shape, so the rest of the workbook
 // machinery (sorting, columns, enrichment) needs no changes.
 
+// Deterministic synthesizer — used only when a company has no curated
+// fit score for any offering. For the prototype this gives every ICP
+// Match row a plausible best-fit score (40–95) anchored on industry +
+// size + a stable hash, so the workbook always demonstrates the
+// ranking. In production this comes from the real scoring service.
+const INDUSTRY_WEIGHTS = [
+  { match: /bank|financ/i, weight: 22 },
+  { match: /tech|software|comput|electron/i, weight: 20 },
+  { match: /health|pharma|insur/i, weight: 16 },
+  { match: /retail|consumer/i, weight: 10 },
+  { match: /telecom|media/i, weight: 12 },
+  { match: /energy|manufactur/i, weight: 8 },
+];
+
+function hashString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function parseEmployees(str) {
+  if (!str) return 0;
+  const m = String(str).match(/([\d.]+)\s*([KMB])?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  const suffix = (m[2] || '').toUpperCase();
+  if (suffix === 'K') return n * 1_000;
+  if (suffix === 'M') return n * 1_000_000;
+  return n;
+}
+
+function synthesizeBestFit(company, offerings) {
+  // Base score 40, plus industry weight, plus size signal, plus stable
+  // per-company variance. Capped to 95 so it always looks realistic.
+  let base = 40;
+  const industry = company.industry || '';
+  const ind = INDUSTRY_WEIGHTS.find((w) => w.match.test(industry));
+  if (ind) base += ind.weight;
+  const emp = parseEmployees(company.fai?.employees);
+  if (emp >= 100_000) base += 15;
+  else if (emp >= 10_000) base += 12;
+  else if (emp >= 1_000) base += 8;
+  else if (emp >= 200) base += 4;
+  // Per-offering synthetic scores — small offset per offering off the
+  // base so different offerings produce different rankings for the same
+  // company. Stable via hash.
+  const synthFits = {};
+  let bestScore = 0;
+  let bestOfferingId = null;
+  for (const o of offerings) {
+    const offset = (hashString((company.id || company.name || '') + o.id) % 30) - 12;
+    const s = Math.max(0, Math.min(95, Math.round(base + offset)));
+    synthFits[o.id] = { score: s, reasons: ['Synthesized — heuristic fit based on industry + size'] };
+    if (s > bestScore) {
+      bestScore = s;
+      bestOfferingId = o.id;
+    }
+  }
+  return { bestFit: bestScore, bestOfferingId, synthFits };
+}
+
 function resolveIcpMatchRows() {
   const offerings = OFFERINGS.filter((o) => o.confirmed !== false);
   const companies = getMarketAnalyzerCompanies();
   const scored = companies.map((c) => {
+    // Prefer curated scores when present.
     let bestScore = 0;
     let bestOfferingId = null;
     for (const o of offerings) {
@@ -103,18 +167,26 @@ function resolveIcpMatchRows() {
         bestOfferingId = o.id;
       }
     }
+    // Fall back to synthesizer when nothing curated exists. The
+    // synthFits map is attached to the row so the per-offering score
+    // columns in the table can render values (read via the table's
+    // resolveOfferingFit fallback chain).
+    let synthFits = null;
+    if (bestScore === 0) {
+      const synth = synthesizeBestFit(c, offerings);
+      bestScore = synth.bestFit;
+      bestOfferingId = synth.bestOfferingId;
+      synthFits = synth.synthFits;
+    }
     return {
       ...c,
       bestFit: bestScore,
       bestOfferingId,
-      // Source stamp so the table can render the origin chip if needed.
+      synthFits,
       source: 'icp_match',
     };
   });
-  // Sort by best-fit desc, drop zero-fit (no scored offerings at all),
-  // and cap.
   return scored
-    .filter((r) => r.bestFit > 0)
     .sort((a, b) => (b.bestFit || 0) - (a.bestFit || 0))
     .slice(0, ICP_MATCH_CAP);
 }

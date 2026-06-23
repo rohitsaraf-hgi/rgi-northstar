@@ -50,12 +50,13 @@ const KEY_FALLBACKS = {
   cdr: 'workload',  // cloud detection & response ~ workload protection
 };
 
-function resolveFit(accountId, offering) {
-  // Try every plausible key in order — id first (works for legacy + custom
-  // tenants that happen to use canonical names), then offering.key (works
-  // for wizard-saved offerings), then a key-fallback for product lines not
-  // present in the demo FITS table. Multiply by the attached scoring model's
-  // tuning factor so swapping the offering's model visibly shifts scores.
+function resolveFit(accountOrId, offering) {
+  // Try every plausible key. Tuning factor is now always 1.0 (kept in the
+  // call chain for backwards-compat with the function signature). Falls
+  // back to the account's row-attached synthetic fits when the curated
+  // FITS table has no entry — see workbooks.js synthesizer.
+  const account = typeof accountOrId === 'string' ? null : accountOrId;
+  const accountId = account ? account.id : accountOrId;
   const tried = new Set();
   const keys = [offering.id, offering.key, KEY_FALLBACKS[offering.key]];
   for (const k of keys) {
@@ -67,6 +68,10 @@ function resolveFit(accountId, offering) {
       const tuned = Math.max(0, Math.min(100, Math.round(f.score * tuning)));
       return { ...f, score: tuned };
     }
+  }
+  const synth = account?.synthFits?.[offering?.id];
+  if (synth && synth.score != null) {
+    return { ...synth, synth: true };
   }
   return null;
 }
@@ -116,7 +121,7 @@ function CompactAccountRow({
   tenantIntentTopics,
   tenantComplementaryTech,
 }) {
-  const fit = resolveFit(account.id, offering);
+  const fit = resolveFit(account, offering);
   const score = fit?.score ?? null;
   const tier = score != null ? tierForScore(score) : null;
   const rgif = getRGIF(account.id) || account.rgif || {};
@@ -233,7 +238,7 @@ function OfferingSection({
   // legacy offerings (id matches FITS key) and wizard-saved offerings
   // (id like 'wiz-cnapp' with a key field that maps to FITS).
   const ranked = accounts
-    .map((a) => ({ account: a, fit: resolveFit(a.id, offering) }))
+    .map((a) => ({ account: a, fit: resolveFit(a, offering) }))
     .filter((x) => x.fit && x.fit.score != null)
     .sort((a, b) => (b.fit.score ?? 0) - (a.fit.score ?? 0));
 
@@ -439,8 +444,8 @@ export default function WorkbookSegmented({
 
   // Sort sections by account count desc so the busiest pipeline rises to the top.
   const sortedOfferings = [...offerings].sort((a, b) => {
-    const countA = accounts.filter((acc) => (resolveFit(acc.id, a)?.score ?? 0) > 0).length;
-    const countB = accounts.filter((acc) => (resolveFit(acc.id, b)?.score ?? 0) > 0).length;
+    const countA = accounts.filter((acc) => (resolveFit(acc, a)?.score ?? 0) > 0).length;
+    const countB = accounts.filter((acc) => (resolveFit(acc, b)?.score ?? 0) > 0).length;
     return countB - countA;
   });
 

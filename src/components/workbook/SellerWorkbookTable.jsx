@@ -45,7 +45,12 @@ import { tuningForOffering } from '../../data/scoringModels.js';
 // scoring model's `scoreTuning` — swapping models in the offering page
 // visibly shifts fit scores across the workbook.
 const OFFERING_KEY_FALLBACKS = { code: 'dspm', cdr: 'workload' };
-function resolveOfferingFit(accountId, offering) {
+function resolveOfferingFit(accountOrId, offering) {
+  // Accept either an account row (preferred — gives access to synthFits
+  // when the row was minted by an ICP_MATCH workbook) or a bare id for
+  // legacy callers.
+  const account = typeof accountOrId === 'string' ? null : accountOrId;
+  const accountId = account ? account.id : accountOrId;
   const keys = [offering?.id, offering?.key, OFFERING_KEY_FALLBACKS[offering?.key]];
   const tried = new Set();
   for (const k of keys) {
@@ -57,6 +62,12 @@ function resolveOfferingFit(accountId, offering) {
       const tuned = Math.max(0, Math.min(100, Math.round(f.score * tuning)));
       return { ...f, score: tuned };
     }
+  }
+  // Fallback to row-attached synthetic fits — populated by the ICP Match
+  // workbook generator so its rows still render per-offering scores.
+  const synth = account?.synthFits?.[offering?.id];
+  if (synth && synth.score != null) {
+    return { ...synth, synth: true };
   }
   return null;
 }
@@ -544,7 +555,7 @@ export default function SellerWorkbookTable({
             const spendTrend = rgif.spendTrend;
             const allScores = confirmedOfferings.map((o) => ({
               offering: o,
-              score: resolveOfferingFit(account.id, o)?.score ?? null,
+              score: resolveOfferingFit(account, o)?.score ?? null,
             }));
             const isExpanded = expandedSubs.has(account.id);
             const subs = Array.isArray(account.subsidiaries) ? account.subsidiaries : [];
