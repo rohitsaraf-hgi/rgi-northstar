@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 // useRef already imported
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
@@ -46,6 +46,15 @@ import IcpPill from '../components/workbook/IcpPill.jsx';
 import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
 import OfferingSelector from '../components/workbook/OfferingSelector.jsx';
+import WorkbookSwitcher from '../components/workbook/WorkbookSwitcher.jsx';
+import {
+  listWorkbooksForPersona,
+  getWorkbook,
+  getDefaultWorkbookForPersona,
+  resolveWorkbookRows,
+  WORKBOOK_KINDS,
+  WORKBOOK_KIND_META,
+} from '../data/workbooks.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
@@ -1638,7 +1647,7 @@ export default function WorkbookRoute() {
   const navigate = useNavigate();
   const { personaId, persona } = usePersona();
   const { tenant } = useTenant();
-  const { hasModule } = useDemo();
+  const { hasModule, hasIntegration } = useDemo();
   const { showToast } = useToast();
   const allowSellerUpload = tenant?.policies?.allowSellerBookUpload !== false;
   const hasMarketAnalyzer = hasModule('market_analyzer');
@@ -1738,13 +1747,49 @@ export default function WorkbookRoute() {
   const [addedTick, setAddedTick] = useState(0);
   useEffect(() => subscribeAdded(() => setAddedTick((t) => t + 1)), []);
 
-  // Accounts — unified universe, filtered by tab. Each row carries a `source` field
-  // ('matched' | 'crm' | 'hg') so per-row UI can adapt regardless of tab.
-  const accounts = useMemo(() => {
-    const unified = getUnifiedAccounts(personaId);
-    return filterByTab(unified, source);
+  // ─── Workbook resolution ─────────────────────────────────────────
+  //
+  // Read :workbookId from the URL. If missing or invalid, resolve the
+  // persona's default workbook and redirect so URLs are stable. The
+  // resolved workbook drives the row source for the table.
+  const { workbookId: urlWorkbookId } = useParams();
+  const workbooksList = useMemo(
+    () => listWorkbooksForPersona({
+      personaId,
+      isAdmin: isAdminPersona,
+      crmConnected: hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false,
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, personaId, addedTick]);
+    [personaId, isAdminPersona],
+  );
+  const activeWorkbook = useMemo(() => {
+    if (urlWorkbookId) {
+      const wb = workbooksList.find((w) => w.id === urlWorkbookId) || getWorkbook(urlWorkbookId);
+      if (wb) return wb;
+    }
+    return getDefaultWorkbookForPersona({
+      personaId,
+      isAdmin: isAdminPersona,
+      crmConnected: false,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlWorkbookId, personaId, isAdminPersona, workbooksList]);
+
+  useEffect(() => {
+    if (!urlWorkbookId && activeWorkbook) {
+      navigate(`/workbook/${activeWorkbook.id}`, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlWorkbookId, activeWorkbook?.id]);
+
+  // Workbook rows — resolved from the active workbook's source. ICP_MATCH
+  // computes max-fit across offerings and caps at top 1000; others draw
+  // from CRM / book / CSV. This replaces the legacy unified-accounts pipe.
+  const accounts = useMemo(() => {
+    if (!activeWorkbook) return [];
+    return resolveWorkbookRows(activeWorkbook);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkbook?.id, addedTick]);
 
   // Always-current counts for the toggle, independent of filters
   const tabCounts = useMemo(
@@ -2149,6 +2194,22 @@ export default function WorkbookRoute() {
                 <h1 className="text-xl font-semibold tracking-tight">
                   {activePlay ? activePlay.name : 'Workbook'}
                 </h1>
+                {!activePlay && (
+                  <>
+                    <span className="text-text-muted mx-1">·</span>
+                    <WorkbookSwitcher
+                      workbooks={workbooksList}
+                      activeWorkbook={activeWorkbook}
+                      onPick={(wb) => navigate(`/workbook/${wb.id}`)}
+                      onUploadCsv={() => {
+                        if (isSeller) setSellerUploadOpen(true);
+                        else setAdminUploadOpen(true);
+                      }}
+                      onConnectCrm={() => navigate('/admin/apps')}
+                      crmConnected={hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false}
+                    />
+                  </>
+                )}
                 {activePlay && (
                   <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
                     Sales Play
@@ -2163,9 +2224,12 @@ export default function WorkbookRoute() {
               <div className="text-xs text-text-secondary">
                 {activePlay
                   ? (activePlay.description || `Accounts in your book matching the ${activePlay.name} criteria.`)
-                  : isAdmin
-                  ? 'Your book of accounts — uploaded via CSV or synced from your CRM.'
-                  : 'Your book of accounts · ranked by opportunity'}
+                  : (() => {
+                      const meta = activeWorkbook
+                        ? WORKBOOK_KIND_META?.[activeWorkbook.kind]
+                        : null;
+                      return meta?.description || 'Switch workbooks from the dropdown above.';
+                    })()}
               </div>
               {/* Last-sync timestamp removed — Sync to Salesforce ships
                   later under an Advanced grouping. */}
@@ -2210,93 +2274,35 @@ export default function WorkbookRoute() {
               {/* CRM warning row removed — folded into the EmptyBookHero card. */}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Populated-state toolbar — hidden in the first-time empty
-                  state so the screen reduces to the upload/connect CTA
-                  only. Book pill, offering selector, Enrich-with-AI, and
-                  Replace/Upload all gate on a non-empty book. */}
-              {!workbookState.isEmptyTenant && (
-                <>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/20 font-semibold">
-                    <BookOpen size={11} />
-                    Book
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/15">{bookCount}</span>
-                  </div>
-                  {!activePlay && (
-                    <OfferingSelector
-                      offerings={listOfferings()}
-                      selected={selectedOfferings}
-                      onChange={setSelectedOfferings}
-                    />
-                  )}
-                  <button
-                    onClick={() => setEnrichOpen(true)}
-                    title="Ask any question across the current view — answers become columns"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
-                  >
-                    <Wand2 size={11} />
-                    Enrich with AI
-                  </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => setAdminUploadOpen(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
-                      title="Replace the book with a new CSV"
-                    >
-                      <Upload size={11} /> Replace book
-                    </button>
-                  )}
-                  {isSeller && allowSellerUpload && (
-                    <button
-                      onClick={() => setSellerUploadOpen(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
-                      title="Upload your own book of accounts via CSV"
-                    >
-                      <Upload size={11} /> Upload my book
-                    </button>
-                  )}
-                </>
+              {/* Toolbar — the workbook picker (in the breadcrumb) is the
+                  primary surface for switching/creating workbooks, so
+                  Replace/Upload moved into its dropdown footer. The Book
+                  pill is gone (picker label IS the workbook). */}
+              {!activePlay && (
+                <OfferingSelector
+                  offerings={listOfferings()}
+                  selected={selectedOfferings}
+                  onChange={setSelectedOfferings}
+                />
               )}
-              {/* Demo state toggle — visible to admin and seller. Flips
-                  between first-time (empty) and populated views without
-                  disturbing seeded data. */}
               <button
-                onClick={() => setDemoEmptyMode(!workbookState.isEmptyTenant)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors border ${
-                  workbookState.isEmptyTenant
-                    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-                    : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/30'
-                }`}
-                title={
-                  workbookState.isEmptyTenant
-                    ? 'Currently showing first-time view. Click to see populated workbook.'
-                    : 'Click to preview the first-time view (no target accounts loaded)'
-                }
+                onClick={() => setEnrichOpen(true)}
+                title="Ask any question across the current view — answers become columns"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
               >
-                <Sparkles size={11} />
-                Demo · {workbookState.isEmptyTenant ? 'First-time' : 'Populated'}
+                <Wand2 size={11} />
+                Enrich with AI
               </button>
+              {/* Demo · First-time toggle retired — ICP Match is always
+                  populated post-onboarding, so there's no empty state to
+                  preview anymore. The workbook picker shows what's
+                  available; uploads + CRM-connect live inside it. */}
             </div>
           </div>
 
-          {/* Empty-book hero — first-entry experience for both admin and
-              seller. Admin uploads tenant book (account_name +
-              account_owner_email) or connects CRM. Seller uploads a
-              simpler CSV (account_name + account_domain) auto-assigned
-              to themselves. Seller path is gated on tenant policy. */}
-          {workbookState.isEmptyTenant && (
-            <div className="mt-4">
-              <EmptyBookHero
-                isSeller={isSeller}
-                onUploadCsv={() => {
-                  if (isSeller) setSellerUploadOpen(true);
-                  else setAdminUploadOpen(true);
-                }}
-                onConnectCrm={() => navigate('/admin/apps')}
-                onExploreMarketAnalyzer={() => navigate('/market-analyzer/companies')}
-                hasMarketAnalyzer={hasMarketAnalyzer}
-              />
-            </div>
-          )}
+          {/* Empty-book hero retired — the picker always offers ICP Match
+              as a populated landing workbook, so the platform never falls
+              into an empty-state dead-end. */}
 
           {/* Enrich → Sync → Activate banner removed — the CTAs in the header
               (Enrich with AI, Sync) already communicate the workflow without
@@ -2361,10 +2367,7 @@ export default function WorkbookRoute() {
       </div>
 
       {/* Table — gated on a non-empty book. In the first-time empty state
-          (no book + no CRM) the workbook reduces to the upload/connect
-          hero only; the table, count line, and how-it-works footer all
-          disappear so the screen is a single clear CTA. */}
-      {!workbookState.isEmptyTenant && (
+          ICP Match is always populated, so the table always renders. */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto px-6 py-4">
           {activePlay && (() => {
@@ -2490,7 +2493,6 @@ export default function WorkbookRoute() {
           </div>
         </div>
       </div>
-      )}
 
       {/* Modals */}
       <SaveAsModal

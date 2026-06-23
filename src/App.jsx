@@ -70,6 +70,7 @@ export default function App() {
           <Route path="/home" element={<SellerHome />} />
           <Route path="/account/:id" element={<AccountThread />} />
           <Route path="/workbook" element={<WorkbookRoute />} />
+          <Route path="/workbook/:workbookId" element={<WorkbookRoute />} />
           {/* Market Analyzer routes — admin-only module (gated through
               ModuleSwitcher visibility, not RequireAdmin here, so URL
               hand-off from Sales Co-Pilot stays seamless). */}
