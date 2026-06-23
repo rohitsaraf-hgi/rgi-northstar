@@ -45,8 +45,7 @@ import { listSignals, listActiveSignals } from '../data/signals.js';
 import { listOfferings } from '../data/offerings.js';
 import { listPlays } from '../data/plays.js';
 import { listAgenticPlaybooks } from '../data/playbooks.js';
-import { SCORING_MODELS } from '../data/scoringModels.js';
-import { getScoringModelStatus, subscribeConfig } from '../data/configStore.js';
+import { subscribeConfig } from '../data/configStore.js';
 import { getCoverageStats, listSellers } from '../data/territoryDesign.js';
 
 // ─── AdminTile — the single tile component, with optional AI badge ─────
@@ -175,8 +174,6 @@ export default function AdminHub() {
   const activePlays = plays.filter((p) => p.status === 'active' || p.confirmed).length;
   const territoryStats = getCoverageStats();
   const sellerCount = listSellers().length;
-  const liveModelCount = SCORING_MODELS.filter((m) => getScoringModelStatus(m.id).liveStatus === 'live').length;
-
   const [metrics, setMetrics] = useState(getAdoptionMetrics);
   useEffect(() => subscribeAdminConfig(() => setMetrics(getAdoptionMetrics())), []);
 
@@ -222,16 +219,10 @@ export default function AdminHub() {
           onClick={() => navigate('/admin/offerings')}
           aiPrepared
         />
-        <AdminTile
-          icon={Gauge}
-          title="Scoring Profiles"
-          subtitle="Authored in Market Analyzer · system defaults per offering, plus custom profiles. Attach to any offering."
-          stat={SCORING_MODELS.length}
-          statLabel="in Market Analyzer"
-          accent={{ bg: 'bg-emerald-500/10', color: 'text-emerald-700 dark:text-emerald-300' }}
-          onClick={() => navigate('/market-analyzer/scoring-profiles')}
-          aiPrepared
-        />
+        {/* Scoring Profiles tile removed — scoring is module-owned now.
+            Production lives in Market Analyzer; consumption is the
+            offering picker inside Sales Co-Pilot. Admin Hub stays focused
+            on cross-module platform config. */}
         <AdminTile
           icon={Swords}
           title="Sales Plays"
