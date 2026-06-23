@@ -2112,18 +2112,11 @@ export default function WorkbookRoute() {
                   ? 'Your book of accounts — uploaded via CSV or synced from your CRM.'
                   : 'Your book of accounts · ranked by opportunity'}
               </div>
-              {isAdmin && lastSync && (
-                <div className="text-[10px] text-text-muted mt-1 flex items-center gap-1">
-                  <CheckCircle2 size={9} className="text-emerald-700 dark:text-emerald-300" />
-                  Last sync to Salesforce: {new Date(lastSync).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-                </div>
-              )}
-              {isAdmin && !activePlay && (
-                <IcpPill
-                  icp={tenant?.icp}
-                  onEdit={() => navigate('/admin/tenant')}
-                />
-              )}
+              {/* Last-sync timestamp removed — Sync to Salesforce ships
+                  later under an Advanced grouping. */}
+              {/* ICP-filtered chip removed — the workbook is the book of
+                  accounts directly, not an ICP-derived universe. ICP still
+                  lives on tenant config for scoring/play targeting. */}
               {/* Play-mode offering tile. Each play targets exactly one
                   offering — surface it prominently so admins know what they
                   are filtering toward. Click navigates to the offering's
@@ -2211,34 +2204,10 @@ export default function WorkbookRoute() {
                   )}
                 </>
               )}
-              <SavedViewPicker
-                personaId={personaId}
-                source={viewsSourceKey}
-                currentView={currentView}
-                onChangeView={(v) => setCurrentViewId(v.id)}
-                onSaveAs={() => setSaveAsOpen(true)}
-                onDelete={(id) => {
-                  deleteView(personaId, id);
-                  const def = getDefaultView(personaId, viewsSourceKey);
-                  setCurrentViewId(def?.id);
-                }}
-                onSetDefault={(id) => setDefaultView(personaId, id)}
-              />
-              {/* Save view — captures the current columns / sort / enrichment.
-                  No audience refinement: the workbook universe is the tenant
-                  ICP; slicing happens via Sales Plays, not saved views. */}
-              <button
-                onClick={() => setSaveAsOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-primary hover:border-primary/40 rounded-md transition-colors"
-                title="Save current columns + sort + enrichment as a view"
-              >
-                <Save size={11} />
-                Save view
-              </button>
-              {/* Enrich-with-AI runs across whichever tab is active. Per
-                  the locked product decision, enriched columns persist
-                  across All Companies / Tenant Book / Whitespace / Needs
-                  Review — they live on the saved view, not the tab. */}
+              {/* Saved Views picker removed — the "All accounts" dropdown
+                  was adding cognitive load. Reinstate via overflow menu if
+                  the use case re-emerges. */}
+              {/* Enrich-with-AI — primary action. */}
               <button
                 onClick={() => setEnrichOpen(true)}
                 title="Ask any question across the current view — answers become columns"
@@ -2247,32 +2216,6 @@ export default function WorkbookRoute() {
                 <Wand2 size={11} />
                 Enrich with AI
               </button>
-              {/* Sync button — admin-only. Sellers don't sync books to CRM. */}
-              {!isSeller && (
-                <button
-                  onClick={() => {
-                    if (!workbookState.hasCrm) {
-                      navigate('/admin/apps');
-                      return;
-                    }
-                    setSyncOpen(true);
-                  }}
-                  disabled={!workbookState.hasCrm}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-opacity shadow-card ${
-                    workbookState.hasCrm
-                      ? 'bg-gradient-to-r from-emerald-500 to-primary text-white hover:opacity-90'
-                      : 'bg-surface border border-border text-text-muted cursor-not-allowed opacity-70 hover:opacity-100 hover:text-primary'
-                  }`}
-                  title={
-                    workbookState.hasCrm
-                      ? 'Sync enriched columns back to Salesforce as Account custom fields'
-                      : 'Connect a CRM in Integrations to enable Sync'
-                  }
-                >
-                  <Upload size={11} />
-                  {workbookState.hasCrm ? 'Sync to Salesforce' : 'Sync · Connect CRM'}
-                </button>
-              )}
               {/* Re-upload book — admins always; sellers only when the tenant
                   policy allows it. Triggers the Replace confirmation flow. */}
               {isAdmin && !workbookState.isEmptyTenant && (
@@ -2293,16 +2236,9 @@ export default function WorkbookRoute() {
                   <Upload size={11} /> Upload my book
                 </button>
               )}
-              {/* Setup Coach trigger — always-visible entry to the coach
-                  panel. Admin can re-open it any time during onboarding. */}
-              {isAdmin && (
-                <SetupCoachPill
-                  onOpen={() => {
-                    restoreCoach();
-                    setCoachExpanded(true);
-                  }}
-                />
-              )}
+              {/* Sync to Salesforce + Setup Coach pill removed — both
+                  re-introduce later under an "Advanced" menu once we land
+                  the right grouping pattern. */}
               {/* Demo state toggle — admin-only. Flips between first-time
                   (no book, no CRM) and populated views without disturbing
                   seeded data. */}
@@ -2577,23 +2513,8 @@ export default function WorkbookRoute() {
         }}
       />
 
-      {/* Sync to Salesforce (admin only) */}
-      <SyncToCrmModal
-        open={syncOpen}
-        personaId={personaId}
-        accounts={sortedAccounts}
-        view={currentView}
-        onClose={() => setSyncOpen(false)}
-        onConfirm={(now) => {
-          setSyncOpen(false);
-          setLastSyncState(now);
-          showToast(`Synced ${sortedAccounts.length} accounts to Salesforce`, 'success');
-        }}
-      />
-
-      {/* Setup Coach — floating widget for RevOps admins to complete remaining
-          onboarding steps (scoring, CRM/CSV, territory, sellers, SSO). */}
-      {persona.roleType === 'admin' && <SetupCoach />}
+      {/* Sync to Salesforce + Setup Coach removed for now — reintroduce
+          when we land the Advanced / overflow grouping. */}
 
       {/* Book upload modals — admin maps owner_email → platform users.
           Seller upload is gated by tenant.policies.allowSellerBookUpload. */}
