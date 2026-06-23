@@ -3,12 +3,21 @@
 // Three primitives:
 //   - Projects:        TAM / SAM / SOM analyses scoped to a market hypothesis.
 //   - Segments:        saved filtered company views, attached to a project.
-//   - Scoring Profiles: scoring blueprints applied to segments. Distinct from
-//                      Sales Co-Pilot's per-offering scoring models — these
-//                      are generic segmentation scoring profiles that any
-//                      Market Analyzer user can apply to a segment.
+//   - Scoring Profiles: the ONE canonical scoring entity in the platform.
+//                      Sales Co-Pilot consumes these — each offering attaches
+//                      to a profile and the workbook shows fit scores from it.
+//                      Two kinds:
+//                         · system   — auto-generated from offering config,
+//                                       one per offering, read-only.
+//                                       Must clone to a custom profile to edit
+//                                       (requires Market Analyzer entitlement).
+//                         · custom   — admin-authored in MA. Can be applied
+//                                       to MA segments AND attached to a
+//                                       Sales Co-Pilot offering.
 //
 // All in-memory for the prototype. Real product persists to backend.
+
+import { OFFERINGS } from './offerings.js';
 
 export const MA_PROJECTS = [
   {
@@ -104,6 +113,9 @@ export const MA_SEGMENTS = [
   },
 ];
 
+// Custom MA profiles — created by RevOps admin in MA. These coexist with
+// system defaults; an offering can attach either kind. The `appliedOfferingIds`
+// field lists offerings that currently use this profile (informational chip).
 export const MA_SCORING_PROFILES = [
   {
     id: 'sp-cnapp-readiness',
@@ -116,6 +128,8 @@ export const MA_SCORING_PROFILES = [
     updatedAt: '2026-06-10',
     appliedSegmentCount: 3,
     dimensions: ['Cloud footprint', 'Compliance posture', 'IT spend', 'Engineering velocity'],
+    kind: 'custom',
+    appliedOfferingIds: [],
   },
   {
     id: 'sp-displacement-fit',
@@ -128,6 +142,8 @@ export const MA_SCORING_PROFILES = [
     updatedAt: '2026-05-29',
     appliedSegmentCount: 2,
     dimensions: ['Install age', 'Renewal window', 'Competitor intent', 'Champion signals'],
+    kind: 'custom',
+    appliedOfferingIds: [],
   },
   {
     id: 'sp-ai-readiness',
@@ -140,6 +156,8 @@ export const MA_SCORING_PROFILES = [
     updatedAt: '2026-06-12',
     appliedSegmentCount: 1,
     dimensions: ['Agent fleet size', 'Compliance posture', 'AI security spend', 'MCP adoption'],
+    kind: 'custom',
+    appliedOfferingIds: [],
   },
   {
     id: 'sp-budget-fit',
@@ -152,8 +170,51 @@ export const MA_SCORING_PROFILES = [
     updatedAt: '2026-04-03',
     appliedSegmentCount: 4,
     dimensions: ['Industry', 'Revenue tier', 'IT spend', 'Geo'],
+    kind: 'custom',
+    appliedOfferingIds: [],
   },
 ];
+
+// ─── System-default scoring profiles ────────────────────────────────
+//
+// One per offering, auto-generated. These are read-only — admin must
+// clone to a custom profile (requires MA entitlement) to edit.
+// Dimensions are derived from the offering's targetICP, competitors,
+// and intent topics (mirrors what the legacy scoringModels.js builder
+// produced, minus the Conservative/Aggressive variants and the tuning
+// factor).
+
+function buildSystemDefaultProfile(offering) {
+  return {
+    id: `sysdef-${offering.id}`,
+    name: `${offering.name} — Default fit`,
+    description: `System default scoring profile auto-generated from the ${offering.name} configuration. Directional fit score across your book. Customize in Market Analyzer to tighten.`,
+    kind: 'system',
+    readOnly: true,
+    offeringId: offering.id,
+    ownerId: 'system',
+    ownerName: 'System',
+    visibility: 'organization',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+    appliedSegmentCount: 0,
+    appliedOfferingIds: [offering.id],
+    dimensions: [
+      'Company Size',
+      'Industry Fit',
+      'IT Spend (bonus)',
+      'Complexity Signals',
+      'Displacement Targets',
+      'Tech Demand',
+      'Direct Product Intent',
+      'Competitor Intent',
+    ],
+  };
+}
+
+export const MA_SYSTEM_DEFAULTS = OFFERINGS.map(buildSystemDefaultProfile);
+
+// ─── Queries ──────────────────────────────────────────────────────────
 
 export function listProjects() {
   return MA_PROJECTS;
@@ -161,11 +222,60 @@ export function listProjects() {
 export function listSegments() {
   return MA_SEGMENTS;
 }
+
+// Combined view used by pickers — system defaults first, then custom.
 export function listScoringProfiles() {
+  return [...MA_SYSTEM_DEFAULTS, ...MA_SCORING_PROFILES];
+}
+export function listSystemDefaultProfiles() {
+  return MA_SYSTEM_DEFAULTS;
+}
+export function listCustomProfiles() {
   return MA_SCORING_PROFILES;
 }
 export function getScoringProfile(id) {
-  return MA_SCORING_PROFILES.find((p) => p.id === id) || null;
+  return (
+    MA_SYSTEM_DEFAULTS.find((p) => p.id === id) ||
+    MA_SCORING_PROFILES.find((p) => p.id === id) ||
+    null
+  );
+}
+
+// Resolve the profile attached to an offering. Falls back to the
+// offering's system default when no explicit profile is set, so the
+// Workbook always has a profile to score against.
+export function getProfileForOffering(offering) {
+  if (!offering) return null;
+  if (offering.scoringProfileId) {
+    const explicit = getScoringProfile(offering.scoringProfileId);
+    if (explicit) return explicit;
+  }
+  return MA_SYSTEM_DEFAULTS.find((p) => p.offeringId === offering.id) || null;
+}
+
+// Clone a system default into a custom profile (the Customize affordance
+// on the MA Scoring Profiles page). Returns the new profile.
+export function cloneProfileToCustom(profileId, opts = {}) {
+  const source = getScoringProfile(profileId);
+  if (!source) return null;
+  const id = opts.id || `sp-${Date.now()}`;
+  const next = {
+    ...source,
+    id,
+    name: opts.name || `${source.name} (copy)`,
+    description: opts.description || `Cloned from ${source.name}. Edit dimensions and weights to tailor.`,
+    kind: 'custom',
+    readOnly: false,
+    ownerId: opts.ownerId || 'priya',
+    ownerName: opts.ownerName || 'Priya Sharma',
+    visibility: opts.visibility || 'organization',
+    createdAt: new Date().toISOString().slice(0, 10),
+    updatedAt: new Date().toISOString().slice(0, 10),
+    appliedSegmentCount: 0,
+    appliedOfferingIds: [],
+  };
+  MA_SCORING_PROFILES.unshift(next);
+  return next;
 }
 
 // Prepend a new segment created from the Companies page "Save segment" flow.

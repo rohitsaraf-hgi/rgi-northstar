@@ -19,7 +19,6 @@ import SignalDetailRoute from './routes/SignalDetailRoute.jsx';
 import SignalBuilderRoute from './routes/SignalBuilderRoute.jsx';
 import SignalTemplatesRoute from './routes/SignalTemplatesRoute.jsx';
 import OfferingsRoute from './routes/OfferingsRoute.jsx';
-import ScoringModelBuilderRoute from './routes/ScoringModelBuilderRoute.jsx';
 import WorkbookRoute from './routes/WorkbookRoute.jsx';
 import {
   MarketAnalyzerProjectsRoute,
@@ -42,7 +41,6 @@ import WorkbenchLibrary from './routes/WorkbenchLibrary.jsx';
 import WorkbenchResources from './routes/WorkbenchResources.jsx';
 import AdminTenantEditor from './routes/AdminTenantEditor.jsx';
 import TerritoryDesignRoute from './routes/TerritoryDesignRoute.jsx';
-import ScoringModelsListRoute from './routes/ScoringModelsListRoute.jsx';
 import AccountSettingsRoute from './routes/AccountSettingsRoute.jsx';
 import UsersRoute from './routes/UsersRoute.jsx';
 import TeamsRoute from './routes/TeamsRoute.jsx';
@@ -197,13 +195,11 @@ export default function App() {
               </RequireAdmin>
             }
           />
+          {/* /admin/scoring → consolidated into Market Analyzer.
+              All scoring authoring lives at /market-analyzer/scoring-profiles. */}
           <Route
             path="/admin/scoring"
-            element={
-              <RequireAdmin>
-                <ScoringModelsListRoute />
-              </RequireAdmin>
-            }
+            element={<Navigate to="/market-analyzer/scoring-profiles" replace />}
           />
           <Route
             path="/admin/settings"
@@ -260,14 +256,9 @@ export default function App() {
               </RequireAdmin>
             }
           />
-          <Route
-            path="/admin/offerings/:id/model"
-            element={
-              <RequireAdmin>
-                <ScoringModelBuilderRoute />
-              </RequireAdmin>
-            }
-          />
+          {/* /admin/offerings/:id/model — removed. Scoring profile selection
+              now lives inline on the offering detail page; profile authoring
+              lives in Market Analyzer. */}
           <Route
             path="/admin/signals"
             element={

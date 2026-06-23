@@ -24,12 +24,12 @@ import { listOfferings, getOffering, upsertOffering, deleteOffering, subscribeOf
 import { workflowsForOffering } from '../data/workflows.js';
 import { listSignals } from '../data/signals.js';
 import {
-  getModelForOffering,
-  listModelsForOfferingPicker,
-  PILLARS,
-  SCORING_TIERS,
-} from '../data/scoringModels.js';
+  listSystemDefaultProfiles,
+  listCustomProfiles,
+  getProfileForOffering,
+} from '../data/marketAnalyzer.js';
 import { ManageOfferingDrawer } from '../components/onboarding/StepOfferings.jsx';
+import { useDemo } from '../context/DemoContext.jsx';
 
 function OfferingCard({ offering, onOpen, onEdit, onDelete }) {
   const signals = listSignals().filter(
@@ -141,138 +141,130 @@ function OfferingCard({ offering, onOpen, onEdit, onDelete }) {
   );
 }
 
-function ScoringModelSummary({ offering, onOpenBuilder, onChangeModel }) {
-  const model = getModelForOffering(offering.id, offering);
-  const availableModels = listModelsForOfferingPicker(offering.id);
-  if (!model) return null;
+// Scoring profile picker — replaces the legacy ScoringModelSummary.
+// Profiles are authored in Market Analyzer; this surface just attaches
+// one to the offering. Without MA entitlement, the picker is read-only
+// (system default only) and shows a "Customize with Market Analyzer →"
+// upsell card under it.
+function ScoringProfileSection({ offering, onChangeProfile, hasMarketAnalyzer }) {
+  const navigate = useNavigate();
+  const systemDefault = listSystemDefaultProfiles().find((p) => p.offeringId === offering.id);
+  const customProfiles = listCustomProfiles();
+  const active = getProfileForOffering(offering) || systemDefault;
+  if (!active) return null;
 
-  const tierMap = Object.fromEntries(SCORING_TIERS.map((t) => [t.id, t]));
-  const total = model.tier_distribution.total || 1;
-  const tierEntries = ['A', 'B', 'C', 'D'].map((id) => ({
-    ...tierMap[id],
-    count: model.tier_distribution[id] || 0,
-    pct: ((model.tier_distribution[id] || 0) / total) * 100,
-  }));
+  const isSystem = active.kind === 'system';
 
   return (
     <div className="bg-surface border border-border rounded-md p-4 mb-6">
-      <div className="flex items-start justify-between gap-4 mb-4">
+      <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className="w-9 h-9 rounded-md bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
-            <Gauge size={16} className="text-emerald-700 dark:text-emerald-300" />
+          <div className="w-9 h-9 rounded-md bg-sky-500/10 flex items-center justify-center flex-shrink-0">
+            <Gauge size={16} className="text-sky-700 dark:text-sky-300" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">Attached model</span>
-              <select
-                value={model.id}
-                onChange={(e) => onChangeModel?.(e.target.value)}
-                className="text-sm font-semibold text-text-primary bg-surface border border-border rounded px-2 py-1 hover:border-primary/40 focus:outline-none focus:border-primary cursor-pointer max-w-[420px]"
-                title="Switch the scoring model attached to this offering — workbook fit scores update on save."
-              >
-                {availableModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                    {m.offering_id !== offering.id ? ' (cross-offering)' : ''}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[10px] font-mono text-text-muted">v{model.version}</span>
-              <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center gap-0.5">
-                <CheckCircle2 size={9} /> Active
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+                Scoring profile
               </span>
-              {model.scoreTuning != null && model.scoreTuning !== 1.0 && (
-                <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                  Tuning {model.scoreTuning > 1 ? '+' : ''}{Math.round((model.scoreTuning - 1) * 100)}%
+              <select
+                value={active.id}
+                onChange={(e) => onChangeProfile?.(e.target.value)}
+                className="text-sm font-semibold text-text-primary bg-surface border border-border rounded px-2 py-1 hover:border-primary/40 focus:outline-none focus:border-primary cursor-pointer max-w-[420px]"
+                title="Switch the scoring profile attached to this offering — workbook fit scores update on save."
+              >
+                {systemDefault && (
+                  <optgroup label="System defaults">
+                    <option key={systemDefault.id} value={systemDefault.id}>
+                      {systemDefault.name}
+                    </option>
+                  </optgroup>
+                )}
+                {customProfiles.length > 0 && (
+                  <optgroup label="Your profiles (Market Analyzer)">
+                    {customProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {isSystem ? (
+                <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-text-muted/15 text-text-secondary border border-border flex items-center gap-0.5">
+                  System default · read-only
+                </span>
+              ) : (
+                <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center gap-0.5">
+                  <CheckCircle2 size={9} /> Custom · active
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-text-secondary leading-snug">
-              {model.description}
-            </div>
+            <div className="text-[11px] text-text-secondary leading-snug">{active.description}</div>
             <div className="text-[10px] text-text-muted mt-1 flex items-center gap-1">
               <Wand2 size={9} />
-              {model.is_default ? 'Auto-built' : 'Variant'} {model.auto_built_from_offering_at} by {model.created_by}
-              <span className="text-text-muted">·</span>
               <span>
-                Workbook fit scores for this offering follow this model — change the picker to swap models, edit the model in the builder to tune.
+                Workbook fit scores for this offering follow this profile. Authoring lives in{' '}
+                <button
+                  onClick={() => navigate('/market-analyzer/scoring-profiles')}
+                  className="text-primary hover:underline font-semibold"
+                >
+                  Market Analyzer → Scoring Profiles
+                </button>
+                .
               </span>
             </div>
           </div>
         </div>
-        <button
-          onClick={onOpenBuilder}
-          className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-primary-dim transition-colors"
-        >
-          Open model builder <ArrowRight size={11} />
-        </button>
+        {hasMarketAnalyzer && (
+          <button
+            onClick={() => navigate('/market-analyzer/scoring-profiles')}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-primary-dim transition-colors"
+          >
+            Manage profiles <ArrowRight size={11} />
+          </button>
+        )}
       </div>
 
-      {/* Composite weights bars */}
-      <div className="mb-4">
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-2">
-          Composite weights — Fit {model.composite_weights.fit}% · Need {model.composite_weights.need}% · Intent{' '}
-          {model.composite_weights.intent}%
-        </div>
-        <div className="space-y-1.5">
-          {['fit', 'need', 'intent'].map((p) => {
-            const pillar = PILLARS[p];
-            const weight = model.composite_weights[p];
-            const dimCount = (model[p].dimensions || []).length;
-            const totalPts = (model[p].dimensions || []).reduce((s, d) => s + (d.cap || 0), 0);
-            return (
-              <div key={p} className="flex items-center gap-2">
-                <span className={`text-[11px] font-semibold w-14 ${pillar.color}`}>{pillar.label}</span>
-                <div className="flex-1 h-3 bg-bg/40 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{ width: `${weight}%`, background: pillar.accent }}
-                  />
-                </div>
-                <span className="text-[10px] font-mono text-text-muted w-32 text-right">
-                  {dimCount} dim · {totalPts} pts raw
-                </span>
-              </div>
-            );
-          })}
-        </div>
+      {/* Dimensions chip row — gives the admin a glance at what's inside. */}
+      <div className="flex items-center gap-1.5 flex-wrap pt-3 border-t border-border/60">
+        <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mr-1">
+          Dimensions
+        </span>
+        {(active.dimensions || []).map((d) => (
+          <span
+            key={d}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-bg/40 text-text-secondary border border-border/60"
+          >
+            {d}
+          </span>
+        ))}
       </div>
 
-      {/* Tier distribution */}
-      <div className="mb-2">
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-2">
-          Tier distribution across {model.accounts_scored.toLocaleString()} accounts
-        </div>
-        <div className="flex items-stretch gap-0.5 h-7 rounded overflow-hidden">
-          {tierEntries.map((t) => (
-            <div
-              key={t.id}
-              className={`flex items-center justify-center text-[10px] font-bold ${t.color}`}
-              style={{ width: `${t.pct}%`, background: t.accent + '33' }}
-              title={`${t.count} accounts in tier ${t.label}`}
+      {/* MA upsell — shown only when the tenant does NOT own MA. Inline,
+          discoverable, not blocking the picker. */}
+      {!hasMarketAnalyzer && (
+        <div className="mt-3 px-3 py-2.5 rounded bg-gradient-to-r from-violet-500/5 to-primary/5 border border-violet-500/20 text-[11px] text-text-secondary flex items-center gap-2">
+          <Sparkles size={11} className="text-violet-700 dark:text-violet-300 flex-shrink-0" />
+          <span className="flex-1">
+            Want to author your own scoring profiles per offering or segment?{' '}
+            <button
+              onClick={() => navigate('/platform')}
+              className="text-violet-700 dark:text-violet-300 font-semibold hover:underline"
             >
-              {t.pct > 8 && <span>{t.label} · {t.count}</span>}
-            </div>
-          ))}
+              Customize with Market Analyzer →
+            </button>
+          </span>
         </div>
-        <div className="flex items-center gap-3 mt-1.5 text-[10px] text-text-muted">
-          {tierEntries.map((t) => (
-            <div key={t.id} className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full" style={{ background: t.accent }} />
-              <span>
-                <span className={t.color}>{t.label}</span> {t.count}
-              </span>
-            </div>
-          ))}
-          <span className="ml-auto">Last evaluated {model.last_evaluated}</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function OfferingDetailView({ offering, onBack }) {
   const navigate = useNavigate();
+  const { hasModule } = useDemo();
+  const hasMarketAnalyzer = hasModule('market_analyzer');
   const signals = listSignals().filter(
     (s) => Array.isArray(s.relevant_offerings) && (s.relevant_offerings.includes(offering.id) || s.relevant_offerings.includes('all')),
   );
@@ -320,14 +312,15 @@ function OfferingDetailView({ offering, onBack }) {
         </div>
       </div>
 
-      {/* Scoring model — embedded summary + picker. Admin picks which model
-          drives fit scores for this offering. Workbook scores recompute on
-          render via tuningForOffering(). */}
-      <ScoringModelSummary
+      {/* Scoring profile — embedded picker. Profiles are authored in
+          Market Analyzer; this surface only attaches one to the offering.
+          The system default is always available; custom profiles require
+          MA entitlement to create. */}
+      <ScoringProfileSection
         offering={offering}
-        onOpenBuilder={() => navigate(`/admin/offerings/${offering.id}/model`)}
-        onChangeModel={(modelId) => {
-          upsertOffering({ ...offering, scoringModelId: modelId });
+        hasMarketAnalyzer={hasMarketAnalyzer}
+        onChangeProfile={(profileId) => {
+          upsertOffering({ ...offering, scoringProfileId: profileId });
         }}
       />
 

@@ -1,14 +1,13 @@
-// Scoring models — embedded version of the DC scoring methodology.
+// Scoring models — LEGACY. The canonical scoring entity is now an MA
+// Scoring Profile (src/data/marketAnalyzer.js). This module is kept only
+// because a few read-only surfaces (admin landing cards, dimension
+// preview) still introspect the methodology shape. The Conservative /
+// Aggressive variants are gone — one model per offering, scoreTuning =
+// 1.0, so the workbook fit scores are the canonical FITS values.
 //
-// Structure follows the methodology exactly:
-//   - 3 pillars: Fit (50%), Need (35%), Intent (15%)
-//   - Standard dimensions per pillar with caps from the skill spec
-//   - Composite weights + A/B/C/D tier thresholds
-//   - Inputs (NAICS, products, intent topics) auto-derived from the offering config
-//
-// In production these models would generate SQL against ClickHouse via the
-// hg-gtm-tools Python API. Here we curate the structure + mock the tier
-// distribution + per-pillar breakdowns so the embedded surface is provable.
+// New work should target MA scoring profiles directly. This module is
+// scheduled for deletion once the few remaining read-only call sites
+// migrate.
 
 import { OFFERINGS } from './offerings.js';
 
@@ -269,30 +268,17 @@ function buildModels() {
     const dims = deriveDimensionsFromOffering(offering);
     const baseVersion = idx === 0 ? 2 : 1;
 
+    // Single canonical model per offering — no more Conservative /
+    // Aggressive variants, no tuning factor. Workbook scores equal the
+    // canonical FITS values (no multiplication).
     const variants = [
       {
         suffix: 'fit-model',
         nameSuffix: 'Fit Model',
-        description: `Scores accounts on fit for ${offering.name}. Composite of firmographic fit, technographic need, and intent research signals. The auto-built default for this offering.`,
+        description: `Scores accounts on fit for ${offering.name}. Composite of firmographic fit, technographic need, and intent research signals. Auto-built from the offering's config.`,
         scoreTuning: 1.0,
         tierThresholds: { A: 75, B: 55, C: 35, D: 15 },
         compositeWeights: { fit: 50, need: 35, intent: 15 },
-      },
-      {
-        suffix: 'fit-model-conservative',
-        nameSuffix: 'Fit Model · Conservative',
-        description: `Stricter scoring of fit for ${offering.name}. Higher tier thresholds, lower tuning. Use when you want only the most surgical match list.`,
-        scoreTuning: 0.85,
-        tierThresholds: { A: 80, B: 65, C: 45, D: 20 },
-        compositeWeights: { fit: 60, need: 30, intent: 10 },
-      },
-      {
-        suffix: 'fit-model-aggressive',
-        nameSuffix: 'Fit Model · Aggressive',
-        description: `Broader scoring of fit for ${offering.name}. Lower tier thresholds, higher tuning. Use when you want to widen the funnel for top-of-funnel motion.`,
-        scoreTuning: 1.15,
-        tierThresholds: { A: 70, B: 50, C: 30, D: 10 },
-        compositeWeights: { fit: 40, need: 35, intent: 25 },
       },
     ];
 
@@ -378,11 +364,12 @@ export function listModelsForOfferingPicker(offeringId) {
   return [...own, ...others];
 }
 
-// Tuning factor for the currently attached model — used by the fit
-// resolver to multiply canonical FITS scores.
-export function tuningForOffering(offeringId, offering = null) {
-  const model = getModelForOffering(offeringId, offering);
-  return model?.scoreTuning ?? 1.0;
+// Tuning factor — always 1.0 now. Kept as a function only so legacy
+// callers don't crash; the workbook fit-resolver multiplication is a
+// no-op. Scheduled for removal once SellerWorkbookTable and
+// WorkbookSegmented drop the call entirely.
+export function tuningForOffering(_offeringId, _offering = null) {
+  return 1.0;
 }
 
 // Sum dimension caps to compute a "raw" maximum per pillar.

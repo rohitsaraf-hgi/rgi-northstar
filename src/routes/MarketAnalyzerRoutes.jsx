@@ -51,6 +51,9 @@ import {
   listProjects,
   listSegments,
   listScoringProfiles,
+  listSystemDefaultProfiles,
+  listCustomProfiles,
+  cloneProfileToCustom,
   getScoringProfile,
   addSegment,
 } from '../data/marketAnalyzer.js';
@@ -1057,16 +1060,113 @@ export function MarketAnalyzerCompaniesRoute() {
   );
 }
 
-// ─── Scoring Profiles (NEW) ─────────────────────────────────────────
+// ─── Scoring Profiles ───────────────────────────────────────────────
+//
+// Canonical home for scoring authoring in the platform. Two sections:
+//   1. System defaults — one per offering, auto-generated, read-only.
+//      Customize → clones to a custom profile.
+//   2. Your profiles  — custom profiles authored in MA. Apply to MA
+//      segments AND attach to Sales Co-Pilot offerings.
+
+function ProfileCard({ profile, onCustomize, onOpen }) {
+  const isSystem = profile.kind === 'system';
+  return (
+    <div className="text-left bg-surface border border-border rounded-md p-4 hover:border-primary/30 hover:shadow-card transition-all">
+      <div className="flex items-start gap-3">
+        <div
+          className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${
+            isSystem ? 'bg-text-muted/15' : 'bg-sky-500/10'
+          }`}
+        >
+          <Gauge size={16} className={isSystem ? 'text-text-secondary' : 'text-sky-700 dark:text-sky-300'} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h3 className="text-sm font-semibold text-text-primary">{profile.name}</h3>
+            {isSystem ? (
+              <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-text-muted/15 text-text-secondary border border-border">
+                System
+              </span>
+            ) : (
+              <VisibilityBadge visibility={profile.visibility} />
+            )}
+          </div>
+          <p className="text-[11px] text-text-secondary leading-relaxed mb-2">{profile.description}</p>
+          <div className="flex items-center gap-1.5 flex-wrap mb-2">
+            {profile.dimensions.map((d) => (
+              <span
+                key={d}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-bg/40 text-text-secondary border border-border/60"
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+          <div className="text-[10px] text-text-muted flex items-center gap-2 flex-wrap mb-2">
+            <span>Owner: {profile.ownerName}</span>
+            {profile.appliedSegmentCount > 0 && (
+              <>
+                <span>·</span>
+                <span>
+                  {profile.appliedSegmentCount} segment{profile.appliedSegmentCount === 1 ? '' : 's'}
+                </span>
+              </>
+            )}
+            {Array.isArray(profile.appliedOfferingIds) && profile.appliedOfferingIds.length > 0 && (
+              <>
+                <span>·</span>
+                <span>
+                  Attached to {profile.appliedOfferingIds.length} offering
+                  {profile.appliedOfferingIds.length === 1 ? '' : 's'}
+                </span>
+              </>
+            )}
+            <span>·</span>
+            <span>Updated {profile.updatedAt}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isSystem ? (
+              <button
+                onClick={onCustomize}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border border-violet-500/40 text-violet-700 dark:text-violet-300 rounded hover:bg-violet-500/10"
+              >
+                <Sparkles size={10} /> Customize
+              </button>
+            ) : (
+              <button
+                onClick={onOpen}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border border-border text-text-secondary rounded hover:border-primary/40 hover:text-primary"
+              >
+                Open builder
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function MarketAnalyzerScoringProfilesRoute() {
-  const navigate = useNavigate();
-  const profiles = listScoringProfiles();
+  const [, setTick] = useState(0);
+  const systemDefaults = listSystemDefaultProfiles();
+  const customProfiles = listCustomProfiles();
+
+  const handleCustomize = (profileId) => {
+    const cloned = cloneProfileToCustom(profileId);
+    if (cloned) {
+      window.alert(
+        `Created "${cloned.name}". The builder UI ships in the next iteration — for now you can attach this clone to any offering.`,
+      );
+      setTick((t) => t + 1);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-8 py-8">
       <PageHeader
         title="Scoring Profiles"
-        subtitle="Reusable scoring blueprints you can apply to any segment. A profile defines the dimensions and weights — applying it to a segment scores every company in that segment."
+        subtitle="Canonical home for scoring authoring. System defaults give every offering directional fit out of the box; create custom profiles to tailor scoring per offering or segment."
         primaryCta={
           <button
             onClick={() => window.alert('Profile builder ships in the next iteration.')}
@@ -1076,44 +1176,53 @@ export function MarketAnalyzerScoringProfilesRoute() {
           </button>
         }
       />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {profiles.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => window.alert(`Open ${p.name} (profile builder ships next iteration).`)}
-            className="text-left bg-surface border border-border rounded-md p-4 hover:border-primary/30 hover:shadow-card transition-all"
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-md bg-sky-500/10 flex items-center justify-center flex-shrink-0">
-                <Gauge size={16} className="text-sky-700 dark:text-sky-300" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="text-sm font-semibold text-text-primary">{p.name}</h3>
-                  <VisibilityBadge visibility={p.visibility} />
-                </div>
-                <p className="text-[11px] text-text-secondary leading-relaxed mb-2">{p.description}</p>
-                <div className="flex items-center gap-1.5 flex-wrap mb-2">
-                  {p.dimensions.map((d) => (
-                    <span
-                      key={d}
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-bg/40 text-text-secondary border border-border/60"
-                    >
-                      {d}
-                    </span>
-                  ))}
-                </div>
-                <div className="text-[10px] text-text-muted flex items-center gap-2">
-                  <span>Owner: {p.ownerName}</span>
-                  <span>·</span>
-                  <span>Applied to {p.appliedSegmentCount} segment{p.appliedSegmentCount === 1 ? '' : 's'}</span>
-                  <span>·</span>
-                  <span>Updated {p.updatedAt}</span>
-                </div>
-              </div>
+
+      {/* System defaults */}
+      <div className="mb-7">
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="text-[12px] uppercase tracking-wider font-semibold text-text-secondary">
+            System defaults
+          </h2>
+          <span className="text-[11px] text-text-muted">
+            {systemDefaults.length} default{systemDefaults.length === 1 ? '' : 's'} · one per offering · read-only
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {systemDefaults.map((p) => (
+            <ProfileCard key={p.id} profile={p} onCustomize={() => handleCustomize(p.id)} />
+          ))}
+          {systemDefaults.length === 0 && (
+            <div className="col-span-2 text-center text-text-muted text-sm py-6 bg-surface border border-dashed border-border rounded-md">
+              No offerings configured yet — defaults are generated when an offering is created.
             </div>
-          </button>
-        ))}
+          )}
+        </div>
+      </div>
+
+      {/* Custom profiles */}
+      <div>
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="text-[12px] uppercase tracking-wider font-semibold text-text-secondary">
+            Your profiles
+          </h2>
+          <span className="text-[11px] text-text-muted">
+            {customProfiles.length} custom · author here, apply to segments + offerings
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {customProfiles.map((p) => (
+            <ProfileCard
+              key={p.id}
+              profile={p}
+              onOpen={() => window.alert(`Open ${p.name} (builder ships next iteration).`)}
+            />
+          ))}
+          {customProfiles.length === 0 && (
+            <div className="col-span-2 text-center text-text-muted text-sm py-6 bg-surface border border-dashed border-border rounded-md">
+              No custom profiles yet. Customize a system default above, or create one from scratch.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
