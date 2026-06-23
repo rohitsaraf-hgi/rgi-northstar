@@ -18,8 +18,6 @@ import {
   Sparkles,
   ExternalLink,
   RotateCcw,
-  ShieldCheck,
-  Upload,
 } from 'lucide-react';
 import { useTenant } from '../context/TenantContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -70,30 +68,6 @@ function ChipGroup({ items, getLabel, getKey, onRemove, onAdd, placeholder = 'Ad
         </button>
       )}
     </div>
-  );
-}
-
-// Per-policy toggle row used in the Seller Permissions section.
-function PolicyToggle({ id, label, description, icon: Icon, checked, onChange }) {
-  return (
-    <label htmlFor={id} className="flex items-start gap-3 px-1 py-1.5 cursor-pointer rounded hover:bg-bg/30 transition-colors">
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-1 w-4 h-4 accent-primary"
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          {Icon && <Icon size={11} className="text-text-muted flex-shrink-0" />}
-          <span className="text-[12px] font-semibold text-text-primary">{label}</span>
-        </div>
-        {description && (
-          <p className="text-[10px] text-text-muted leading-relaxed mt-0.5">{description}</p>
-        )}
-      </div>
-    </label>
   );
 }
 
@@ -372,29 +346,6 @@ export default function AdminTenantEditor() {
               </div>
             ))}
           </div>
-        </SectionCard>
-
-        {/* Seller permissions — tenant-level policies controlling what
-            sellers can do in Sales Co-Pilot. Currently scoped to the
-            book-upload toggle; more policies land here as we expand. */}
-        <SectionCard
-          icon={ShieldCheck}
-          label="Seller Permissions"
-          accent="text-violet-700 dark:text-violet-300"
-          accentBg="bg-violet-500/15"
-        >
-          <PolicyToggle
-            id="allowSellerBookUpload"
-            label="Allow sellers to upload their book"
-            description="When ON, sellers see an Upload button on their Workbook and can bring their own accounts via CSV (account_name, account_domain). Every uploaded row is auto-assigned to the seller."
-            icon={Upload}
-            checked={draft.policies?.allowSellerBookUpload !== false}
-            onChange={(v) =>
-              update({
-                policies: { ...(draft.policies || {}), allowSellerBookUpload: v },
-              })
-            }
-          />
         </SectionCard>
       </div>
 

@@ -21,7 +21,12 @@ import {
   ScanSearch,
   Send,
   FileText,
+  ShieldCheck,
+  BookOpen,
 } from 'lucide-react';
+import { useTenant } from '../context/TenantContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import {
   getTerritoryState,
   subscribeTerritory,
@@ -319,6 +324,10 @@ function BookTab({ state, sellers }) {
   const [showUpload, setShowUpload] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterOwner, setFilterOwner] = useState('all');
+  const [adminUploadOpen, setAdminUploadOpen] = useState(false);
+  const { tenant, upsertTenant } = useTenant();
+  const { showToast } = useToast();
+  const allowSellerUpload = tenant?.policies?.allowSellerBookUpload !== false;
 
   const filtered = state.book.filter((row) => {
     if (filterStatus !== 'all' && row.status !== filterStatus) return false;
@@ -329,9 +338,72 @@ function BookTab({ state, sellers }) {
   const needsReview = state.book.filter((r) => r.status === 'needs_review' || r.status === 'duplicate');
   const stagedSellers = state.stagedSellers || [];
 
+  const toggleSellerUpload = (next) => {
+    upsertTenant({
+      ...tenant,
+      policies: { ...(tenant?.policies || {}), allowSellerBookUpload: next },
+    });
+    showToast(
+      next
+        ? 'Sellers can now upload their own book'
+        : 'Seller upload disabled — admins control the book',
+      'success',
+    );
+  };
+
   return (
     <div className="space-y-6">
-      {/* Upload affordance */}
+      {/* Book of Accounts — canonical admin card. Mirrors the ZoomInfo
+          pattern: the action you're permitting sits adjacent to the
+          permission that gates it. This is the single home for the
+          seller-upload policy. */}
+      <div className="bg-surface border border-border rounded-md overflow-hidden">
+        <div className="px-5 py-4 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <BookOpen size={18} className="text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold text-text-primary">Book of Accounts</h2>
+            <p className="text-[12px] text-text-secondary leading-relaxed mt-0.5 max-w-2xl">
+              Manage the master book — upload via CSV (account_name, account_owner_email),
+              extract owners, and route accounts. Owners must be existing platform users.
+            </p>
+          </div>
+          <button
+            onClick={() => setAdminUploadOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors flex-shrink-0"
+          >
+            <Upload size={12} />
+            {state.book.length > 0 ? 'Replace book' : 'Upload book CSV'}
+          </button>
+        </div>
+        <div className="border-t border-border/70 px-5 py-3 bg-bg/30">
+          <label htmlFor="allow-seller-upload" className="flex items-start gap-3 cursor-pointer">
+            <input
+              id="allow-seller-upload"
+              type="checkbox"
+              checked={allowSellerUpload}
+              onChange={(e) => toggleSellerUpload(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-primary flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck size={11} className="text-text-muted flex-shrink-0" />
+                <span className="text-[12px] font-semibold text-text-primary">
+                  Allow sellers to upload their own book of accounts
+                </span>
+              </div>
+              <p className="text-[11px] text-text-muted leading-relaxed mt-0.5">
+                When ON, sellers see an Upload button on their Workbook and can bring their
+                own accounts via CSV (account_name, account_domain). Every uploaded row is
+                auto-assigned to the uploading seller.
+              </p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Auxiliary upload affordance — kept for the inline ER + history flow */}
       {showUpload ? (
         <UploadPanel onClose={() => setShowUpload(false)} />
       ) : (
@@ -341,9 +413,9 @@ function BookTab({ state, sellers }) {
             className="bg-surface border border-dashed border-border hover:border-primary/40 rounded-md p-5 text-left transition-all group"
           >
             <Upload size={18} className="text-primary mb-2" />
-            <div className="text-sm font-semibold text-text-primary mb-1">Upload Book CSV</div>
+            <div className="text-sm font-semibold text-text-primary mb-1">Inline upload (with ER preview)</div>
             <div className="text-[12px] text-text-secondary leading-relaxed">
-              owner_email · owner_role · account_name · account_domain
+              Demo flow showing entity-resolution + duplicate detection inline.
             </div>
             <div className="text-[11px] text-primary mt-2 flex items-center gap-1">
               Start upload <ArrowRight size={11} />
@@ -354,6 +426,23 @@ function BookTab({ state, sellers }) {
           <UploadHistoryCard history={state.uploadHistory} />
         </div>
       )}
+
+      {/* Admin upload modal — same component the Workbook uses. */}
+      <BookUploadModal
+        open={adminUploadOpen}
+        onClose={() => setAdminUploadOpen(false)}
+        hasExistingBook={state.book.length > 0}
+        existingBookSize={state.book.length}
+        onComplete={(summary) => {
+          setAdminUploadOpen(false);
+          showToast(
+            `${summary.replaced ? 'Replaced' : 'Imported'} ${summary.matchedAccounts} accounts${
+              summary.skippedAccounts ? ` · ${summary.skippedAccounts} skipped` : ''
+            }`,
+            'success',
+          );
+        }}
+      />
 
       {/* Discovered sellers panel — appears when the latest CSV upload
           surfaced owner emails that aren't yet on the platform. Admin reviews
