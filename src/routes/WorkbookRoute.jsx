@@ -984,7 +984,35 @@ function getWorkbookState() {
 // Net-new logo discovery and whitespace exploration live in Market Analyzer
 // — explicitly out of scope for Sales Co-Pilot.
 
-function EmptyBookHero({ onUploadCsv, onConnectCrm, onExploreMarketAnalyzer, hasMarketAnalyzer = false }) {
+function EmptyBookHero({
+  onUploadCsv,
+  onConnectCrm,
+  onExploreMarketAnalyzer,
+  hasMarketAnalyzer = false,
+  isSeller = false,
+}) {
+  // Copy branches by persona — sellers don't have an owner_email column in
+  // their CSV (rows auto-assign to themselves) and they don't connect a
+  // tenant CRM (the admin does that).
+  const heading = 'Add your Target Accounts';
+  const sellerCopy = (
+    <>
+      Upload a CSV with{' '}
+      <code className="bg-surface-2 text-text-primary px-1 py-0.5 rounded text-[11px] font-mono">
+        account_name, account_domain
+      </code>
+      . Every row gets auto-assigned to you.
+    </>
+  );
+  const adminCopy = (
+    <>
+      Sales Co-Pilot works off your tenant book. Upload a CSV with{' '}
+      <code className="bg-surface-2 text-text-primary px-1 py-0.5 rounded text-[11px] font-mono">
+        account_name, account_owner_email
+      </code>{' '}
+      or connect Salesforce / HubSpot to sync automatically. Owners must be existing platform users.
+    </>
+  );
   return (
     <div className="bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/20 rounded-lg p-6 mb-5">
       <div className="flex items-start gap-4 max-w-3xl">
@@ -992,15 +1020,9 @@ function EmptyBookHero({ onUploadCsv, onConnectCrm, onExploreMarketAnalyzer, has
           <Database size={20} className="text-violet-700 dark:text-violet-300" />
         </div>
         <div className="flex-1">
-          <h2 className="text-base font-semibold text-text-primary mb-1">
-            Add your book of accounts
-          </h2>
+          <h2 className="text-base font-semibold text-text-primary mb-1">{heading}</h2>
           <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
-            Sales Co-Pilot works off your CRM book. Upload a CSV with{' '}
-            <code className="bg-surface-2 text-text-primary px-1 py-0.5 rounded text-[11px] font-mono">
-              account_name, account_owner_email
-            </code>{' '}
-            or connect Salesforce / HubSpot to sync automatically. Owners must be existing platform users.
+            {isSeller ? sellerCopy : adminCopy}
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             <button
@@ -1008,16 +1030,18 @@ function EmptyBookHero({ onUploadCsv, onConnectCrm, onExploreMarketAnalyzer, has
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-violet-600 text-white rounded-md hover:bg-violet-500 transition-colors"
             >
               <Upload size={12} />
-              Upload Book CSV
+              {isSeller ? 'Upload Target Accounts' : 'Upload Target Accounts CSV'}
             </button>
-            <button
-              onClick={onConnectCrm}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border border-primary/40 text-primary rounded-md hover:bg-primary/5 transition-colors"
-            >
-              <Plug size={12} />
-              Connect CRM
-            </button>
-            {hasMarketAnalyzer && (
+            {!isSeller && (
+              <button
+                onClick={onConnectCrm}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border border-primary/40 text-primary rounded-md hover:bg-primary/5 transition-colors"
+              >
+                <Plug size={12} />
+                Connect CRM
+              </button>
+            )}
+            {hasMarketAnalyzer && !isSeller && (
               <button
                 onClick={onExploreMarketAnalyzer}
                 className="ml-2 inline-flex items-center gap-1 text-[11px] text-text-secondary hover:text-primary"
@@ -2232,38 +2256,41 @@ export default function WorkbookRoute() {
                   )}
                 </>
               )}
-              {/* Demo state toggle — admin-only. Flips between first-time
-                  (no book, no CRM) and populated views without disturbing
-                  seeded data. Always visible so the operator can flip back. */}
-              {isAdmin && (
-                <button
-                  onClick={() => setDemoEmptyMode(!workbookState.isEmptyTenant)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors border ${
-                    workbookState.isEmptyTenant
-                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-                      : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/30'
-                  }`}
-                  title={
-                    workbookState.isEmptyTenant
-                      ? 'Currently showing first-time admin view. Click to see populated workbook.'
-                      : 'Click to preview the first-time admin view (no book, no CRM connected)'
-                  }
-                >
-                  <Sparkles size={11} />
-                  Demo · {workbookState.isEmptyTenant ? 'First-time' : 'Populated'}
-                </button>
-              )}
+              {/* Demo state toggle — visible to admin and seller. Flips
+                  between first-time (empty) and populated views without
+                  disturbing seeded data. */}
+              <button
+                onClick={() => setDemoEmptyMode(!workbookState.isEmptyTenant)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors border ${
+                  workbookState.isEmptyTenant
+                    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                    : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/30'
+                }`}
+                title={
+                  workbookState.isEmptyTenant
+                    ? 'Currently showing first-time view. Click to see populated workbook.'
+                    : 'Click to preview the first-time view (no target accounts loaded)'
+                }
+              >
+                <Sparkles size={11} />
+                Demo · {workbookState.isEmptyTenant ? 'First-time' : 'Populated'}
+              </button>
             </div>
           </div>
 
-          {/* Empty-book hero — first-entry experience for admins post-signup.
-              Sales Co-Pilot is gated until the admin uploads a CSV or
-              connects a CRM. No more whitespace fallback — that lives in
-              Market Analyzer now. */}
-          {isAdmin && workbookState.isEmptyTenant && (
+          {/* Empty-book hero — first-entry experience for both admin and
+              seller. Admin uploads tenant book (account_name +
+              account_owner_email) or connects CRM. Seller uploads a
+              simpler CSV (account_name + account_domain) auto-assigned
+              to themselves. Seller path is gated on tenant policy. */}
+          {workbookState.isEmptyTenant && (
             <div className="mt-4">
               <EmptyBookHero
-                onUploadCsv={() => setAdminUploadOpen(true)}
+                isSeller={isSeller}
+                onUploadCsv={() => {
+                  if (isSeller) setSellerUploadOpen(true);
+                  else setAdminUploadOpen(true);
+                }}
                 onConnectCrm={() => navigate('/admin/apps')}
                 onExploreMarketAnalyzer={() => navigate('/market-analyzer/companies')}
                 hasMarketAnalyzer={hasMarketAnalyzer}
