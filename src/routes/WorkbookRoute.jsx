@@ -2222,6 +2222,7 @@ export default function WorkbookRoute() {
                       }}
                       onConnectCrm={() => navigate('/admin/apps')}
                       crmConnected={hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false}
+                      canConnectCrm={isAdmin}
                     />
                   </>
                 )}

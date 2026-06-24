@@ -94,6 +94,10 @@ export default function WorkbookSwitcher({
   onUploadCsv,
   onConnectCrm,
   crmConnected = false,
+  // Connect CRM is an integration action — admin-only. Sellers never
+  // see the affordance in the dropdown even when CRM is disconnected,
+  // because Integrations lives in Admin Hub and sellers can't access it.
+  canConnectCrm = false,
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -216,7 +220,7 @@ export default function WorkbookSwitcher({
               </div>
               <Plus size={11} className="text-text-muted flex-shrink-0" />
             </button>
-            {!crmConnected && (
+            {canConnectCrm && !crmConnected && (
               <button
                 onClick={() => {
                   onConnectCrm?.();
