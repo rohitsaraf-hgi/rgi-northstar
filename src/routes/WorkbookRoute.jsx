@@ -2267,26 +2267,68 @@ export default function WorkbookRoute() {
                   the workbook isn't hand-curated. Click → opens the
                   source segment in Market Analyzer. */}
               {!activePlay && activeWorkbook?.kind === WORKBOOK_KINDS.PROMOTED_SEGMENT && (
-                <button
-                  onClick={() =>
-                    activeWorkbook.sourceSegmentId &&
-                    navigate(`/market-analyzer/segments/${activeWorkbook.sourceSegmentId}`)
-                  }
-                  className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-violet-500/30 bg-violet-500/5 text-[10px] text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 transition-colors"
-                  title="Open the source segment in Market Analyzer"
-                >
-                  <Sparkles size={9} />
-                  <span className="uppercase tracking-wider font-semibold">From Market Analyzer:</span>
-                  <span className="font-semibold">{activeWorkbook.sourceSegmentName || activeWorkbook.name}</span>
-                  {activeWorkbook.promotedAt && (
-                    <span className="opacity-70">
-                      · pushed {new Date(activeWorkbook.promotedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </span>
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() =>
+                      activeWorkbook.sourceSegmentId &&
+                      navigate(`/market-analyzer/segments/${activeWorkbook.sourceSegmentId}`)
+                    }
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-violet-500/30 bg-violet-500/5 text-[10px] text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 transition-colors"
+                    title="Open the source segment in Market Analyzer"
+                  >
+                    <Sparkles size={9} />
+                    <span className="uppercase tracking-wider font-semibold">From Market Analyzer:</span>
+                    <span className="font-semibold">{activeWorkbook.sourceSegmentName || activeWorkbook.name}</span>
+                    {activeWorkbook.promotedAt && (
+                      <span className="opacity-70">
+                        · pushed {new Date(activeWorkbook.promotedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    )}
+                    {activeWorkbook.promotedBy && (
+                      <span className="opacity-70">by {activeWorkbook.promotedBy}</span>
+                    )}
+                  </button>
+
+                  {/* Merge split chip — surfaces routing load so admins
+                      know exactly how many accounts need owners assigned
+                      via Territory Design. */}
+                  {activeWorkbook.mergeSummary && (
+                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-border bg-bg/40 text-[10px] text-text-secondary">
+                      <Layers size={9} className="text-text-muted" />
+                      <span className="font-semibold text-text-primary">
+                        {activeWorkbook.mergeSummary.totalRows} accounts
+                      </span>
+                      {activeWorkbook.mergeSummary.mergedCount > 0 && (
+                        <>
+                          <span className="text-text-muted">·</span>
+                          <span>
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                              {activeWorkbook.mergeSummary.mergedCount}
+                            </span>{' '}
+                            already in your book
+                          </span>
+                        </>
+                      )}
+                      {activeWorkbook.mergeSummary.needsRoutingCount > 0 && (
+                        <>
+                          <span className="text-text-muted">·</span>
+                          <span>
+                            <span className="font-semibold text-amber-700 dark:text-amber-300">
+                              {activeWorkbook.mergeSummary.needsRoutingCount}
+                            </span>{' '}
+                            net-new need routing
+                          </span>
+                          <button
+                            onClick={() => navigate('/admin/territory')}
+                            className="ml-1 text-primary hover:underline font-semibold"
+                          >
+                            Route owners →
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
-                  {activeWorkbook.promotedBy && (
-                    <span className="opacity-70">by {activeWorkbook.promotedBy}</span>
-                  )}
-                </button>
+                </div>
               )}
               {/* Last-sync timestamp removed — Sync to Salesforce ships
                   later under an Advanced grouping. */}

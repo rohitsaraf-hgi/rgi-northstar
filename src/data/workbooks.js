@@ -30,7 +30,7 @@
 import { OFFERINGS } from './offerings.js';
 import { getFitFor } from './accountOfferingFit.js';
 import { getMarketAnalyzerCompanies } from './marketAnalyzerCompanies.js';
-import { getAccountsForOwner } from './accounts.js';
+import { ACCOUNTS_BY_OWNER, getAccountsForOwner } from './accounts.js';
 import { CRM_ONLY_ACCOUNTS } from './unifiedWorkbook.js';
 
 export const WORKBOOK_KINDS = {
@@ -306,9 +306,26 @@ function shouldShowCrm(kind, { crmConnected }) {
   return true;
 }
 
+// Promoted workbooks are admin-only until at least one row has been
+// routed (ownerSellerId set). The moment routing happens the workbook
+// auto-promotes to org-visible so sellers can pick it up.
+function isPromotedWorkbookReadyForSellers(workbook) {
+  if (workbook.kind !== WORKBOOK_KINDS.PROMOTED_SEGMENT) return true;
+  const rows = Array.isArray(workbook.rows) ? workbook.rows : [];
+  return rows.some((r) => r?.ownerSellerId);
+}
+
 function permissionCheck(workbook, { personaId, isAdmin }) {
   if (isAdmin) return true;
   // Seller — can see organization-visible workbooks + own private ones.
+  // Promoted workbooks are gated on at least one routed row.
+  if (workbook.visibility === 'admin_only') return false;
+  if (
+    workbook.kind === WORKBOOK_KINDS.PROMOTED_SEGMENT &&
+    !isPromotedWorkbookReadyForSellers(workbook)
+  ) {
+    return false;
+  }
   if (workbook.visibility === 'organization') return true;
   if (workbook.visibility === 'private' && workbook.ownerId === personaId) return true;
   return false;
@@ -382,10 +399,46 @@ export function isWorkbookNameTaken(name) {
   return WORKBOOKS.some((w) => !w.archived && (w.name || '').trim().toLowerCase() === target);
 }
 
+// Build a domain → existing-tenant-account index used by the segment
+// push merge logic. In production this is a single tenant query; for the
+// prototype we union every owner's book + CRM-only orphans. Domain is
+// normalized (lowercase, strip 'www.', trailing slash) for forgiving
+// matches when MA seed data and book seed data drift.
+function normalizeDomain(d) {
+  if (!d) return null;
+  return String(d).trim().toLowerCase().replace(/^www\./, '').replace(/\/+$/, '');
+}
+function getTenantAccountIndex() {
+  const index = new Map();
+  for (const ownerId of Object.keys(ACCOUNTS_BY_OWNER || {})) {
+    for (const a of ACCOUNTS_BY_OWNER[ownerId] || []) {
+      const d = normalizeDomain(a.url);
+      if (d) index.set(d, { ...a, ownerSellerId: ownerId });
+    }
+  }
+  for (const a of CRM_ONLY_ACCOUNTS) {
+    const d = normalizeDomain(a.url);
+    if (d) index.set(d, { ...a, ownerSellerId: a.ownerIds?.[0] || null });
+  }
+  return index;
+}
+
 // Promote a Market Analyzer segment into a Sales Co-Pilot workbook.
 // Snapshot — rows are frozen at promotion time. Returns the new
 // workbook on success, or { error } if the name is already taken.
-// Caller must pick a unique name (user-supplied or system-derived).
+//
+// Merge-by-domain semantics:
+//   - For each row, look up an existing tenant account by domain (url).
+//   - If matched: stamp `existingAccountId` + `ownerSellerId` on the row
+//     so the workbook references the canonical account. Owner stays.
+//   - If not matched: row is "net-new" and will need routing via
+//     Territory Design. ownerSellerId = null.
+// The resulting workbook carries a merge summary so the SC header can
+// render "247 accounts · 47 already in book · 200 net-new need routing".
+//
+// Visibility for PROMOTED_SEGMENT workbooks defaults to `admin_only`.
+// listWorkbooksForPersona flips it to org-visible the moment any row
+// has an owner assigned.
 export function promoteSegmentToWorkbook({
   segmentId,
   segmentName,
@@ -393,12 +446,38 @@ export function promoteSegmentToWorkbook({
   rows,
   ownerId,
   ownerName,
-  visibility = 'organization',
+  visibility = 'admin_only',
 }) {
   const effectiveName = (name && name.trim()) || `${segmentName} (from MA)`;
   if (isWorkbookNameTaken(effectiveName)) {
     return { error: 'name_taken', triedName: effectiveName };
   }
+  // Merge by domain — link to existing tenant accounts where possible.
+  const tenantIndex = getTenantAccountIndex();
+  let mergedCount = 0;
+  let netNewCount = 0;
+  const mergedRows = rows.map((row) => {
+    const d = normalizeDomain(row.url);
+    const existing = d ? tenantIndex.get(d) : null;
+    if (existing) {
+      mergedCount += 1;
+      return {
+        ...row,
+        existingAccountId: existing.id,
+        ownerSellerId: existing.ownerSellerId || null,
+        // Keep the canonical name + logo so the workbook table looks
+        // consistent with My Book / CRM Accounts.
+        name: existing.name || row.name,
+        logoColor: existing.logoColor || row.logoColor,
+      };
+    }
+    netNewCount += 1;
+    return {
+      ...row,
+      existingAccountId: null,
+      ownerSellerId: null,
+    };
+  });
   const wb = {
     ...seedWorkbook({
       id: `wb-promoted-${segmentId}-${Date.now()}`,
@@ -407,15 +486,22 @@ export function promoteSegmentToWorkbook({
       ownerId,
       ownerName,
       visibility,
-      rows,
-      accountCount: rows.length,
+      rows: mergedRows,
+      accountCount: mergedRows.length,
     }),
-    // Provenance — surfaced on the workbook header so sellers can trace
-    // a promoted workbook back to the MA segment that produced it.
     sourceSegmentId: segmentId,
     sourceSegmentName: segmentName,
     promotedAt: new Date().toISOString(),
     promotedBy: ownerName || ownerId || null,
+    // Merge summary — used by the workbook header to surface routing
+    // load. needsRoutingCount = net-new accounts that don't yet have
+    // an owner assigned.
+    mergeSummary: {
+      totalRows: mergedRows.length,
+      mergedCount,
+      netNewCount,
+      needsRoutingCount: netNewCount,
+    },
   };
   WORKBOOKS.unshift(wb);
   return wb;

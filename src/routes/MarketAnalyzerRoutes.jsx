@@ -204,6 +204,114 @@ export function MarketAnalyzerProjectsRoute() {
   );
 }
 
+// ─── Push-segment-to-CRM modal ──────────────────────────────────────
+//
+// Distinct from "Push to Sales Co-Pilot": this path writes the
+// segment's net-new logos as CRM accounts (Salesforce/HubSpot). CRM
+// routing rules will assign owners on next sync; existing CRM accounts
+// matched by domain get tagged with the segment source for filtering.
+//
+// Mocked in the prototype — no actual CRM write happens. The modal
+// surfaces the impact and a confirm toast so the demo flow reads
+// realistically.
+
+function PushSegmentToCrmModal({ open, segment, onClose, onPushed, crmName = 'Salesforce' }) {
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!open || !segment) return null;
+
+  // For the prototype we estimate net-new vs existing by hashing the
+  // segment id — gives a stable demo number without doing a real merge.
+  const total = segment.companyCount || 0;
+  const merged = Math.min(total, Math.round(total * 0.18));
+  const netNew = total - merged;
+
+  const handleSubmit = () => {
+    setSubmitting(true);
+    setTimeout(() => {
+      setSubmitting(false);
+      onPushed?.({ netNew, merged, crmName });
+    }, 600);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="w-[520px] max-w-[95vw] bg-bg border border-border rounded-md shadow-elev"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Send size={14} className="text-emerald-700 dark:text-emerald-300" />
+            <div className="text-sm font-semibold text-text-primary">Push to {crmName}</div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-surface-2 text-text-muted hover:text-text-primary"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="text-[12px] text-text-secondary leading-relaxed">
+            Writes <strong className="text-text-primary">{segment.name}</strong> directly to{' '}
+            <strong className="text-text-primary">{crmName}</strong>. Net-new logos become CRM
+            accounts; existing accounts get tagged with the segment source so they can be
+            filtered later. {crmName} routing rules assign owners on next sync.
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="px-3 py-2 rounded border border-emerald-500/30 bg-emerald-500/5">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-300">
+                Create as new
+              </div>
+              <div className="text-lg font-mono font-semibold text-emerald-700 dark:text-emerald-300">
+                {netNew.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-text-muted">net-new logos</div>
+            </div>
+            <div className="px-3 py-2 rounded border border-sky-500/30 bg-sky-500/5">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-sky-700 dark:text-sky-300">
+                Tag existing
+              </div>
+              <div className="text-lg font-mono font-semibold text-sky-700 dark:text-sky-300">
+                {merged.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-text-muted">already in {crmName}</div>
+            </div>
+          </div>
+
+          <div className="px-3 py-2 rounded bg-amber-500/5 border border-amber-500/20 text-[11px] text-text-secondary inline-flex items-start gap-2">
+            <AlertTriangle size={11} className="text-amber-700 dark:text-amber-300 flex-shrink-0 mt-0.5" />
+            <span>
+              Owner assignment runs through {crmName}'s routing rules — not Territory Design. Make sure
+              your CRM rules are configured before pushing large lists.
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-surface/40">
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-md hover:bg-emerald-500 disabled:opacity-50"
+          >
+            <Send size={11} />
+            {submitting ? `Pushing to ${crmName}…` : `Push to ${crmName}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Push-segment-to-Sales-Co-Pilot modal ──────────────────────────
 //
 // One-way snapshot. Asks for a unique workbook name (defaulted from the
@@ -368,16 +476,24 @@ export function MarketAnalyzerSegmentsRoute() {
   const navigate = useNavigate();
   const segments = listSegments();
   const profiles = listScoringProfiles();
-  const { hasModule } = useDemo();
+  const { hasModule, hasIntegration } = useDemo();
   const hasSalesCopilot = hasModule('sales_copilot');
+  const crmConnected = hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false;
+  const crmName = hasIntegration?.('salesforce') ? 'Salesforce' : hasIntegration?.('hubspot') ? 'HubSpot' : 'CRM';
   const [pushTarget, setPushTarget] = useState(null);
+  const [crmPushTarget, setCrmPushTarget] = useState(null);
   const [toast, setToast] = useState(null);
 
   const handlePushed = (workbook) => {
     if (!workbook) return;
     setPushTarget(null);
     setToast({ workbook });
-    setTimeout(() => setToast(null), 5000);
+    setTimeout(() => setToast(null), 6000);
+  };
+  const handleCrmPushed = (summary) => {
+    setCrmPushTarget(null);
+    setToast({ crm: summary });
+    setTimeout(() => setToast(null), 6000);
   };
 
   return (
@@ -395,7 +511,7 @@ export function MarketAnalyzerSegmentsRoute() {
               <th className="px-4 py-2 w-32">Applied profile</th>
               <th className="px-4 py-2 w-28 text-right">Companies</th>
               <th className="px-4 py-2 w-28">Created</th>
-              {hasSalesCopilot && <th className="px-4 py-2 w-20"></th>}
+              {(hasSalesCopilot || crmConnected) && <th className="px-4 py-2 w-44"></th>}
             </tr>
           </thead>
           <tbody>
@@ -444,18 +560,34 @@ export function MarketAnalyzerSegmentsRoute() {
                   >
                     {s.createdAt}
                   </td>
-                  {hasSalesCopilot && (
+                  {(hasSalesCopilot || crmConnected) && (
                     <td className="px-4 py-2.5">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPushTarget(s);
-                        }}
-                        title="Push this segment to Sales Co-Pilot as a workbook"
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-primary/30 text-primary rounded hover:bg-primary/5 transition-colors"
-                      >
-                        <Send size={10} /> Push
-                      </button>
+                      <div className="flex items-center gap-1 justify-end">
+                        {crmConnected && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCrmPushTarget(s);
+                            }}
+                            title={`Push net-new logos to ${crmName}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 rounded hover:bg-emerald-500/10 transition-colors"
+                          >
+                            <Send size={10} /> CRM
+                          </button>
+                        )}
+                        {hasSalesCopilot && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPushTarget(s);
+                            }}
+                            title="Push this segment to Sales Co-Pilot as a workbook"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-primary/30 text-primary rounded hover:bg-primary/5 transition-colors"
+                          >
+                            <Send size={10} /> SC
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -476,13 +608,24 @@ export function MarketAnalyzerSegmentsRoute() {
         onClose={() => setPushTarget(null)}
         onPushed={handlePushed}
       />
+      <PushSegmentToCrmModal
+        open={!!crmPushTarget}
+        segment={crmPushTarget}
+        crmName={crmName}
+        onClose={() => setCrmPushTarget(null)}
+        onPushed={handleCrmPushed}
+      />
       {toast?.workbook && (
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600 text-white text-sm rounded-md shadow-elev flex items-center gap-3">
           <CheckCircle2 size={14} />
           <span>
-            Pushed{' '}
-            <strong>{toast.workbook.accountCount.toLocaleString()}</strong> accounts to{' '}
+            Pushed <strong>{toast.workbook.accountCount.toLocaleString()}</strong> accounts to{' '}
             <strong>{toast.workbook.name}</strong>
+            {toast.workbook.mergeSummary?.needsRoutingCount > 0 && (
+              <span className="opacity-90">
+                {' '}· {toast.workbook.mergeSummary.needsRoutingCount} need routing
+              </span>
+            )}
           </span>
           <button
             onClick={() => navigate(`/workbook/${toast.workbook.id}`)}
@@ -490,6 +633,16 @@ export function MarketAnalyzerSegmentsRoute() {
           >
             View workbook →
           </button>
+        </div>
+      )}
+      {toast?.crm && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600 text-white text-sm rounded-md shadow-elev flex items-center gap-3">
+          <CheckCircle2 size={14} />
+          <span>
+            Pushed to <strong>{toast.crm.crmName}</strong> ·{' '}
+            <strong>{toast.crm.netNew.toLocaleString()}</strong> created ·{' '}
+            <strong>{toast.crm.merged.toLocaleString()}</strong> tagged
+          </span>
         </div>
       )}
     </div>
@@ -506,9 +659,12 @@ export function MarketAnalyzerSegmentDetailRoute() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [appliedProfileId, setAppliedProfileId] = useState(segment?.appliedProfileId || null);
   const appliedProfile = appliedProfileId ? getScoringProfile(appliedProfileId) : null;
-  const { hasModule } = useDemo();
+  const { hasModule, hasIntegration } = useDemo();
   const hasSalesCopilot = hasModule('sales_copilot');
+  const crmConnected = hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false;
+  const crmName = hasIntegration?.('salesforce') ? 'Salesforce' : hasIntegration?.('hubspot') ? 'HubSpot' : 'CRM';
   const [pushOpen, setPushOpen] = useState(false);
+  const [crmPushOpen, setCrmPushOpen] = useState(false);
   const [pushToast, setPushToast] = useState(null);
 
   if (!segment) {
@@ -537,14 +693,26 @@ export function MarketAnalyzerSegmentDetailRoute() {
         title={segment.name}
         subtitle={segment.description}
         primaryCta={
-          hasSalesCopilot ? (
-            <button
-              onClick={() => setPushOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors"
-            >
-              <Send size={12} /> Push to Sales Co-Pilot
-            </button>
-          ) : null
+          <div className="flex items-center gap-2">
+            {crmConnected && (
+              <button
+                onClick={() => setCrmPushOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 rounded-md transition-colors"
+                title={`Write net-new logos to ${crmName}; CRM routing rules assign owners`}
+              >
+                <Send size={12} /> Push to {crmName}
+              </button>
+            )}
+            {hasSalesCopilot && (
+              <button
+                onClick={() => setPushOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors"
+                title="Create a workbook in Sales Co-Pilot; admin routes owners via Territory Design"
+              >
+                <Send size={12} /> Push to Sales Co-Pilot
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -633,13 +801,29 @@ export function MarketAnalyzerSegmentDetailRoute() {
           }
         }}
       />
+      <PushSegmentToCrmModal
+        open={crmPushOpen}
+        segment={segment}
+        crmName={crmName}
+        onClose={() => setCrmPushOpen(false)}
+        onPushed={(summary) => {
+          setCrmPushOpen(false);
+          setPushToast({ crm: summary });
+          setTimeout(() => setPushToast(null), 6000);
+        }}
+      />
       {pushToast?.workbook && (
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600 text-white text-sm rounded-md shadow-elev flex items-center gap-3">
           <CheckCircle2 size={14} />
           <span>
-            Pushed{' '}
-            <strong>{pushToast.workbook.accountCount.toLocaleString()}</strong> accounts to{' '}
+            Pushed <strong>{pushToast.workbook.accountCount.toLocaleString()}</strong> accounts to{' '}
             <strong>{pushToast.workbook.name}</strong>
+            {pushToast.workbook.mergeSummary?.needsRoutingCount > 0 && (
+              <span className="opacity-90">
+                {' '}
+                · {pushToast.workbook.mergeSummary.needsRoutingCount} need routing
+              </span>
+            )}
           </span>
           <button
             onClick={() => navigate(`/workbook/${pushToast.workbook.id}`)}
@@ -647,6 +831,16 @@ export function MarketAnalyzerSegmentDetailRoute() {
           >
             View workbook →
           </button>
+        </div>
+      )}
+      {pushToast?.crm && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600 text-white text-sm rounded-md shadow-elev flex items-center gap-3">
+          <CheckCircle2 size={14} />
+          <span>
+            Pushed to <strong>{pushToast.crm.crmName}</strong> ·{' '}
+            <strong>{pushToast.crm.netNew.toLocaleString()}</strong> created ·{' '}
+            <strong>{pushToast.crm.merged.toLocaleString()}</strong> tagged. Routing on next sync.
+          </span>
         </div>
       )}
     </div>
