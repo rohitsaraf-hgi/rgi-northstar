@@ -276,7 +276,10 @@ export const SEED_WORKBOOKS = [
   seedWorkbook({
     id: 'wb-my-book-alex',
     kind: WORKBOOK_KINDS.MY_BOOK,
-    name: "Alex's Book",
+    // Display name is consistent regardless of viewer — each seller's
+    // dropdown shows "Book of Accounts" for their own book. Admins
+    // don't see other sellers' books at all (see permissionCheck).
+    name: 'Book of Accounts',
     ownerId: 'alex',
     ownerName: 'Alex Chen',
     visibility: 'private',
@@ -316,6 +319,13 @@ function isPromotedWorkbookReadyForSellers(workbook) {
 }
 
 function permissionCheck(workbook, { personaId, isAdmin }) {
+  // Book of Accounts is strictly per-owner — even admins only see their
+  // own book. Each user's Book of Accounts is their own slice; admins
+  // don't browse other sellers' books here (Territory Design is where
+  // admins route + inspect other sellers' books).
+  if (workbook.kind === WORKBOOK_KINDS.MY_BOOK) {
+    return workbook.ownerId === personaId;
+  }
   if (isAdmin) return true;
   // Seller — can see organization-visible workbooks + own private ones.
   // Promoted workbooks are gated on at least one routed row.
@@ -351,7 +361,10 @@ export function listWorkbooksForPersona({ personaId, isAdmin = false, crmConnect
         return { ...wb, accountCount: resolveMyBookRows(wb.ownerId).length };
       }
       return wb;
-    });
+    })
+    // Hide empty Book of Accounts rows — a persona without any owned
+    // accounts shouldn't see a "0 accounts" entry cluttering the dropdown.
+    .filter((wb) => !(wb.kind === WORKBOOK_KINDS.MY_BOOK && wb.accountCount === 0));
 }
 
 export function getWorkbook(id) {

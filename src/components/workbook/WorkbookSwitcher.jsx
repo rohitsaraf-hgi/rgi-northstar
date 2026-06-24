@@ -61,13 +61,30 @@ function KindBadge({ kind }) {
   );
 }
 
-// Group workbooks by kind for the dropdown sections.
-const GROUP_ORDER = [
-  WORKBOOK_KINDS.MY_BOOK,
-  WORKBOOK_KINDS.ICP_MATCH,
-  WORKBOOK_KINDS.CRM_ACCOUNTS,
-  WORKBOOK_KINDS.CUSTOM_CSV,
-  WORKBOOK_KINDS.PROMOTED_SEGMENT,
+// Dropdown sections — higher-level grouping over workbook kinds.
+// CRM Accounts + Book of Accounts share a section because they're both
+// CRM-derived (the org-wide list and the per-seller slice of it).
+const GROUPS = [
+  {
+    id: 'icp_match',
+    label: 'ICP Match',
+    kinds: [WORKBOOK_KINDS.ICP_MATCH],
+  },
+  {
+    id: 'crm',
+    label: 'CRM Accounts',
+    kinds: [WORKBOOK_KINDS.CRM_ACCOUNTS, WORKBOOK_KINDS.MY_BOOK],
+  },
+  {
+    id: 'custom',
+    label: 'Custom · CSV',
+    kinds: [WORKBOOK_KINDS.CUSTOM_CSV],
+  },
+  {
+    id: 'promoted',
+    label: 'From Market Analyzer',
+    kinds: [WORKBOOK_KINDS.PROMOTED_SEGMENT],
+  },
 ];
 
 export default function WorkbookSwitcher({
@@ -90,10 +107,12 @@ export default function WorkbookSwitcher({
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Build groups in the canonical order; only render groups that have entries.
-  const grouped = GROUP_ORDER.map((kind) => ({
-    kind,
-    items: workbooks.filter((w) => w.kind === kind),
+  // Build groups in the canonical order; only render groups that have
+  // entries. Each group may union multiple workbook kinds (e.g. CRM
+  // Accounts groups CRM_ACCOUNTS + MY_BOOK).
+  const grouped = GROUPS.map((g) => ({
+    ...g,
+    items: workbooks.filter((w) => g.kinds.includes(w.kind)),
   })).filter((g) => g.items.length > 0);
 
   return (
@@ -123,51 +142,59 @@ export default function WorkbookSwitcher({
       {open && (
         <div className="absolute left-0 top-full mt-1 w-[420px] bg-bg border border-border rounded-md shadow-elev z-40 overflow-hidden">
           <div className="max-h-[420px] overflow-y-auto thin-scrollbar">
-            {grouped.map((group) => {
-              const meta = WORKBOOK_KIND_META[group.kind];
-              return (
-                <div key={group.kind}>
-                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-semibold text-text-muted bg-bg/30 border-b border-border/40">
-                    {meta?.label || group.kind}
-                  </div>
-                  {group.items.map((w) => {
-                    const active = activeWorkbook?.id === w.id;
-                    return (
-                      <button
-                        key={w.id}
-                        onClick={() => {
-                          onPick(w);
-                          setOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-surface-2 transition-colors ${
-                          active ? 'bg-primary/5' : ''
-                        }`}
-                      >
-                        <KindIcon kind={w.kind} size={12} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[12px] font-semibold text-text-primary truncate">
-                            {w.name}
-                          </div>
-                          {w.ownerName && w.kind !== WORKBOOK_KINDS.ICP_MATCH && w.kind !== WORKBOOK_KINDS.CRM_ACCOUNTS && (
-                            <div className="text-[10px] text-text-muted truncate">
-                              Owner: {w.ownerName} ·{' '}
-                              {w.visibility === 'organization' ? 'Org-visible' : 'Private'}
-                            </div>
-                          )}
-                          {meta?.description && (w.kind === WORKBOOK_KINDS.ICP_MATCH || w.kind === WORKBOOK_KINDS.CRM_ACCOUNTS) && (
-                            <div className="text-[10px] text-text-muted truncate">{meta.description}</div>
-                          )}
-                        </div>
-                        <span className="text-[10px] font-mono text-text-muted flex-shrink-0">
-                          {w.accountCount?.toLocaleString?.() || 0}
-                        </span>
-                        {active && <Check size={11} className="text-primary flex-shrink-0" />}
-                      </button>
-                    );
-                  })}
+            {grouped.map((group) => (
+              <div key={group.id}>
+                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-semibold text-text-muted bg-bg/30 border-b border-border/40">
+                  {group.label}
                 </div>
-              );
-            })}
+                {group.items.map((w) => {
+                  const active = activeWorkbook?.id === w.id;
+                  const kindMeta = WORKBOOK_KIND_META[w.kind];
+                  // Per-row subtitle:
+                  //   - System workbooks (ICP Match, CRM Accounts) show
+                  //     their kind description.
+                  //   - MY_BOOK is the viewer's own slice — subtitle says so.
+                  //   - User-authored (Custom CSV, Promoted) show owner +
+                  //     visibility.
+                  let subtitle = null;
+                  if (w.kind === WORKBOOK_KINDS.ICP_MATCH || w.kind === WORKBOOK_KINDS.CRM_ACCOUNTS) {
+                    subtitle = kindMeta?.description;
+                  } else if (w.kind === WORKBOOK_KINDS.MY_BOOK) {
+                    subtitle = 'Accounts you own · synced from CRM';
+                  } else if (w.ownerName) {
+                    subtitle = `Owner: ${w.ownerName} · ${
+                      w.visibility === 'organization' ? 'Org-visible' : 'Private'
+                    }`;
+                  }
+                  return (
+                    <button
+                      key={w.id}
+                      onClick={() => {
+                        onPick(w);
+                        setOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-surface-2 transition-colors ${
+                        active ? 'bg-primary/5' : ''
+                      }`}
+                    >
+                      <KindIcon kind={w.kind} size={12} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] font-semibold text-text-primary truncate">
+                          {w.name}
+                        </div>
+                        {subtitle && (
+                          <div className="text-[10px] text-text-muted truncate">{subtitle}</div>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-text-muted flex-shrink-0">
+                        {w.accountCount?.toLocaleString?.() || 0}
+                      </span>
+                      {active && <Check size={11} className="text-primary flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
 
           {/* "+ New workbook" footer */}
