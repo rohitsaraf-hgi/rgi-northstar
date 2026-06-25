@@ -45,6 +45,7 @@ import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx'
 import IcpPill from '../components/workbook/IcpPill.jsx';
 import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
+import CustomCsvUploadModal from '../components/workbook/CustomCsvUploadModal.jsx';
 import OfferingSelector from '../components/workbook/OfferingSelector.jsx';
 import WorkbookSwitcher from '../components/workbook/WorkbookSwitcher.jsx';
 import {
@@ -52,6 +53,7 @@ import {
   getWorkbook,
   getDefaultWorkbookForPersona,
   resolveWorkbookRows,
+  resolveEffectiveWorkbookIdsForPlay,
   WORKBOOK_KINDS,
   WORKBOOK_KIND_META,
 } from '../data/workbooks.js';
@@ -125,7 +127,7 @@ import {
   filterByTab,
   SOURCE_BADGE,
 } from '../data/unifiedWorkbook.js';
-import { getPlay, MOTION_LABELS, getEffectivePlayAudience } from '../data/plays.js';
+import { getPlay, MOTION_LABELS, getEffectivePlayAudience, getPinnedAccountsForPlay } from '../data/plays.js';
 import { buildPredicates } from '../data/filterRegistry.js';
 
 // ----- Helpers -----
@@ -1769,9 +1771,14 @@ export default function WorkbookRoute() {
   const activePlayId = searchParams.get('play') || null;
   const activeWorkbook = useMemo(() => {
     const activePlayObj = activePlayId ? getPlay(activePlayId) : null;
-    const playWorkbooks = Array.isArray(activePlayObj?.workbookIds) ? activePlayObj.workbookIds : [];
-    if (playWorkbooks.length > 0) {
-      const wb = workbooksList.find((w) => w.id === playWorkbooks[0]) || getWorkbook(playWorkbooks[0]);
+    // Resolve per-seller placeholder before picking the workbook: if the
+    // play references "wb-my-book-tenant", swap in the viewer's own
+    // MY_BOOK so each AE works the play on their own book.
+    const resolvedIds = activePlayObj
+      ? resolveEffectiveWorkbookIdsForPlay(activePlayObj, personaId)
+      : [];
+    if (resolvedIds.length > 0) {
+      const wb = workbooksList.find((w) => w.id === resolvedIds[0]) || getWorkbook(resolvedIds[0]);
       if (wb) return wb;
     }
     if (urlWorkbookId) {
@@ -1912,6 +1919,22 @@ export default function WorkbookRoute() {
     // panel writes spec-driven audienceFilters. The Workbook honors all of
     // them so what an admin configures is what sellers see.
     if (activePlay) {
+      // Pre-seeded pinned accounts — short-circuit when the play carries
+      // an explicit allowlist. The play's filter criteria still describe
+      // the *intent* of the motion (rendered as chips in the header), but
+      // the rendered set is whatever curated accounts the admin pinned.
+      // In production the auto-scoring engine fills this in continuously;
+      // for the demo we hand-pick a few accounts per play so they land
+      // populated instead of empty. getPinnedAccountsForPlay() also
+      // backfills from a static map for plays seeded before pinnedAccountIds
+      // shipped — so localStorage'd demo state doesn't dead-end.
+      const pinned = getPinnedAccountsForPlay(activePlay);
+      if (pinned.length > 0) {
+        const allowed = new Set(pinned);
+        list = list.filter((a) => allowed.has(a.id));
+        // Skip the rest of the play filter chain — pinned set wins.
+        return list;
+      }
       // Effective audience inherits the offering's Target ICP for any field
       // the play hasn't explicitly overridden — admins editing the offering
       // ICP propagate to every play that references the offering.
@@ -2053,6 +2076,10 @@ export default function WorkbookRoute() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [adminUploadOpen, setAdminUploadOpen] = useState(false);
   const [sellerUploadOpen, setSellerUploadOpen] = useState(false);
+  // CustomCsvUploadModal — "Upload CSV" from the workbook switcher's
+  // "Add a workbook" footer creates a *new* Custom CSV workbook (vs. the
+  // legacy modals which append rows to Book of Accounts).
+  const [customCsvOpen, setCustomCsvOpen] = useState(false);
   const [previewAccount, setPreviewAccount] = useState(null);
   const [addToBookAccount, setAddToBookAccount] = useState(null);
   const [addToBookDefaultOffering, setAddToBookDefaultOffering] = useState(null);
@@ -2216,10 +2243,7 @@ export default function WorkbookRoute() {
                       workbooks={workbooksList}
                       activeWorkbook={activeWorkbook}
                       onPick={(wb) => navigate(`/workbook/${wb.id}`)}
-                      onUploadCsv={() => {
-                        if (isSeller) setSellerUploadOpen(true);
-                        else setAdminUploadOpen(true);
-                      }}
+                      onUploadCsv={() => setCustomCsvOpen(true)}
                       onConnectCrm={() => navigate('/admin/apps')}
                       crmConnected={hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false}
                       canConnectCrm={isAdmin}
@@ -2320,7 +2344,7 @@ export default function WorkbookRoute() {
                             net-new need routing
                           </span>
                           <button
-                            onClick={() => navigate('/admin/territory')}
+                            onClick={() => navigate(`/admin/territory/workbook/${activeWorkbook.id}`)}
                             className="ml-1 text-primary hover:underline font-semibold"
                           >
                             Route owners →
@@ -2575,11 +2599,18 @@ export default function WorkbookRoute() {
               offerings={tableOfferings}
               onOpenAccount={(a) => (isAdmin ? handleRowClick(a) : navigate(`/account/${a.id}`))}
               onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
-              showSourceColumn={isAdmin}
               showHgIntelligence={isAdmin}
               columnSet={isAdmin ? 'admin-flat' : 'seller'}
               enrichedCols={enrichedCols}
               onRemoveEnrichedColumn={handleRemoveColumn}
+              ownerWorkbookId={
+                isAdmin &&
+                activeWorkbook &&
+                (activeWorkbook.kind === WORKBOOK_KINDS.PROMOTED_SEGMENT ||
+                  activeWorkbook.kind === WORKBOOK_KINDS.CUSTOM_CSV)
+                  ? activeWorkbook.id
+                  : null
+              }
             />
           )}
 
@@ -2666,6 +2697,21 @@ export default function WorkbookRoute() {
             `${summary.replaced ? 'Replaced' : 'Imported'} ${summary.importedAccounts} accounts`,
             'success',
           );
+        }}
+      />
+      {/* Create a new Custom CSV workbook — used by the "Upload CSV" CTA
+          in the workbook switcher's "Add a workbook" footer. Sellers can
+          only create private workbooks; admins can share org-wide. */}
+      <CustomCsvUploadModal
+        open={customCsvOpen}
+        onClose={() => setCustomCsvOpen(false)}
+        ownerId={personaId}
+        ownerName={persona.name || personaId}
+        canShareOrgWide={isAdmin}
+        onComplete={(wb) => {
+          setCustomCsvOpen(false);
+          showToast(`Workbook "${wb.name}" created · ${wb.accountCount} accounts`, 'success');
+          navigate(`/workbook/${wb.id}`);
         }}
       />
     </div>

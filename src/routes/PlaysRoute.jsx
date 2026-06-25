@@ -866,6 +866,8 @@ export default function PlaysRoute() {
           <ManagePlayDrawer
             play={editing === 'new' ? null : editing}
             confirmedOfferings={confirmedOfferings}
+            persona={persona}
+            crmConnected={false}
             onSave={handleSave}
             onClose={() => setEditing(null)}
           />

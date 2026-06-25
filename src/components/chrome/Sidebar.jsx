@@ -34,6 +34,16 @@ import {
 } from '../../data/accounts.js';
 import StatusDot from '../shared/StatusDot.jsx';
 import PersonaSwitcher from './PersonaSwitcher.jsx';
+import {
+  listPlaysVisibleTo,
+  subscribePlays,
+  upsertPlay,
+  playReferencesCrm,
+} from '../../data/plays.js';
+import { listOfferings } from '../../data/offerings.js';
+import { useDemo } from '../../context/DemoContext.jsx';
+import { ManagePlayDrawer } from '../onboarding/StepPlays.jsx';
+import { Swords } from 'lucide-react';
 
 const ORIGIN_ICONS = {
   'message-square': MessageSquare,
@@ -223,9 +233,34 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
   const location = useLocation();
   const { personaId, persona } = usePersona();
   const permissions = usePermissions();
+  const { hasIntegration } = useDemo();
 
   const threadIds = SIDEBAR_THREADS[personaId] || [];
   const channelIds = SIDEBAR_CHANNELS[personaId] || [];
+
+  // Sales Plays — re-fetch on play mutations so the sidebar stays in
+  // sync with edits made elsewhere.
+  const [, setPlaysTick] = useState(0);
+  useEffect(() => subscribePlays(() => setPlaysTick((t) => t + 1)), []);
+
+  const visiblePlays = listPlaysVisibleTo(persona).filter(
+    (p) => p.status === 'active' || p.confirmed,
+  );
+  const crmConnected = hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false;
+  const confirmedOfferings = listOfferings().filter((o) => o.confirmed !== false);
+
+  // Inline play creation drawer — sellers create only private plays.
+  const [playDrawerOpen, setPlayDrawerOpen] = useState(false);
+  const handleSavePlay = (draft) => {
+    upsertPlay({
+      ...draft,
+      // Hard-stamp: sellers' new plays are always private + owned by them.
+      visibility: persona.roleType === 'admin' ? draft.visibility : 'private',
+      created_by: personaId,
+      userIds: persona.roleType === 'admin' ? draft.userIds || [] : [personaId],
+    });
+    setPlayDrawerOpen(false);
+  };
 
   // PLG sellers: load full book + curate for sidebar (3 buckets).
   const myAccounts = persona.plgUser ? getAccountsForOwner(personaId) : [];
@@ -289,41 +324,55 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
             onClick={() => navigate('/workbook')}
             collapsed={collapsed}
           />
-          <NavItem
-            icon={Bot}
-            label={permissions.canAccessAdmin ? 'Configure Plays' : 'Plays'}
-            active={
-              permissions.canAccessAdmin
-                ? location.pathname.startsWith('/admin/plays')
-                : location.pathname === '/workbench'
-            }
-            onClick={() =>
-              permissions.canAccessAdmin ? navigate('/admin/plays') : navigate('/workbench')
-            }
-            collapsed={collapsed}
-          />
-          <NavItem
-            icon={Library}
-            label="Library"
-            active={location.pathname === '/workbench/library'}
-            onClick={() => navigate('/workbench/library')}
-            collapsed={collapsed}
-          />
-          <NavItem
-            icon={BookmarkCheck}
-            label="Resources"
-            active={location.pathname === '/workbench/resources'}
-            onClick={() => navigate('/workbench/resources')}
-            collapsed={collapsed}
-          />
-          <NavItem
-            icon={Plus}
-            label="New Thread"
-            active={false}
-            onClick={onNewThread}
-            collapsed={collapsed}
-          />
         </div>
+
+        {/* SALES PLAYS — tenant-wide plays (org-visible) + this user's
+            own private plays. Sellers can launch + create their own
+            (private only). Admins promote them to org-visible later. */}
+        {!collapsed && (
+          <>
+            <SectionLabel>Sales Plays</SectionLabel>
+            <div className="space-y-0.5">
+              {visiblePlays.length === 0 ? (
+                <div className="px-3 py-1.5 text-[10px] text-text-muted/60 italic">
+                  No plays yet. Create one below.
+                </div>
+              ) : (
+                visiblePlays.slice(0, 6).map((p) => {
+                  const playFilterActive = new URLSearchParams(location.search).get('play') === p.id;
+                  const crmBroken = playReferencesCrm(p) && !crmConnected;
+                  const isPrivate = p.visibility === 'private';
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => navigate(`/workbook?source=all&play=${p.id}`)}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors group ${
+                        playFilterActive
+                          ? 'bg-primary/15 text-primary'
+                          : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary'
+                      }`}
+                      title={crmBroken ? 'This play references CRM data — connect a CRM to enable it' : p.description || p.name}
+                    >
+                      <Swords size={13} className="flex-shrink-0 opacity-70" />
+                      <span className="flex-1 text-left truncate">{p.name}</span>
+                      {isPrivate && (
+                        <span className="text-[8px] uppercase tracking-wider font-bold text-text-muted/70">
+                          Private
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+              <button
+                onClick={() => setPlayDrawerOpen(true)}
+                className="w-full pl-2.5 pr-2.5 py-1 text-[11px] text-left text-primary/80 hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <Plus size={11} /> Create play
+              </button>
+            </div>
+          </>
+        )}
 
         {/* MY ACCOUNTS — bucketed focus list (PLG seller only) */}
         {persona.plgUser && !collapsed && curated && (
@@ -459,6 +508,20 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
       <div className="p-2 border-t border-border/60">
         <PersonaSwitcher collapsed={collapsed} />
       </div>
+
+      {/* Create-play drawer — surface from the sidebar so sellers can
+          build a private play without leaving their current context.
+          Visibility validation is enforced inside the drawer. */}
+      {playDrawerOpen && (
+        <ManagePlayDrawer
+          play={null}
+          confirmedOfferings={confirmedOfferings}
+          persona={persona}
+          crmConnected={crmConnected}
+          onSave={handleSavePlay}
+          onClose={() => setPlayDrawerOpen(false)}
+        />
+      )}
     </div>
   );
 }

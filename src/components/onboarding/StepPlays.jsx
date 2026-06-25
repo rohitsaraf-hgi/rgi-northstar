@@ -1,7 +1,13 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DEFAULT_TEAMS, listSellers } from '../../data/territoryDesign.js';
-import { listWorkbooksForPersona } from '../../data/workbooks.js';
+import {
+  listWorkbooksForPersona,
+  PER_SELLER_BOOK_ID,
+  PER_SELLER_BOOK_META,
+  WORKBOOK_KINDS,
+} from '../../data/workbooks.js';
+import { validatePlayShareability } from '../../data/plays.js';
 import {
   Sparkles,
   ArrowRight,
@@ -79,6 +85,20 @@ function seedProposalsFor(confirmedOfferings) {
         missingInstall: [],
         custom: ['Install age ≥ 24 months'],
       },
+      // Pre-seeded demo accounts — bypass strict filter logic so plays
+      // land populated. Pinned ids span Alex's book + MA companies; the
+      // workbook intersects with its own row set, so unrouteable ids drop
+      // silently. Curated to match the play's narrative.
+      pinnedAccountIds: [
+        'acct-jpmc',
+        'mac-bank-of-america',
+        'mac-citi',
+        'mac-capital-one',
+        'mac-morgan-stanley',
+        'mac-deutsche-bank',
+        'mac-cisco',
+        'mac-oracle',
+      ],
       signalCount: 9,
       signalPreview: ['Palo Alto installed (aging)', 'Lacework declining', 'CNAPP intent active', 'New CISO hired'],
       estimatedMatches: 142,
@@ -102,6 +122,15 @@ function seedProposalsFor(confirmedOfferings) {
         missingInstall: ['Palo Alto Prisma Cloud', 'Lacework', 'Orca Security', 'CrowdStrike Falcon Cloud'],
         custom: ['Multi-cloud: AWS + (Azure or GCP)'],
       },
+      pinnedAccountIds: [
+        'acct-stripe',
+        'acct-block',
+        'mac-databricks',
+        'mac-salesforce',
+        'mac-adobe',
+        'mac-nvidia',
+        'mac-uber',
+      ],
       signalCount: 8,
       signalPreview: ['No CNAPP incumbent', 'CNAPP intent active', 'Multi-cloud signal', 'Funding raised'],
       estimatedMatches: 87,
@@ -125,6 +154,15 @@ function seedProposalsFor(confirmedOfferings) {
         missingInstall: [],
         custom: ['Intent surge ≥ 30 in last 30d', 'Pricing page visits', 'Comparison research'],
       },
+      pinnedAccountIds: [
+        'acct-snowflake',
+        'acct-datadog',
+        'mac-best-buy',
+        'mac-target',
+        'mac-marriott',
+        'mac-visa',
+        'mac-mastercard',
+      ],
       signalCount: 6,
       signalPreview: ['Pricing page visits', 'Comparison research', 'Intent surge 30d'],
       estimatedMatches: 38,
@@ -148,6 +186,14 @@ function seedProposalsFor(confirmedOfferings) {
         missingInstall: [],
         custom: ['Breach disclosure ≤ 90d', 'M&A announcement', 'Compliance pressure'],
       },
+      pinnedAccountIds: [
+        'mac-cigna',
+        'mac-kaiser',
+        'mac-unitedhealth',
+        'mac-aig',
+        'mac-allstate',
+        'mac-prudential',
+      ],
       signalCount: 5,
       signalPreview: ['Breach disclosure 90d', 'M&A announcement', 'Compliance pressure'],
       estimatedMatches: 24,
@@ -171,6 +217,14 @@ function seedProposalsFor(confirmedOfferings) {
         missingInstall: ['GitHub Advanced Security'],
         custom: ['IaC growth', 'DevSecOps hiring'],
       },
+      pinnedAccountIds: [
+        'acct-databricks',
+        'acct-spotify',
+        'mac-microsoft',
+        'mac-google',
+        'mac-meta',
+        'mac-netflix',
+      ],
       signalCount: 6,
       signalPreview: ['Snyk installed', 'GitHub Advanced Security gap', 'IaC growth', 'DevSecOps hiring'],
       estimatedMatches: 31,
@@ -343,8 +397,19 @@ function offeringIcpDefaults(offering) {
   return { industries, sizeBand, regions };
 }
 
-export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) {
+export function ManagePlayDrawer({
+  play,
+  confirmedOfferings,
+  onSave,
+  onClose,
+  // Persona context for permission-aware fields. Sellers can only
+  // create private plays; admins can choose any visibility. When
+  // omitted, the drawer defaults to admin-mode (backwards compatible).
+  persona = null,
+  crmConnected = false,
+}) {
   const isEdit = !!play?.id;
+  const isAdmin = persona ? persona.roleType === 'admin' : true;
   // Prefill audience from the first confirmed offering's ICP on create.
   // Admin can narrow further or override — the soft-warn banner in PlayDetail
   // flags reaches outside the offering or tenant ICP.
@@ -364,7 +429,10 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
       signalPreview: [],
       estimatedMatches: 0,
       confirmed: true,
-      visibility: 'tenant',
+      // Sellers can only create private plays. Admin defaults to tenant.
+      visibility: isAdmin ? 'tenant' : 'private',
+      created_by: persona?.id || null,
+      userIds: persona && !isAdmin ? [persona.id] : [],
       // Default new plays to ICP Match. Admin can pick more workbooks
       // (multi-select) from the picker; an empty list also implies
       // "apply against ICP Match" at runtime.
@@ -378,12 +446,35 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
   const allTeams = DEFAULT_TEAMS;
   const allSellers = useMemo(() => listSellers().filter((s) => s.status === 'active'), []);
 
-  // Workbook options for the play attachment picker. Admin builder
-  // sees every tenant-visible workbook so they can range a play over
-  // ICP Match, CRM Accounts, or a custom uploaded book.
-  const playWorkbookOptions = useMemo(
-    () => listWorkbooksForPersona({ personaId: 'priya', isAdmin: true, crmConnected: false }),
-    [],
+  // Workbook options for the play attachment picker. Filtered by the
+  // editing persona's visibility — sellers can only pick workbooks they
+  // can see. Admins also get the "Per-seller Book of Accounts"
+  // placeholder when CRM is connected (each seller runs the play on
+  // their own book at view time).
+  const playWorkbookOptions = useMemo(() => {
+    const base = listWorkbooksForPersona({
+      personaId: persona?.id || 'priya',
+      isAdmin,
+      crmConnected,
+    });
+    if (isAdmin && crmConnected) {
+      return [...base, PER_SELLER_BOOK_META];
+    }
+    return base;
+  }, [persona?.id, isAdmin, crmConnected]);
+
+  // Inline shareability validation — re-evaluated as visibility or
+  // workbook selection changes. Surfaces the inline banner above Save.
+  const selectedWorkbook = useMemo(() => {
+    const wbId = (draft.workbookIds || [])[0];
+    if (!wbId) return null;
+    if (wbId === PER_SELLER_BOOK_ID) return PER_SELLER_BOOK_META;
+    return playWorkbookOptions.find((w) => w.id === wbId) || null;
+  }, [draft.workbookIds, playWorkbookOptions]);
+
+  const shareCheck = useMemo(
+    () => validatePlayShareability(draft, selectedWorkbook),
+    [draft, selectedWorkbook],
   );
 
   function patch(updates) {
@@ -407,7 +498,13 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
   }
 
   function canSave() {
-    return draft.name.trim().length > 0 && draft.offerings.length > 0;
+    // Required fields
+    if (draft.name.trim().length === 0) return false;
+    if (draft.offerings.length === 0) return false;
+    // Shareability — block save when the play would be visible to people
+    // who can't see the underlying workbook.
+    if (shareCheck && shareCheck.ok === false) return false;
+    return true;
   }
 
   return (
@@ -512,7 +609,10 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
 
           {/* Workbook — exactly one per play (locked v1 constraint).
               Default to ICP Match. Picking a workbook replaces the
-              previous selection. */}
+              previous selection. Admins with CRM connected also see
+              the per-seller Book of Accounts placeholder. Private
+              workbooks are tagged so the admin sees the implication
+              before pairing with a shared play. */}
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-text-muted block mb-1.5">
               Workbook
@@ -521,27 +621,42 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
             <div className="flex flex-wrap gap-1.5">
               {playWorkbookOptions.map((wb) => {
                 const selected = (draft.workbookIds || [])[0] === wb.id;
+                const isPrivate = wb.visibility === 'private' && !wb.isPerSellerPlaceholder;
+                const isPerSeller = !!wb.isPerSellerPlaceholder;
                 return (
                   <button
                     key={wb.id}
                     onClick={() => patch({ workbookIds: [wb.id] })}
-                    className={`text-[11px] px-2.5 py-1 rounded border inline-flex items-center gap-1 ${
+                    className={`text-[11px] px-2.5 py-1 rounded border inline-flex items-center gap-1.5 ${
                       selected
                         ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
                         : 'bg-surface border-border text-text-secondary hover:border-primary/30'
                     }`}
+                    title={wb.description || wb.name}
                   >
                     {selected && <Check size={10} />}
                     {wb.name}
-                    {wb.accountCount > 0 && (
+                    {wb.accountCount > 0 && !isPerSeller && (
                       <span className="text-[10px] font-mono opacity-70">· {wb.accountCount.toLocaleString()}</span>
+                    )}
+                    {isPrivate && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                        Private
+                      </span>
+                    )}
+                    {isPerSeller && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/30">
+                        Per-seller
+                      </span>
                     )}
                   </button>
                 );
               })}
             </div>
             <div className="text-[10px] text-text-muted italic mt-1.5">
-              Each play targets one workbook. Default is <strong>ICP Match</strong>. Build separate plays to range over different workbooks.
+              {selectedWorkbook?.isPerSellerPlaceholder
+                ? 'Runs per-seller — each AE works this play on their own Book of Accounts.'
+                : 'Each play targets one workbook. Build separate plays to range over different workbooks.'}
             </div>
           </div>
 
@@ -571,18 +686,26 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
             </div>
           </div>
 
-          {/* Visibility — who sees this play */}
+          {/* Visibility — who sees this play. Sellers can only create
+              private plays today; the picker shows a locked "Just me"
+              chip and a hint explaining the rule. Admins see all three
+              options + shareability validation below. */}
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-text-muted block mb-1.5">
               Visibility
             </label>
             <div className="flex flex-wrap gap-1.5">
-              {[
-                { id: 'tenant',  label: 'Everyone',  hint: 'All sellers in the tenant see it' },
-                { id: 'team',    label: 'Specific teams', hint: 'Only sellers in selected teams' },
-                { id: 'private', label: 'Just me',   hint: 'Private to the creator' },
-              ].map((v) => {
-                const active = (draft.visibility || 'tenant') === v.id;
+              {(isAdmin
+                ? [
+                    { id: 'tenant',  label: 'Everyone',  hint: 'All sellers in the tenant see it' },
+                    { id: 'team',    label: 'Specific teams', hint: 'Only sellers in selected teams' },
+                    { id: 'private', label: 'Just me',   hint: 'Private to the creator' },
+                  ]
+                : [
+                    { id: 'private', label: 'Just me',   hint: 'Sellers can only create private plays' },
+                  ]
+              ).map((v) => {
+                const active = (draft.visibility || (isAdmin ? 'tenant' : 'private')) === v.id;
                 return (
                   <button
                     key={v.id}
@@ -599,6 +722,11 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
                 );
               })}
             </div>
+            {!isAdmin && (
+              <div className="text-[10px] text-text-muted italic mt-1">
+                Sellers can only create private plays. Ask an admin to publish a play organization-wide.
+              </div>
+            )}
             {draft.visibility === 'team' && (
               <div className="mt-3 space-y-3 bg-bg/30 border border-border/60 rounded p-3">
                 <div>
@@ -730,6 +858,19 @@ export function ManagePlayDrawer({ play, confirmedOfferings, onSave, onClose }) 
           </div>
         </div>
 
+        {/* Shareability error — fires when a play's visibility is wider
+            than the workbook it references. Blocks save. */}
+        {shareCheck && shareCheck.ok === false && (
+          <div className="px-5 py-3 border-t border-rose-500/30 bg-rose-500/5">
+            <div className="flex items-start gap-2 text-[11px] text-rose-700 dark:text-rose-300">
+              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold mb-0.5">Visibility mismatch</div>
+                <div className="leading-relaxed">{shareCheck.error}</div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="px-5 py-3 border-t border-border bg-bg/40 flex items-center justify-end gap-2 sticky bottom-0">
           <button onClick={onClose} className="text-[12px] px-3 py-1.5 rounded border border-border hover:border-primary/30 text-text-secondary">
             Cancel

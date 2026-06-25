@@ -41,6 +41,7 @@ import WorkbenchLibrary from './routes/WorkbenchLibrary.jsx';
 import WorkbenchResources from './routes/WorkbenchResources.jsx';
 import AdminTenantEditor from './routes/AdminTenantEditor.jsx';
 import TerritoryDesignRoute from './routes/TerritoryDesignRoute.jsx';
+import WorkbookRoutingRoute from './routes/WorkbookRoutingRoute.jsx';
 import AccountSettingsRoute from './routes/AccountSettingsRoute.jsx';
 import UsersRoute from './routes/UsersRoute.jsx';
 import TeamsRoute from './routes/TeamsRoute.jsx';
@@ -193,6 +194,14 @@ export default function App() {
             element={
               <RequireAdmin>
                 <TerritoryDesignRoute />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/territory/workbook/:workbookId"
+            element={
+              <RequireAdmin>
+                <WorkbookRoutingRoute />
               </RequireAdmin>
             }
           />

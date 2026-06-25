@@ -529,3 +529,197 @@ export function archiveWorkbook(id) {
 export function getWorkbookKindMeta(kind) {
   return WORKBOOK_KIND_META[kind] || {};
 }
+
+// ─── Per-seller book placeholder ──────────────────────────────────────
+//
+// Plays can target "each seller's own Book of Accounts" instead of a
+// specific workbook id. The placeholder lives on the play as
+// workbookIds: [PER_SELLER_BOOK_ID]; at render time the workbook
+// resolver substitutes the viewing persona's MY_BOOK id.
+//
+// Only meaningful when CRM is connected — the admin picker hides this
+// option in no-CRM mode since Book of Accounts is CRM-derived.
+export const PER_SELLER_BOOK_ID = 'wb-my-book-tenant';
+
+export const PER_SELLER_BOOK_META = {
+  id: PER_SELLER_BOOK_ID,
+  kind: WORKBOOK_KINDS.MY_BOOK,
+  name: 'Each seller\'s Book of Accounts',
+  description: 'Runs per-seller. Every AE works this play on their own book.',
+  visibility: 'organization',
+  isPerSellerPlaceholder: true,
+};
+
+// Resolve play's workbookIds → an effective workbook id list for a
+// specific viewer. The only translation today: PER_SELLER_BOOK_ID →
+// wb-my-book-<personaId>. Unknown ids pass through unchanged so the
+// caller can fall back to existing logic.
+export function resolveEffectiveWorkbookIdsForPlay(play, personaId) {
+  const ids = Array.isArray(play?.workbookIds) ? play.workbookIds : [];
+  return ids.map((id) => {
+    if (id === PER_SELLER_BOOK_ID) {
+      // Convention: each seller's book is seeded as wb-my-book-<personaId>.
+      // If that workbook doesn't exist yet (seller not seeded), the
+      // upstream getWorkbook() will return null and the route will fall
+      // back to ICP Match.
+      return `wb-my-book-${personaId}`;
+    }
+    return id;
+  });
+}
+
+// ─── Row routing (no-CRM mode) ─────────────────────────────────────────
+//
+// In no-CRM mode admins assign owners to workbook rows manually — either
+// inline (one row at a time) or via the bulk routing screen at
+// /admin/territory/workbook/:id. These helpers mutate the workbook's
+// rows + mergeSummary in place and emit a change event so subscribers
+// re-read. Only PROMOTED_SEGMENT and CUSTOM_CSV workbooks have routable
+// rows; system workbooks (ICP Match, CRM Accounts, Book of Accounts)
+// derive ownership from CRM/book and are immutable here.
+
+const WORKBOOK_CHANGE_EVENT = 'rgi-workbook-changed';
+
+function emitWorkbookChange(workbookId) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(WORKBOOK_CHANGE_EVENT, { detail: { workbookId } }),
+    );
+  } catch {
+    // ignore — non-browser environments
+  }
+}
+
+export function subscribeWorkbookChanges(cb) {
+  if (typeof window === 'undefined') return () => {};
+  const handler = (e) => cb(e.detail?.workbookId);
+  window.addEventListener(WORKBOOK_CHANGE_EVENT, handler);
+  return () => window.removeEventListener(WORKBOOK_CHANGE_EVENT, handler);
+}
+
+// Stable row id for assignment APIs. Rows from promoteSegmentToWorkbook
+// always carry `id`; CSV rows we create elsewhere get `id` too. Fall back
+// to url+name composite for older seed data.
+function rowKey(row) {
+  return row?.id || `${row?.url || ''}::${row?.name || ''}`;
+}
+
+function isRoutableKind(kind) {
+  return kind === WORKBOOK_KINDS.PROMOTED_SEGMENT || kind === WORKBOOK_KINDS.CUSTOM_CSV;
+}
+
+function recomputeMergeSummary(workbook) {
+  const rows = Array.isArray(workbook.rows) ? workbook.rows : [];
+  const merged = rows.filter((r) => r?.existingAccountId).length;
+  const routed = rows.filter((r) => r?.ownerSellerId).length;
+  const needsRouting = rows.length - routed;
+  return {
+    totalRows: rows.length,
+    mergedCount: merged,
+    netNewCount: rows.length - merged,
+    routedCount: routed,
+    needsRoutingCount: needsRouting,
+  };
+}
+
+// Single-row owner assignment. Pass ownerSellerId=null to unassign.
+export function assignWorkbookRowOwner(workbookId, rowId, ownerSellerId) {
+  const wb = WORKBOOKS.find((w) => w.id === workbookId);
+  if (!wb || !isRoutableKind(wb.kind)) {
+    return { error: 'not_routable', workbookId };
+  }
+  const rows = Array.isArray(wb.rows) ? wb.rows : [];
+  let touched = false;
+  wb.rows = rows.map((r) => {
+    if (rowKey(r) !== rowId) return r;
+    touched = true;
+    return { ...r, ownerSellerId: ownerSellerId || null };
+  });
+  if (!touched) return { error: 'row_not_found', workbookId, rowId };
+  wb.mergeSummary = recomputeMergeSummary(wb);
+  emitWorkbookChange(workbookId);
+  return { workbook: wb };
+}
+
+// Bulk owner assignment — same ownerSellerId across many rows.
+export function bulkAssignWorkbookRows(workbookId, { rowIds, ownerSellerId }) {
+  const wb = WORKBOOKS.find((w) => w.id === workbookId);
+  if (!wb || !isRoutableKind(wb.kind)) {
+    return { error: 'not_routable', workbookId };
+  }
+  const ids = new Set(rowIds || []);
+  if (ids.size === 0) return { workbook: wb, updated: 0 };
+  let updated = 0;
+  wb.rows = (wb.rows || []).map((r) => {
+    if (!ids.has(rowKey(r))) return r;
+    updated += 1;
+    return { ...r, ownerSellerId: ownerSellerId || null };
+  });
+  wb.mergeSummary = recomputeMergeSummary(wb);
+  emitWorkbookChange(workbookId);
+  return { workbook: wb, updated };
+}
+
+// Rule-based auto-routing across rows that still need an owner. Rules:
+//   - { type: 'round_robin', sellerIds }
+//   - { type: 'by_region', mapping: { [region]: sellerId }, fallbackSellerId? }
+//   - { type: 'by_industry', mapping: { [industry]: sellerId }, fallbackSellerId? }
+// Returns { updated, skipped } so the UI can surface "200 of 247 routed,
+// 47 skipped (no rule match)".
+export function autoRouteWorkbookRows(workbookId, rule) {
+  const wb = WORKBOOKS.find((w) => w.id === workbookId);
+  if (!wb || !isRoutableKind(wb.kind)) {
+    return { error: 'not_routable', workbookId };
+  }
+  const rows = wb.rows || [];
+  let updated = 0;
+  let skipped = 0;
+  let rrIndex = 0;
+  const rrIds = Array.isArray(rule?.sellerIds) ? rule.sellerIds : [];
+
+  wb.rows = rows.map((r) => {
+    if (r.ownerSellerId) return r; // already routed — leave alone
+    let next = null;
+    if (rule?.type === 'round_robin' && rrIds.length > 0) {
+      next = rrIds[rrIndex % rrIds.length];
+      rrIndex += 1;
+    } else if (rule?.type === 'by_region') {
+      next = rule.mapping?.[r.region] || rule.fallbackSellerId || null;
+    } else if (rule?.type === 'by_industry') {
+      next = rule.mapping?.[r.industry] || rule.fallbackSellerId || null;
+    }
+    if (next) {
+      updated += 1;
+      return { ...r, ownerSellerId: next };
+    }
+    skipped += 1;
+    return r;
+  });
+  wb.mergeSummary = recomputeMergeSummary(wb);
+  emitWorkbookChange(workbookId);
+  return { workbook: wb, updated, skipped };
+}
+
+// Read helper — returns the routing breakdown grouped by owner. Used by
+// the bulk routing screen to show "Sarah Kim · 47 accounts queued".
+export function getWorkbookRoutingSummary(workbookId) {
+  const wb = WORKBOOKS.find((w) => w.id === workbookId);
+  if (!wb) return null;
+  const rows = wb.rows || [];
+  const byOwner = new Map();
+  let unassigned = 0;
+  for (const r of rows) {
+    if (!r.ownerSellerId) {
+      unassigned += 1;
+      continue;
+    }
+    byOwner.set(r.ownerSellerId, (byOwner.get(r.ownerSellerId) || 0) + 1);
+  }
+  return {
+    workbook: wb,
+    totalRows: rows.length,
+    unassigned,
+    byOwner: Array.from(byOwner.entries()).map(([sellerId, count]) => ({ sellerId, count })),
+  };
+}

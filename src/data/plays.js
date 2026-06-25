@@ -17,6 +17,103 @@ import {
 export const PLAYS = listPlaysFromStore();
 export const PLAYS_BY_ID = Object.fromEntries(PLAYS.map((p) => [p.id, p]));
 
+// Demo-only fallback: pinned account ids per seeded play. New play seeds
+// (from StepPlays.DEFAULT_PLAYS_FOR_TENANT) carry these inline, but
+// users who onboarded before this shipped have plays in localStorage
+// without the pinnedAccountIds field. getPinnedAccountsForPlay() reads
+// from the play object first and falls back to this map, so existing
+// demo state still lands populated plays without forcing a reset.
+const PINNED_FALLBACK = {
+  'play-competitive-takeout': [
+    'acct-jpmc',
+    'mac-bank-of-america',
+    'mac-citi',
+    'mac-capital-one',
+    'mac-morgan-stanley',
+    'mac-deutsche-bank',
+    'mac-cisco',
+    'mac-oracle',
+  ],
+  'play-net-new-logo': [
+    'acct-stripe',
+    'acct-block',
+    'mac-databricks',
+    'mac-salesforce',
+    'mac-adobe',
+    'mac-nvidia',
+    'mac-uber',
+  ],
+  'play-high-intent-buyer': [
+    'acct-snowflake',
+    'acct-datadog',
+    'mac-best-buy',
+    'mac-target',
+    'mac-marriott',
+    'mac-visa',
+    'mac-mastercard',
+  ],
+  'play-catalyst-event': [
+    'mac-cigna',
+    'mac-kaiser',
+    'mac-unitedhealth',
+    'mac-aig',
+    'mac-allstate',
+    'mac-prudential',
+  ],
+  'play-devsec-pull': [
+    'acct-databricks',
+    'acct-spotify',
+    'mac-microsoft',
+    'mac-google',
+    'mac-meta',
+    'mac-netflix',
+  ],
+};
+
+export function getPinnedAccountsForPlay(play) {
+  if (!play) return [];
+  if (Array.isArray(play.pinnedAccountIds) && play.pinnedAccountIds.length > 0) {
+    return play.pinnedAccountIds;
+  }
+  return PINNED_FALLBACK[play.id] || [];
+}
+
+// Visibility / shareability validator. A play's visibility can't exceed
+// the underlying workbook's visibility — an org-visible play that
+// references a private workbook would surface accounts to sellers who
+// can't see the workbook itself. Caller passes the play draft + the
+// workbook object it references (resolved separately so this stays
+// dependency-light).
+//
+// Returns { ok: true } when shareable, or { ok: false, error, severity }
+// when not. Drawer UI surfaces the error inline on Save.
+export function validatePlayShareability(play, workbook) {
+  if (!play) return { ok: true };
+  const visibility = play.visibility || 'tenant';
+  // Per-seller placeholder is org-visible by definition (it's the same
+  // workbook concept for every seller). Skip the check.
+  if (workbook?.isPerSellerPlaceholder) return { ok: true };
+  if (!workbook) return { ok: true }; // unknown — let it pass; caller decides
+  const wbVis = workbook.visibility || 'organization';
+  if (visibility === 'tenant' && wbVis === 'private') {
+    return {
+      ok: false,
+      severity: 'error',
+      error:
+        'This play targets a private workbook. Make the workbook org-visible first, or set the play\'s visibility to Private.',
+    };
+  }
+  if (visibility === 'team' && wbVis === 'private') {
+    return {
+      ok: false,
+      severity: 'error',
+      error:
+        'This play targets a private workbook but is shared with a team. Either make the workbook org-visible or set the play to Private.',
+    };
+  }
+  return { ok: true };
+}
+
 // Motion metadata for UI labeling
 export const MOTION_LABELS = {
   displacement: 'Displacement',

@@ -30,7 +30,8 @@ import {
   MinusCircle,
 } from 'lucide-react';
 import { getAccountById, ACCOUNT_STAGES, SIGNAL_TYPES, togglePinned, getPinnedAccountIds } from '../data/accounts.js';
-import { Pin, Package, ChevronDown, Wand2, Search, Save, ArrowRight } from 'lucide-react';
+import { Pin, Package, ChevronDown, Wand2, Search, Save, ArrowRight, FileStack, Swords as SwordsIcon, BarChart3, X } from 'lucide-react';
+import { getArtifactsForAccount, getArtifactCountForAccount, ARTIFACT_KINDS } from '../data/accountArtifacts.js';
 import { useTenant } from '../context/TenantContext.jsx';
 import { usePersona } from '../context/PersonaContext.jsx';
 import { getAgentConfig, getPlaybookConfig, subscribeAdminConfig } from '../data/adminConfig.js';
@@ -1112,41 +1113,176 @@ function StakeholdersTab({ account, onRunPlay }) {
   );
 }
 
-function ArtifactsTab({ account, turns }) {
-  // Pull artifacts from turns
-  const artifacts = useMemo(() => turns.filter((t) => t.artifact).map((t) => t.artifact), [turns]);
+// Map ARTIFACT_KINDS.tone → Tailwind classes (border + bg + text). Kept
+// out of accountArtifacts.js so the data module stays presentation-free.
+const ARTIFACT_TONE_CLS = {
+  primary: 'bg-primary/10 text-primary border-primary/30',
+  rose: 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30',
+  sky: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
+  emerald: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+  amber: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+  violet: 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30',
+};
+
+const ARTIFACT_KIND_ICON = {
+  BRIEF: FileText,
+  BATTLECARD: SwordsIcon,
+  ONE_PAGER: FileText,
+  ROI: BarChart3,
+  EMAIL: Mail,
+  LOOKALIKE: Layers,
+  STAKEHOLDER_MAP: UsersIcon,
+};
+
+function ArtifactPreviewDrawer({ artifact, onClose }) {
+  if (!artifact) return null;
+  const meta = ARTIFACT_KINDS[artifact.kind];
+  const Icon = ARTIFACT_KIND_ICON[artifact.kind] || FileText;
+  const toneCls = ARTIFACT_TONE_CLS[meta?.tone] || ARTIFACT_TONE_CLS.primary;
   return (
-    <div className="bg-surface border border-border rounded-md">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <div>
-          <div className="text-xs font-semibold text-text-primary">Artifacts</div>
-          <div className="text-[11px] text-text-muted mt-0.5">Everything generated for {account.name}.</div>
-        </div>
-        <span className="text-[10px] text-text-muted">{artifacts.length} this thread</span>
-      </div>
-      {artifacts.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-text-muted">
-          No artifacts yet. Run a play from the Plays tab to generate one.
-        </div>
-      ) : (
-        <div className="divide-y divide-border">
-          {artifacts.map((a, i) => (
-            <div key={i} className="px-4 py-3 flex items-center gap-3">
-              <div className="w-6 h-6 rounded bg-bg/40 border border-border flex items-center justify-center flex-shrink-0">
-                <Layers size={11} className="text-text-muted" />
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/40" onClick={onClose}>
+      <div
+        className="w-[640px] max-w-[95vw] bg-bg border-l border-border shadow-elev flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-2 min-w-0">
+            <Icon size={14} className="text-primary flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-text-primary truncate">{artifact.title}</div>
+              <div className="text-[11px] text-text-muted truncate">
+                {artifact.generatedBy} · {artifact.generatedAtLabel}{artifact.version ? ` · ${artifact.version}` : ''}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold text-text-primary truncate">{a.title}</div>
-                <div className="text-[10px] text-text-muted">{a.meta || a.kind}</div>
-              </div>
-              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-primary/10 text-primary rounded font-bold">
-                {a.kind}
-              </span>
             </div>
-          ))}
+            <span className={`ml-2 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${toneCls}`}>
+              {meta?.label || artifact.kind}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-surface-2 text-text-muted hover:text-text-primary flex-shrink-0"
+          >
+            <X size={14} />
+          </button>
         </div>
-      )}
+        <div className="flex-1 overflow-y-auto thin-scrollbar px-6 py-5">
+          <div
+            className="artifact-content text-[13px] text-text-secondary leading-relaxed [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-text-primary [&_h2]:mb-2 [&_h3]:text-[12px] [&_h3]:font-bold [&_h3]:uppercase [&_h3]:tracking-wider [&_h3]:text-text-muted [&_h3]:mt-4 [&_h3]:mb-1.5 [&_p]:mb-2 [&_p.muted]:text-[11px] [&_p.muted]:text-text-muted [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-2 [&_li]:mb-0.5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/40 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-text-primary [&_blockquote]:my-2 [&_strong]:text-text-primary"
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: artifact.html || '<p class="muted">No preview available.</p>' }}
+          />
+        </div>
+        <div className="border-t border-border bg-surface/40 px-5 py-3 flex items-center justify-end gap-2">
+          <button className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary">
+            Copy link
+          </button>
+          <button className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim">
+            Open full view
+          </button>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ArtifactsTab({ account, turns }) {
+  const [previewArtifact, setPreviewArtifact] = useState(null);
+
+  // Merge: seeded per-account artifacts + chat-generated turns. Seeded
+  // ones already have rich html; chat-generated ones get rendered as
+  // simpler rows pointing back to the chat.
+  const artifacts = useMemo(() => {
+    const seeded = getArtifactsForAccount(account.id);
+    const fromChat = turns
+      .filter((t) => t.artifact)
+      .map((t, i) => ({
+        id: `chat-${t.id || i}`,
+        kind: (t.artifact.kind || 'BRIEF').toUpperCase(),
+        title: t.artifact.title || 'Chat artifact',
+        description: t.artifact.meta || 'Generated from a chat turn',
+        generatedBy: 'Account AI',
+        generatedAtLabel: 'In this conversation',
+        version: t.artifact.version || 'v1',
+        html: t.artifact.html || null,
+        _fromChat: true,
+      }));
+    return [...seeded, ...fromChat];
+  }, [account.id, turns]);
+
+  return (
+    <>
+      <div className="bg-surface border border-border rounded-md">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div>
+            <div className="text-xs font-semibold text-text-primary">Artifacts</div>
+            <div className="text-[11px] text-text-muted mt-0.5">
+              Briefs, battlecards, one-pagers, and other AI outputs generated for {account.name}.
+            </div>
+          </div>
+          <span className="text-[10px] text-text-muted">{artifacts.length} total</span>
+        </div>
+        {artifacts.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <FileStack size={20} className="mx-auto text-text-muted mb-2" />
+            <div className="text-sm font-semibold text-text-primary mb-1">No artifacts yet</div>
+            <div className="text-[11px] text-text-muted max-w-md mx-auto">
+              Run an Account Brief, Battlecard, or One-pager from the Account AI tab and they'll
+              show up here as a permanent history.
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {artifacts.map((a) => {
+              const meta = ARTIFACT_KINDS[a.kind] || ARTIFACT_KINDS.BRIEF;
+              const Icon = ARTIFACT_KIND_ICON[a.kind] || FileText;
+              const toneCls = ARTIFACT_TONE_CLS[meta?.tone] || ARTIFACT_TONE_CLS.primary;
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => setPreviewArtifact(a)}
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 transition-colors text-left group"
+                >
+                  <div className={`w-8 h-8 rounded border flex items-center justify-center flex-shrink-0 ${toneCls}`}>
+                    <Icon size={13} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[13px] font-semibold text-text-primary truncate">
+                        {a.title}
+                      </span>
+                      {a.version && (
+                        <span className="text-[10px] font-mono text-text-muted flex-shrink-0">
+                          {a.version}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-text-muted truncate">
+                      {a.description}
+                    </div>
+                    <div className="text-[10px] text-text-muted mt-0.5">
+                      {a.generatedBy} · {a.generatedAtLabel}
+                    </div>
+                  </div>
+                  <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${toneCls} flex-shrink-0`}>
+                    {meta?.label || a.kind}
+                  </span>
+                  <ChevronRight size={12} className="text-text-muted group-hover:text-text-primary flex-shrink-0 transition-colors" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {previewArtifact && (
+          <ArtifactPreviewDrawer
+            artifact={previewArtifact}
+            onClose={() => setPreviewArtifact(null)}
+          />
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -1162,19 +1298,22 @@ function StubTab({ label, icon: Icon, hint }) {
 
 // ===== MAIN ROUTE =====
 //
-// Tabs reduced to three primary surfaces:
+// Tabs — four primary surfaces:
 //   1. Account AI (chat, default landing)
 //   2. Contacts (stakeholders + Find new contacts in HG/CRM)
 //   3. Overview (pain points, lead-with offering recommendation, signals,
 //      recommended plays, find lookalikes)
+//   4. Artifacts (history of agentic outputs — briefs, battlecards,
+//      one-pagers, ROI models — generated against this account)
 //
-// Activity / MEDDIC / Plays / Artifacts collapsed: Plays content lives in
-// Overview as "Recommended plays"; MEDDIC, Activity, and Artifacts are
-// available via the Account Brief artifact + chat history.
+// Activity / MEDDIC / Plays collapsed: Plays content lives in Overview as
+// "Recommended plays"; MEDDIC + Activity are available via the Account
+// Brief artifact + chat history.
 const TABS = [
   { id: 'chat', label: 'Account AI', icon: Sparkles },
   { id: 'stakeholders', label: 'Contacts', icon: UsersIcon },
   { id: 'overview', label: 'Overview', icon: Layers },
+  { id: 'artifacts', label: 'Artifacts', icon: FileStack },
 ];
 
 export default function AccountThread() {
@@ -1232,12 +1371,11 @@ export default function AccountThread() {
     const t = searchParams.get('tab');
     // Honor legacy tab ids by mapping to the new three-tab set so old
     // links/URLs don't dead-end.
-    const valid = ['chat', 'stakeholders', 'overview'];
+    const valid = ['chat', 'stakeholders', 'overview', 'artifacts'];
     const legacyMap = {
       activity: 'overview',
       meddic: 'overview',
       plays: 'overview',
-      artifacts: 'chat',
     };
     if (valid.includes(t)) return t;
     if (legacyMap[t]) return legacyMap[t];
@@ -1453,7 +1591,9 @@ export default function AccountThread() {
                 <span>·</span>
                 <span>{account.stakeholdersCount} stakeholders</span>
                 <span>·</span>
-                <span>{account.artifactsCount} artifacts</span>
+                <span>
+                  {(getArtifactCountForAccount(account.id) || account.artifactsCount || 0)} artifacts
+                </span>
                 <span>·</span>
                 <span>Last touch: <span className="text-text-secondary">{account.lastTouch || 'none'}</span></span>
               </div>
@@ -1493,6 +1633,9 @@ export default function AccountThread() {
           )}
           {tab === 'stakeholders' && (
             <StakeholdersTab account={account} onRunPlay={runPlay} />
+          )}
+          {tab === 'artifacts' && (
+            <ArtifactsTab account={account} turns={turns} />
           )}
           {tab === 'chat' && (
             <div className="flex flex-col h-full">

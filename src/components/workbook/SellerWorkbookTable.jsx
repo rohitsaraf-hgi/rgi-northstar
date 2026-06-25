@@ -33,9 +33,14 @@ import {
   ChevronDown,
   ChevronRight,
   CornerDownRight,
+  AlertTriangle,
+  UserCircle2,
 } from 'lucide-react';
 import { getFitFor, tierForScore } from '../../data/accountOfferingFit.js';
 import { tuningForOffering } from '../../data/scoringModels.js';
+import { getSeller } from '../../data/territoryDesign.js';
+import { assignWorkbookRowOwner } from '../../data/workbooks.js';
+import SellerPicker from './SellerPicker.jsx';
 
 // Offerings created via the wizard carry ids like `wiz-cnapp` whose fit
 // data lives under the canonical key (`cnapp`). We try the offering's
@@ -391,6 +396,41 @@ export function PartnerCell({ tenantComplementaryTech, installs }) {
   );
 }
 
+// Inline owner cell — collapsed visual for an account row. Shows the
+// current owner (avatar + name) or an "Unassigned" pill. Caller wires
+// onPick to open the SellerPicker overlay at row level.
+function OwnerCellInline({ ownerSellerId, onPick }) {
+  const seller = ownerSellerId ? getSeller(ownerSellerId) : null;
+  if (!seller) {
+    return (
+      <button
+        onClick={onPick}
+        className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-amber-500/30 bg-amber-500/5 text-[10px] text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 transition-colors"
+      >
+        <AlertTriangle size={9} /> Unassigned
+      </button>
+    );
+  }
+  const initials = (seller.name || '?')
+    .split(/\s+/)
+    .map((s) => s[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  return (
+    <button
+      onClick={onPick}
+      className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded border border-border bg-bg/40 hover:bg-surface-2 transition-colors text-left max-w-full"
+    >
+      <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[9px] font-semibold flex items-center justify-center flex-shrink-0">
+        {initials}
+      </span>
+      <span className="text-[11px] font-medium text-text-primary truncate max-w-[120px]">{seller.name}</span>
+    </button>
+  );
+}
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 export default function SellerWorkbookTable({
@@ -398,7 +438,6 @@ export default function SellerWorkbookTable({
   offerings,
   onOpenAccount,
   onOpenAccountChat,
-  showSourceColumn = false,
   showHgIntelligence = false,
   enrichedCols = [],
   onRemoveEnrichedColumn,
@@ -408,8 +447,14 @@ export default function SellerWorkbookTable({
   // an admin wants. Both render Account + per-offering scores + Emp +
   // Revenue regardless.
   columnSet = 'seller',
+  // When set, render an Owner column at the trailing edge with an
+  // inline reassign affordance. Only meaningful for admin + routable
+  // workbook kinds (PROMOTED_SEGMENT, CUSTOM_CSV) — caller gates this.
+  ownerWorkbookId = null,
 }) {
   const isAdminFlat = columnSet === 'admin-flat';
+  const showOwnerCol = Boolean(ownerWorkbookId);
+  const [ownerPickerFor, setOwnerPickerFor] = useState(null);
   const { tenant } = useTenant();
   // Expand/collapse state for subsidiary rows. Keyed by account id.
   const [expandedSubs, setExpandedSubs] = useState(() => new Set());
@@ -468,9 +513,6 @@ export default function SellerWorkbookTable({
         <thead className="bg-bg/30 border-b border-border">
           <tr className="text-text-muted">
             <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-3 py-2 min-w-[220px]">Account</th>
-            {showSourceColumn && (
-              <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 w-20">Source</th>
-            )}
             {confirmedOfferings.map((o) => (
               <th
                 key={o.id}
@@ -544,6 +586,11 @@ export default function SellerWorkbookTable({
                 </th>
               );
             })}
+            {showOwnerCol && (
+              <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-2 py-2 min-w-[160px]">
+                <UserCircle2 size={9} className="inline mr-1 text-text-muted" /> Owner
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -562,7 +609,7 @@ export default function SellerWorkbookTable({
             // Total table column count, for the disclosure row's spacer cells.
             const offeringColCount = confirmedOfferings.length;
             const middleColCount = 4; // Emp + Revenue + 4 columns (BC/Spend/HQ/Industry OR Comp/Intent/Partner/Spend) — 4 of them sit after Emp/Revenue
-            const trailingCount = (showHgIntelligence ? 1 : 0) + enrichedCols.length;
+            const trailingCount = (showHgIntelligence ? 1 : 0) + enrichedCols.length + (showOwnerCol ? 1 : 0);
 
             return (
               <Fragment key={account.id}>
@@ -611,11 +658,6 @@ export default function SellerWorkbookTable({
                     </div>
                   </div>
                 </td>
-                {showSourceColumn && (
-                  <td className="px-2 py-2">
-                    <SourceIcons presentIn={account.presentIn} />
-                  </td>
-                )}
                 {allScores.map(({ offering, score }) => (
                   <td key={offering.id} className="px-2 py-2 text-center">
                     <OfferingScoreCell score={score} />
@@ -692,6 +734,14 @@ export default function SellerWorkbookTable({
                     </td>
                   );
                 })}
+                {showOwnerCol && (
+                  <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                    <OwnerCellInline
+                      ownerSellerId={account.ownerSellerId}
+                      onPick={() => setOwnerPickerFor(account)}
+                    />
+                  </td>
+                )}
               </tr>
               {/* Subsidiary disclosure rows — indented child rows for any
                   subsidiaries the parent has, when the user clicks the
@@ -711,7 +761,6 @@ export default function SellerWorkbookTable({
                         <span className="text-[12px] text-text-secondary">{subName}</span>
                       </div>
                     </td>
-                    {showSourceColumn && <td className="px-2 py-1.5 text-[10px] text-text-muted">—</td>}
                     {Array.from({ length: offeringColCount }).map((_, i) => (
                       <td key={i} className="px-2 py-1.5 text-center text-[10px] text-text-muted">—</td>
                     ))}
@@ -733,6 +782,16 @@ export default function SellerWorkbookTable({
           })}
         </tbody>
       </table>
+      {ownerPickerFor && (
+        <SellerPicker
+          currentOwnerId={ownerPickerFor.ownerSellerId || null}
+          onPick={(sellerId) => {
+            assignWorkbookRowOwner(ownerWorkbookId, ownerPickerFor.id, sellerId);
+            setOwnerPickerFor(null);
+          }}
+          onClose={() => setOwnerPickerFor(null)}
+        />
+      )}
     </div>
   );
 }
