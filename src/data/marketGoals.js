@@ -111,3 +111,61 @@ const GOAL_TIPS = {
 export function goalTips(goalId) {
   return GOAL_TIPS[goalId] || GOAL_TIPS['product-market'];
 }
+
+// Segments-page tip pool. Action ids map to the Segments agent's own
+// flows/suggestions (prioritize-segments, coverage-analysis, etc.).
+const SEGMENT_TIPS = {
+  'product-market': [
+    { text: 'Lead with the largest addressable segment —', action: { label: 'prioritize by goal', id: 'prioritize-segments' } },
+    { text: 'Make sure fit-scoring covers them —', action: { label: 'analyze coverage', id: 'coverage-analysis' } },
+  ],
+  competitor: [
+    { text: 'Displacement segments convert fastest —', action: { label: 'prioritize them', id: 'prioritize-segments' } },
+    { text: 'See size and scoring coverage across the board —', action: { label: 'analyze coverage', id: 'coverage-analysis' } },
+  ],
+  partnership: [
+    { text: 'The widest-reach segment makes the best co-sell —', action: { label: 'find it', id: 'recommend-push' } },
+    { text: 'Rank segments by joint potential —', action: { label: 'prioritize', id: 'prioritize-segments' } },
+  ],
+  whitespace: [
+    { text: 'Whitespace is your net-new engine —', action: { label: 'prioritize segments for it', id: 'prioritize-segments' } },
+    { text: 'Check where fit-scoring is missing —', action: { label: 'analyze coverage', id: 'coverage-analysis' } },
+  ],
+  outreach: [
+    { text: 'Ready to hand off to sales?', action: { label: 'pick the best segment to push', id: 'recommend-push' } },
+    { text: 'Unscored segments rank blind —', action: { label: 'score them', id: 'score-unscored' } },
+  ],
+};
+
+export function segmentGoalTips(goalId) {
+  return SEGMENT_TIPS[goalId] || SEGMENT_TIPS['product-market'];
+}
+
+// Scoring-Profiles-page tip pool. Action ids map to that agent's flows
+// (build-profile, recommend-profile, coverage-analysis).
+const SCORING_TIPS = {
+  'product-market': [
+    { text: 'Score TAM by firmographic fit —', action: { label: 'build a profile', id: 'build-profile' } },
+    { text: 'Not sure which lens to use?', action: { label: 'get a recommendation', id: 'recommend-profile' } },
+  ],
+  competitor: [
+    { text: 'Displacement scoring drives takeout —', action: { label: 'pick the right profile', id: 'recommend-profile' } },
+    { text: 'Tune install-age + renewal weights —', action: { label: 'build a profile', id: 'build-profile' } },
+  ],
+  partnership: [
+    { text: 'Score co-sell overlap —', action: { label: 'build a profile', id: 'build-profile' } },
+    { text: 'Find a fitting lens for the motion —', action: { label: 'get a recommendation', id: 'recommend-profile' } },
+  ],
+  whitespace: [
+    { text: 'Whitespace needs a net-new fit lens —', action: { label: 'build a profile', id: 'build-profile' } },
+    { text: 'See where profiles aren’t applied —', action: { label: 'analyze coverage', id: 'coverage-analysis' } },
+  ],
+  outreach: [
+    { text: 'Sequence by fit —', action: { label: 'build a scoring profile', id: 'build-profile' } },
+    { text: 'Which profile fits outreach?', action: { label: 'get a recommendation', id: 'recommend-profile' } },
+  ],
+};
+
+export function scoringGoalTips(goalId) {
+  return SCORING_TIPS[goalId] || SCORING_TIPS['product-market'];
+}

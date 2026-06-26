@@ -64,7 +64,6 @@ import {
   listScoringProfiles,
   listSystemDefaultProfiles,
   listCustomProfiles,
-  cloneProfileToCustom,
   getScoringProfile,
   addSegment,
 } from '../data/marketAnalyzer.js';
@@ -80,6 +79,8 @@ import {
   MARKET_GOALS_BY_ID,
   goalChartBlurb,
   goalTips,
+  segmentGoalTips,
+  scoringGoalTips,
 } from '../data/marketGoals.js';
 import { FILTER_REGISTRY } from '../data/filterRegistry.js';
 import {
@@ -760,17 +761,252 @@ function PushSegmentModal({ open, segment, onClose, onPushed }) {
 
 // ─── Segments ───────────────────────────────────────────────────────
 
+// Score a segment's relevance to the active goal — used by the Segments
+// agent to prioritize and recommend. Keyword-matches the segment's text
+// and weights size/scoring per goal.
+function segScore(goal, s) {
+  const text = `${s.name} ${s.description} ${s.projectName}`.toLowerCase();
+  const has = (re) => re.test(text);
+  switch (goal) {
+    case 'whitespace':
+      return (has(/whitespace|net.?new|displacement|untapped|greenfield/) ? 100000 : 0) + s.companyCount;
+    case 'competitor':
+      return (has(/displacement|palo alto|prisma|competit|takeout|incumbent/) ? 100000 : 0) + s.companyCount;
+    case 'outreach':
+      // Scored + small enough to action now ranks highest.
+      return (s.appliedProfileId ? 100000 : 0) + Math.max(0, 5000 - s.companyCount);
+    case 'product-market':
+    case 'partnership':
+    default:
+      return s.companyCount;
+  }
+}
+
+function segReason(goal, s) {
+  const c = s.companyCount.toLocaleString();
+  switch (goal) {
+    case 'whitespace':
+      return `${c} largely untapped accounts with a whitespace thesis`;
+    case 'competitor':
+      return `it's built around competitive displacement (${c} accounts on an incumbent)`;
+    case 'outreach':
+      return s.appliedProfileId
+        ? `it's already fit-scored and tight enough to action now (${c})`
+        : `${c} accounts ready to sequence`;
+    case 'product-market':
+      return `the largest addressable pool (${c})`;
+    case 'partnership':
+      return `the widest reach for a co-sell motion (${c})`;
+    default:
+      return `${c} accounts`;
+  }
+}
+
+function goalCoverageNote(goal) {
+  switch (goal) {
+    case 'whitespace':
+      return 'For whitespace, the bigger unscored segments are your net-new upside — score them to rank fit.';
+    case 'outreach':
+      return 'For outreach, prioritize the scored, tighter segments — they’re ready to sequence.';
+    case 'competitor':
+      return 'For competitive plays, the displacement segments are where takeout volume concentrates.';
+    case 'partnership':
+      return 'For partnerships, the largest segments offer the widest co-sell overlap.';
+    case 'product-market':
+    default:
+      return 'For product-market work, the largest segments size your TAM concentration.';
+  }
+}
+
 export function MarketAnalyzerSegmentsRoute() {
   const navigate = useNavigate();
-  const segments = listSegments();
+  const [segments, setSegments] = useState(() => listSegments());
   const profiles = listScoringProfiles();
   const { hasModule, hasIntegration } = useDemo();
+  const { persona } = usePersona();
   const hasSalesCopilot = hasModule('sales_copilot');
   const crmConnected = hasIntegration?.('salesforce') || hasIntegration?.('hubspot') || false;
   const crmName = hasIntegration?.('salesforce') ? 'Salesforce' : hasIntegration?.('hubspot') ? 'HubSpot' : 'CRM';
   const [pushTarget, setPushTarget] = useState(null);
   const [crmPushTarget, setCrmPushTarget] = useState(null);
   const [toast, setToast] = useState(null);
+  const [highlightIds, setHighlightIds] = useState([]);
+
+  // Agent reads through refs (registered once on mount).
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+  const marketGoals = useMemo(() => goalsForPersona(persona), [persona]);
+  const [analysisGoal, setAnalysisGoal] = useState(() => defaultGoalForPersona(persona));
+  const analysisGoalRef = useRef(analysisGoal);
+  analysisGoalRef.current = analysisGoal;
+
+  // ─── Segments agent ───────────────────────────────────────────────
+  // Goal-aware: prioritizes, analyzes coverage, and recommends what to
+  // activate — all through the same persona goals the rest of MA uses.
+  usePageAgent({
+    cta: 'Work your segments with AI',
+    title: 'Segments Agent',
+    subtitle: 'Market Analyzer · Segments',
+    intro:
+      'What do you want to do? I can prioritize your segments for a goal, analyze coverage, or pick the best one to activate.',
+    tips: () => segmentGoalTips(analysisGoalRef.current),
+    flows: [
+      {
+        id: 'prioritize-segments',
+        label: 'Prioritize my segments',
+        category: 'Prioritize',
+        description: 'Rank saved segments by what matters for your goal.',
+        keywords: ['prioritize', 'rank segments', 'what to work', 'which segment'],
+        icon: Target,
+        run: async (ctx) => {
+          const g = await ctx.ask({
+            title: 'Your goal',
+            submitLabel: 'Prioritize',
+            summarize: (v) => `Goal: ${MARKET_GOALS_BY_ID[v.goal]?.label}.`,
+            fields: [
+              {
+                key: 'goal',
+                label: 'What are you optimizing for?',
+                type: 'select',
+                default: analysisGoalRef.current,
+                options: marketGoals.map((x) => ({ id: x.id, label: x.label })),
+              },
+            ],
+          });
+          setAnalysisGoal(g.goal);
+          const ranked = [...segmentsRef.current].sort((a, b) => segScore(g.goal, b) - segScore(g.goal, a));
+          setSegments(ranked);
+          setHighlightIds(ranked.slice(0, 2).map((s) => s.id));
+          const top = ranked[0];
+          const second = ranked[1];
+          await ctx.say(
+            `For ${MARKET_GOALS_BY_ID[g.goal]?.label.toLowerCase()}, work ${top.name} first — ${segReason(g.goal, top)}.${
+              second ? ` ${second.name} is the next best.` : ''
+            }`,
+          );
+        },
+      },
+      {
+        id: 'coverage-analysis',
+        label: 'Analyze coverage',
+        category: 'Analyze',
+        description: 'Size + scoring coverage across your segments.',
+        keywords: ['analyze', 'coverage', 'chart', 'breakdown', 'scoring'],
+        icon: BarChart3,
+        run: async (ctx) => {
+          await ctx.say('Here’s how your segments compare by size and scoring coverage.');
+          const segs = segmentsRef.current;
+          const scored = segs.filter((s) => s.appliedProfileId).length;
+          await ctx.chart({
+            title: `Companies per segment · ${segs.length} segments`,
+            data: segs.map((s) => ({ label: s.name, value: s.companyCount })),
+            explanation: `${scored} of ${segs.length} segments have a scoring profile applied${
+              scored < segs.length ? ` — ${segs.length - scored} are unscored, so fit ranking is blind there.` : ' — full fit coverage.'
+            } ${goalCoverageNote(analysisGoalRef.current)}`,
+          });
+        },
+      },
+      {
+        id: 'recommend-push',
+        label: 'Recommend a segment to activate',
+        category: 'Activate',
+        description: 'Pick the best segment to push to Sales Co-Pilot for your goal.',
+        keywords: ['push', 'activate', 'send to sales', 'best segment', 'hand off'],
+        icon: Send,
+        run: async (ctx) => {
+          const goal = analysisGoalRef.current;
+          const ranked = [...segmentsRef.current].sort((a, b) => segScore(goal, b) - segScore(goal, a));
+          const top = ranked[0];
+          setHighlightIds([top.id]);
+          await ctx.say(
+            `For ${MARKET_GOALS_BY_ID[goal]?.label.toLowerCase()}, ${top.name} is the strongest to activate — ${segReason(goal, top)}.`,
+          );
+          const c = await ctx.ask({
+            title: 'Activate this segment?',
+            submitLabel: 'Continue',
+            summarize: (v) => (v.push ? 'Opening the push flow…' : 'Left as is.'),
+            fields: [{ key: 'push', type: 'toggle', label: `Push “${top.name}” to Sales Co-Pilot` }],
+          });
+          if (c.push) {
+            if (hasSalesCopilot) {
+              setPushTarget(top);
+              await ctx.say('Opened the push dialog — confirm the workbook name and visibility.');
+            } else {
+              navigate(`/market-analyzer/segments/${top.id}`);
+              await ctx.say('Opened the segment — enable Sales Co-Pilot to push it as a workbook.');
+            }
+          } else {
+            await ctx.say('Kept it. Say the word when you’re ready to activate.');
+          }
+        },
+      },
+    ],
+    suggestions: [
+      {
+        id: 'rank-size',
+        label: 'Rank by size',
+        category: 'Sort',
+        description: 'Order segments by company count, largest first.',
+        icon: ArrowDown,
+        thinking: 'Sorting by size…',
+        run: () => {
+          const ranked = [...segmentsRef.current].sort((a, b) => b.companyCount - a.companyCount);
+          setSegments(ranked);
+          setHighlightIds([ranked[0].id]);
+          return `Sorted by size. ${ranked[0].name} is largest (${ranked[0].companyCount.toLocaleString()}); ${ranked[ranked.length - 1].name} is the most focused.`;
+        },
+      },
+      {
+        id: 'score-unscored',
+        label: 'Score the unscored',
+        category: 'Score',
+        description: 'Apply a fit profile to segments missing one.',
+        icon: Gauge,
+        thinking: 'Applying scoring profiles…',
+        run: () => {
+          const profile = profiles[0];
+          if (!profile) return 'No scoring profiles exist yet — build one first.';
+          const unscored = segmentsRef.current.filter((s) => !s.appliedProfileId);
+          if (!unscored.length) return 'Every segment already has a scoring profile applied.';
+          setSegments((prev) => prev.map((s) => (s.appliedProfileId ? s : { ...s, appliedProfileId: profile.id })));
+          setHighlightIds(unscored.map((s) => s.id));
+          return `Applied “${profile.name}” to ${unscored.length} unscored segment${unscored.length > 1 ? 's' : ''}: ${unscored
+            .map((s) => s.name)
+            .join(', ')}. Fit ranking now works across every segment.`;
+        },
+      },
+      {
+        id: 'flag-unscored',
+        label: 'Flag unscored segments',
+        category: 'Inspect',
+        description: 'Highlight segments with no fit profile applied.',
+        icon: AlertTriangle,
+        thinking: 'Checking scoring coverage…',
+        run: () => {
+          const unscored = segmentsRef.current.filter((s) => !s.appliedProfileId);
+          setHighlightIds(unscored.map((s) => s.id));
+          if (!unscored.length) return 'All segments have a scoring profile applied — nothing to flag.';
+          return `${unscored.length} segment${unscored.length > 1 ? 's have' : ' has'} no scoring profile: ${unscored
+            .map((s) => s.name)
+            .join(', ')}. Fit ranking is blind there.`;
+        },
+      },
+      {
+        id: 'surface-stale',
+        label: 'Surface stale segments',
+        category: 'Inspect',
+        description: 'Sort oldest-first to find views worth refreshing.',
+        icon: Clock,
+        thinking: 'Scanning create dates…',
+        run: () => {
+          const ranked = [...segmentsRef.current].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+          setSegments(ranked);
+          setHighlightIds([ranked[0].id]);
+          return `Oldest first. ${ranked[0].name} hasn’t been touched since ${ranked[0].createdAt} — worth a refresh before you rely on it.`;
+        },
+      },
+    ],
+  });
 
   const handlePushed = (workbook) => {
     if (!workbook) return;
@@ -808,7 +1044,9 @@ export function MarketAnalyzerSegmentsRoute() {
               return (
                 <tr
                   key={s.id}
-                  className="border-b border-border/40 hover:bg-bg/40 transition-colors"
+                  className={`border-b border-border/40 hover:bg-bg/40 transition-colors ${
+                    highlightIds.includes(s.id) ? 'bg-primary/5 ring-1 ring-inset ring-primary/40' : ''
+                  }`}
                 >
                   <td
                     onClick={() => navigate(`/market-analyzer/segments/${s.id}`)}
@@ -2235,10 +2473,14 @@ export function MarketAnalyzerCompaniesRoute() {
 //   2. Your profiles  — custom profiles authored in MA. Apply to MA
 //      segments AND attach to Sales Co-Pilot offerings.
 
-function ProfileCard({ profile, onCustomize, onOpen }) {
+function ProfileCard({ profile, onCustomize, onOpen, highlight = false }) {
   const isSystem = profile.kind === 'system';
   return (
-    <div className="text-left bg-surface border border-border rounded-md p-4 hover:border-primary/30 hover:shadow-card transition-all">
+    <div
+      className={`text-left bg-surface border rounded-md p-4 hover:border-primary/30 hover:shadow-card transition-all ${
+        highlight ? 'border-primary/50 ring-1 ring-primary/30 bg-primary/[0.03]' : 'border-border'
+      }`}
+    >
       <div className="flex items-start gap-3">
         <div
           className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${
@@ -2314,20 +2556,280 @@ function ProfileCard({ profile, onCustomize, onOpen }) {
   );
 }
 
-export function MarketAnalyzerScoringProfilesRoute() {
-  const [, setTick] = useState(0);
-  const systemDefaults = listSystemDefaultProfiles();
-  const customProfiles = listCustomProfiles();
+// Score an existing profile's fit to the active goal — used by the
+// Scoring agent's "recommend a profile" flow.
+function profileScore(goal, p) {
+  const text = `${p.name} ${p.description} ${(p.dimensions || []).join(' ')}`.toLowerCase();
+  const has = (re) => re.test(text);
+  const usage = p.appliedSegmentCount || 0;
+  switch (goal) {
+    case 'competitor':
+      return (has(/displacement|competit|install age|renewal|incumbent|takeout/) ? 1000 : 0) + usage;
+    case 'whitespace':
+      return (has(/budget|icp|fit|firmographic|tam|whitespace|industry|revenue/) ? 1000 : 0) + usage;
+    case 'outreach':
+      return (has(/icp|fit|intent|readiness|engagement/) ? 1000 : 0) + usage;
+    case 'partnership':
+      return (has(/ecosystem|co-sell|overlap|fit|firmographic/) ? 800 : 0) + usage;
+    case 'product-market':
+    default:
+      return (has(/cnapp|readiness|budget|icp|fit|firmographic/) ? 1000 : 0) + usage;
+  }
+}
 
-  const handleCustomize = (profileId) => {
-    const cloned = cloneProfileToCustom(profileId);
-    if (cloned) {
-      window.alert(
-        `Created "${cloned.name}". The builder UI ships in the next iteration — for now you can attach this clone to any offering.`,
-      );
-      setTick((t) => t + 1);
-    }
+function profileReason(goal) {
+  switch (goal) {
+    case 'competitor':
+      return 'it weights install age, renewal timing and competitor intent — the displacement signals';
+    case 'whitespace':
+      return 'it scores firmographic + budget fit, ideal for ranking net-new TAM';
+    case 'outreach':
+      return 'it captures ICP and intent readiness, so reps work the warmest accounts first';
+    case 'partnership':
+      return 'it leans on firmographic / ecosystem fit, the basis for co-sell overlap';
+    case 'product-market':
+    default:
+      return 'it balances firmographic fit and spend signals for TAM work';
+  }
+}
+
+// Default dimensions to weight when authoring a profile for a goal.
+function goalDimensions(goal) {
+  switch (goal) {
+    case 'whitespace':
+      return ['Whitespace fit', 'Firmographic fit', 'IT spend'];
+    case 'competitor':
+      return ['Install age', 'Renewal window', 'Competitor intent'];
+    case 'outreach':
+      return ['ICP fit', 'Intent score', 'Engagement readiness'];
+    case 'partnership':
+      return ['Ecosystem overlap', 'Co-sell fit', 'Firmographic fit'];
+    case 'product-market':
+    default:
+      return ['Industry & firmographic', 'Cloud footprint', 'IT spend'];
+  }
+}
+
+export function MarketAnalyzerScoringProfilesRoute() {
+  const systemDefaults = listSystemDefaultProfiles();
+  const [customProfiles, setCustomProfiles] = useState(() => listCustomProfiles());
+  const [highlightIds, setHighlightIds] = useState([]);
+  const { persona } = usePersona();
+  const marketGoals = useMemo(() => goalsForPersona(persona), [persona]);
+  const [analysisGoal, setAnalysisGoal] = useState(() => defaultGoalForPersona(persona));
+
+  const customRef = useRef(customProfiles);
+  customRef.current = customProfiles;
+  const analysisGoalRef = useRef(analysisGoal);
+  analysisGoalRef.current = analysisGoal;
+
+  // Author a custom profile into local state (prototype — no store write).
+  const createProfile = ({ name, dimensions, visibility }) => {
+    const p = {
+      id: `sp-new-${customRef.current.length + 1}`,
+      name: (name || '').trim() || 'New profile',
+      description: `Authored from chat — weights ${dimensions.join(', ').toLowerCase()}.`,
+      ownerId: 'priya',
+      ownerName: 'Priya Sharma',
+      visibility: visibility || 'organization',
+      createdAt: '2026-06-26',
+      updatedAt: '2026-06-26',
+      appliedSegmentCount: 0,
+      dimensions,
+      kind: 'custom',
+      appliedOfferingIds: [],
+    };
+    setCustomProfiles((prev) => [p, ...prev]);
+    return p;
   };
+
+  const handleCustomize = (def) => {
+    const p = createProfile({
+      name: `${def.name.replace(' — Default fit', '')} (custom)`,
+      dimensions: def.dimensions,
+    });
+    setHighlightIds([p.id]);
+  };
+
+  // ─── Scoring agent ────────────────────────────────────────────────
+  usePageAgent({
+    cta: 'Build scoring with AI',
+    title: 'Scoring Agent',
+    subtitle: 'Market Analyzer · Scoring Profiles',
+    intro:
+      'What do you want to do? I can build a scoring profile for your goal, recommend which one to use, or show where scoring is missing.',
+    tips: () => scoringGoalTips(analysisGoalRef.current),
+    flows: [
+      {
+        id: 'build-profile',
+        label: 'Build a scoring profile',
+        category: 'Build',
+        description: 'Author a fit profile weighted for your goal.',
+        keywords: ['build', 'create profile', 'new profile', 'author', 'scoring'],
+        icon: Gauge,
+        run: async (ctx) => {
+          const g = await ctx.ask({
+            title: 'Your goal',
+            submitLabel: 'Next',
+            summarize: (v) => `Goal: ${MARKET_GOALS_BY_ID[v.goal]?.label}.`,
+            fields: [
+              {
+                key: 'goal',
+                label: 'What is this profile for?',
+                type: 'select',
+                default: analysisGoalRef.current,
+                options: marketGoals.map((x) => ({ id: x.id, label: x.label })),
+              },
+            ],
+          });
+          setAnalysisGoal(g.goal);
+          const dims = goalDimensions(g.goal);
+          const gObj = MARKET_GOALS_BY_ID[g.goal];
+          await ctx.say(
+            `Good — for ${gObj?.label.toLowerCase()} I'll weight ${dims.join(', ').toLowerCase()}. Adjust and name it.`,
+          );
+          const v = await ctx.ask({
+            title: 'Scoring weights',
+            submitLabel: 'Create profile',
+            summarize: (val) => `Creating “${(val.name || '').trim() || 'New profile'}”…`,
+            fields: [
+              { key: 'name', label: 'Profile name', type: 'text', default: `${gObj?.short || 'Custom'} fit` },
+              { key: 'w0', label: dims[0], type: 'slider', min: 0, max: 100, step: 5, default: 50 },
+              { key: 'w1', label: dims[1], type: 'slider', min: 0, max: 100, step: 5, default: 30 },
+              { key: 'w2', label: dims[2], type: 'slider', min: 0, max: 100, step: 5, default: 20 },
+            ],
+          });
+          const p = createProfile({ name: v.name, dimensions: dims, visibility: 'organization' });
+          setHighlightIds([p.id]);
+          await ctx.say(
+            `Created “${p.name}” weighting ${dims[0]} ${v.w0} / ${dims[1]} ${v.w1} / ${dims[2]} ${v.w2}. It's in Your profiles — attach it to a segment or offering to put it to work.`,
+          );
+        },
+      },
+      {
+        id: 'recommend-profile',
+        label: 'Recommend a profile',
+        category: 'Recommend',
+        description: 'Pick the best existing profile for your goal.',
+        keywords: ['recommend', 'which profile', 'best profile', 'what to use'],
+        icon: Target,
+        run: async (ctx) => {
+          const g = await ctx.ask({
+            title: 'Your goal',
+            submitLabel: 'Recommend',
+            summarize: (v) => `Goal: ${MARKET_GOALS_BY_ID[v.goal]?.label}.`,
+            fields: [
+              {
+                key: 'goal',
+                label: 'What are you scoring for?',
+                type: 'select',
+                default: analysisGoalRef.current,
+                options: marketGoals.map((x) => ({ id: x.id, label: x.label })),
+              },
+            ],
+          });
+          setAnalysisGoal(g.goal);
+          const all = [...listSystemDefaultProfiles(), ...customRef.current];
+          const ranked = [...all].sort((a, b) => profileScore(g.goal, b) - profileScore(g.goal, a));
+          const top = ranked[0];
+          setHighlightIds([top.id]);
+          await ctx.say(
+            `For ${MARKET_GOALS_BY_ID[g.goal]?.label.toLowerCase()}, use ${top.name} — ${profileReason(g.goal)}. I've highlighted it below.`,
+          );
+        },
+      },
+      {
+        id: 'coverage-analysis',
+        label: 'Analyze profile usage',
+        category: 'Analyze',
+        description: 'See which profiles are applied — and which sit idle.',
+        keywords: ['analyze', 'usage', 'coverage', 'idle', 'unused'],
+        icon: BarChart3,
+        run: async (ctx) => {
+          await ctx.say('Here’s how your custom profiles are being used.');
+          const custom = customRef.current;
+          const unused = custom.filter((p) => !(p.appliedSegmentCount > 0));
+          await ctx.chart({
+            title: `Segments per profile · ${custom.length} custom`,
+            data: custom.map((p) => ({ label: p.name, value: p.appliedSegmentCount || 0 })),
+            explanation: `${
+              unused.length
+                ? `${unused.length} profile${unused.length > 1 ? "s aren't" : " isn't"} applied to any segment yet — ${unused
+                    .map((p) => p.name)
+                    .join(', ')}. `
+                : 'Every custom profile is in use. '
+            }${goalCoverageNote(analysisGoalRef.current)}`,
+          });
+        },
+      },
+    ],
+    suggestions: [
+      {
+        id: 'rank-usage',
+        label: 'Rank by usage',
+        category: 'Sort',
+        description: 'Order profiles by how many segments use them.',
+        icon: ArrowDown,
+        thinking: 'Ranking by usage…',
+        run: () => {
+          const ranked = [...customRef.current].sort((a, b) => (b.appliedSegmentCount || 0) - (a.appliedSegmentCount || 0));
+          setCustomProfiles(ranked);
+          setHighlightIds([ranked[0]?.id].filter(Boolean));
+          if (!ranked.length) return 'No custom profiles yet — build one first.';
+          return `Sorted by usage. ${ranked[0].name} is most-applied (${ranked[0].appliedSegmentCount || 0} segments); the tail may be redundant.`;
+        },
+      },
+      {
+        id: 'flag-lowusage',
+        label: 'Flag idle profiles',
+        category: 'Inspect',
+        description: 'Highlight profiles applied to one segment or fewer.',
+        icon: AlertTriangle,
+        thinking: 'Checking usage…',
+        run: () => {
+          const idle = customRef.current.filter((p) => (p.appliedSegmentCount || 0) <= 1);
+          setHighlightIds(idle.map((p) => p.id));
+          if (!idle.length) return 'Every custom profile is applied to multiple segments — nothing idle.';
+          return `${idle.length} profile${idle.length > 1 ? 's are' : ' is'} barely used: ${idle
+            .map((p) => p.name)
+            .join(', ')}. Consider consolidating or retiring.`;
+        },
+      },
+      {
+        id: 'clone-default',
+        label: 'Customize a default',
+        category: 'Build',
+        description: 'Clone a system default into an editable custom profile.',
+        icon: Sparkles,
+        thinking: 'Cloning a system default…',
+        run: () => {
+          const def = systemDefaults[0];
+          if (!def) return 'No system defaults available to customize yet.';
+          const p = createProfile({
+            name: `${def.name.replace(' — Default fit', '')} (custom)`,
+            dimensions: def.dimensions,
+          });
+          setHighlightIds([p.id]);
+          return `Cloned “${def.name}” into an editable profile, “${p.name}”. Tune its weights, then apply it to a segment.`;
+        },
+      },
+      {
+        id: 'surface-stale',
+        label: 'Surface stale profiles',
+        category: 'Inspect',
+        description: 'Find profiles that haven’t been updated recently.',
+        icon: Clock,
+        thinking: 'Scanning update dates…',
+        run: () => {
+          const ranked = [...customRef.current].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+          setCustomProfiles(ranked);
+          setHighlightIds([ranked[0]?.id].filter(Boolean));
+          if (!ranked.length) return 'No custom profiles yet — build one first.';
+          return `Oldest first. ${ranked[0].name} hasn't changed since ${ranked[0].updatedAt} — re-check its weights before relying on it.`;
+        },
+      },
+    ],
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-8">
@@ -2356,7 +2858,12 @@ export function MarketAnalyzerScoringProfilesRoute() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {systemDefaults.map((p) => (
-            <ProfileCard key={p.id} profile={p} onCustomize={() => handleCustomize(p.id)} />
+            <ProfileCard
+              key={p.id}
+              profile={p}
+              highlight={highlightIds.includes(p.id)}
+              onCustomize={() => handleCustomize(p)}
+            />
           ))}
           {systemDefaults.length === 0 && (
             <div className="col-span-2 text-center text-text-muted text-sm py-6 bg-surface border border-dashed border-border rounded-md">
@@ -2381,6 +2888,7 @@ export function MarketAnalyzerScoringProfilesRoute() {
             <ProfileCard
               key={p.id}
               profile={p}
+              highlight={highlightIds.includes(p.id)}
               onOpen={() => window.alert(`Open ${p.name} (builder ships next iteration).`)}
             />
           ))}
