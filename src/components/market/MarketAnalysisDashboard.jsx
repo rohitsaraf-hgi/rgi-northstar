@@ -14,6 +14,7 @@ import {
   Handshake,
   Crosshair,
   Map as MapIcon,
+  Users,
 } from 'lucide-react';
 import { listOfferings } from '../../data/offerings.js';
 import { MARKET_GOALS_BY_ID } from '../../data/marketGoals.js';
@@ -65,39 +66,73 @@ function regionOf(hq) {
   return 'United States';
 }
 
-function Bars({ data, unit }) {
+function Bars({ data, unit, accent = false }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
     <div className="space-y-2">
-      {data.map((d) => (
-        <div key={d.label} className="flex items-center gap-3">
-          <span className="text-[11px] text-text-secondary w-32 truncate flex-shrink-0">{d.label}</span>
-          <div className="flex-1 h-4 bg-surface-2 rounded overflow-hidden">
-            <div
-              className="h-full bg-primary/70 rounded transition-all duration-500"
-              style={{ width: `${(d.value / max) * 100}%` }}
-            />
+      {data.map((d) => {
+        const isTop = d.value === max;
+        // The dominant bar is emphasized; in a goal-focused block the
+        // whole chart shifts to the accent colour.
+        const barClass = accent
+          ? isTop
+            ? 'bg-primary'
+            : 'bg-primary/45'
+          : isTop
+          ? 'bg-primary/80'
+          : 'bg-primary/30';
+        return (
+          <div key={d.label} className="flex items-center gap-3">
+            <span className={`text-[11px] w-32 truncate flex-shrink-0 ${isTop ? 'text-text-primary font-medium' : 'text-text-secondary'}`}>
+              {d.label}
+            </span>
+            <div className="flex-1 h-4 bg-surface-2 rounded overflow-hidden">
+              <div
+                className={`h-full rounded transition-all duration-500 ${barClass}`}
+                style={{ width: `${(d.value / max) * 100}%` }}
+              />
+            </div>
+            <span className={`text-[11px] font-mono w-14 text-right flex-shrink-0 ${isTop ? 'text-text-primary' : 'text-text-muted'}`}>
+              {unit === 'money' ? fmtMoney(d.value) : d.value.toLocaleString()}
+            </span>
           </div>
-          <span className="text-[11px] font-mono text-text-muted w-14 text-right flex-shrink-0">
-            {unit === 'money' ? fmtMoney(d.value) : d.value.toLocaleString()}
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function Panel({ icon: Icon, title, children, hint }) {
+function Panel({ icon: Icon, title, children, hint, focus = false, insight }) {
   return (
-    <div className="bg-surface border border-border rounded-lg p-4">
+    <div
+      className={`rounded-lg p-4 border transition-colors ${
+        focus ? 'border-primary/40 bg-primary/[0.04] ring-1 ring-primary/15' : 'border-border bg-surface'
+      }`}
+    >
       <div className="flex items-center gap-2 mb-3">
-        <span className="grid place-items-center w-6 h-6 rounded-md bg-primary/10 text-primary flex-shrink-0">
+        <span
+          className={`grid place-items-center w-6 h-6 rounded-md flex-shrink-0 ${
+            focus ? 'bg-primary text-white' : 'bg-primary/10 text-primary'
+          }`}
+        >
           <Icon size={13} />
         </span>
         <div className="text-[13px] font-semibold text-text-primary">{title}</div>
-        {hint && <span className="ml-auto text-[10px] text-text-muted">{hint}</span>}
+        {focus ? (
+          <span className="ml-auto text-[9px] uppercase tracking-wider font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+            Goal focus
+          </span>
+        ) : (
+          hint && <span className="ml-auto text-[10px] text-text-muted">{hint}</span>
+        )}
       </div>
       {children}
+      {insight && (
+        <div className="mt-2.5 pt-2 border-t border-border/50 flex items-start gap-1.5 text-[11px] text-text-secondary leading-snug">
+          <Sparkles size={10} className="text-primary flex-shrink-0 mt-0.5" />
+          <span>{insight}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -432,6 +467,72 @@ export default function MarketAnalysisDashboard({
   );
   const goalLabel = MARKET_GOALS_BY_ID[goalId]?.label || 'Market analysis';
 
+  // Similarity profiles — cluster the set by the descriptive dimensions
+  // NOT already constrained by the active filters, so the ranking adds
+  // new signal instead of echoing the filters.
+  const profiles = useMemo(() => {
+    const excluded = new Set();
+    filters.forEach((f) => {
+      if (f.specId === 'industry') excluded.add('industry');
+      if (f.specId === 'emp_count') excluded.add('size');
+      if (f.specId === 'geography') excluded.add('region');
+    });
+    const sizeTier = (c) => {
+      const e = parseNum(c.fai?.employees);
+      if (e >= 50000) return 'Enterprise';
+      if (e >= 10000) return 'Large';
+      if (e >= 1000) return 'Mid-market';
+      return 'SMB';
+    };
+    const indLabel = (c) => {
+      const s = String(c.industry || '').toLowerCase();
+      const b = INDUSTRY_BUCKETS.find((bk) => bk.keys.some((k) => s.includes(k)));
+      return b ? b.label : 'Other sectors';
+    };
+    const counts = {};
+    companies.forEach((c) => {
+      const dims = [];
+      if (!excluded.has('size')) dims.push(sizeTier(c));
+      if (!excluded.has('industry')) dims.push(indLabel(c));
+      if (!excluded.has('region')) dims.push(regionOf(c.fai?.hq));
+      const label = dims.slice(0, 2).join(' · ') || 'Diverse mix';
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([label, value]) => ({ label, value }))
+      .sort((x, y) => y.value - x.value)
+      .slice(0, 5);
+  }, [companies, filters]);
+
+  const profileHeadline = (() => {
+    if (!profiles.length) return '';
+    const names = profiles.slice(0, 3).map((p) => `${p.label} (${p.value})`);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.slice(-1)}` : names[0];
+    return `Most companies in this market are ${list}.`;
+  })();
+
+  // Goal-driven highlighting + a one-line insight per chart block.
+  const FOCUS_BY_GOAL = {
+    'product-market': ['industry', 'revenue'],
+    competitor: ['industry', 'itspend'],
+    partnership: ['industry', 'geography'],
+    whitespace: ['industry', 'geography'],
+    outreach: ['itspend', 'icpfit'],
+  };
+  const focus = new Set(FOCUS_BY_GOAL[goalId] || []);
+  const pct = (x) => Math.round((x / (a.n || 1)) * 100);
+  const largeShare = a.employees
+    .filter((b) => b.label === '10K – 50K' || b.label === '50K+')
+    .reduce((s, b) => s + b.value, 0);
+  const insights = {
+    industry: a.industry[0] ? `${a.industry[0].label} leads at ${pct(a.industry[0].value)}% of the set.` : null,
+    revenue: `${a.enterprisePct}% clear $1B in revenue — capital to fund new tooling.`,
+    size: `${pct(largeShare)}% run 10K+ employees.`,
+    geography: a.geography[0] ? `${pct(a.geography[0].value)}% are HQ'd in ${a.geography[0].label}.` : null,
+    itspend: a.spenders[0] ? `${a.spenders[0].label} leads IT spend at ${fmtMoney(a.spenders[0].value)}.` : null,
+    icpfit: `${a.regulated} regulated · ${a.cloudNative} cloud-native · ${a.enterprise} enterprise.`,
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -504,24 +605,37 @@ export default function MarketAnalysisDashboard({
                 />
               </div>
 
-              {/* Charts */}
+              {/* Main profiles — similarity ranking */}
+              <div className="border border-primary/30 bg-primary/[0.04] rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="grid place-items-center w-6 h-6 rounded-md bg-primary text-white flex-shrink-0">
+                    <Users size={13} />
+                  </span>
+                  <span className="text-[13px] font-semibold text-text-primary">Main profiles</span>
+                  <span className="ml-auto text-[10px] text-text-muted">ranked by similarity</span>
+                </div>
+                <p className="text-[12.5px] text-text-secondary leading-relaxed mb-3">{profileHeadline}</p>
+                <Bars data={profiles} accent />
+              </div>
+
+              {/* Charts — goal-aware highlighting + per-block insight */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Panel icon={Building2} title="Industry mix" hint={`${a.industry.length} sectors`}>
-                  <Bars data={a.industry} />
+                <Panel icon={Building2} title="Industry mix" hint={`${a.industry.length} sectors`} focus={focus.has('industry')} insight={insights.industry}>
+                  <Bars data={a.industry} accent={focus.has('industry')} />
                 </Panel>
-                <Panel icon={DollarSign} title="Revenue distribution">
-                  <Bars data={a.revenue} />
+                <Panel icon={DollarSign} title="Revenue distribution" focus={focus.has('revenue')} insight={insights.revenue}>
+                  <Bars data={a.revenue} accent={focus.has('revenue')} />
                 </Panel>
-                <Panel icon={Boxes} title="Company size (employees)">
-                  <Bars data={a.employees} />
+                <Panel icon={Boxes} title="Company size (employees)" focus={focus.has('size')} insight={insights.size}>
+                  <Bars data={a.employees} accent={focus.has('size')} />
                 </Panel>
-                <Panel icon={Globe} title="HQ geography">
-                  <Bars data={a.geography} />
+                <Panel icon={Globe} title="HQ geography" focus={focus.has('geography')} insight={insights.geography}>
+                  <Bars data={a.geography} accent={focus.has('geography')} />
                 </Panel>
-                <Panel icon={TrendingUp} title="IT spend leaders" hint="top 6">
-                  <Bars data={a.spenders} unit="money" />
+                <Panel icon={TrendingUp} title="IT spend leaders" hint="top 6" focus={focus.has('itspend')} insight={insights.itspend}>
+                  <Bars data={a.spenders} unit="money" accent={focus.has('itspend')} />
                 </Panel>
-                <Panel icon={Target} title="ICP fit signal">
+                <Panel icon={Target} title="ICP fit signal" focus={focus.has('icpfit')} insight={insights.icpfit}>
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between text-[12px]">
                       <span className="text-text-secondary">Regulated industries</span>
