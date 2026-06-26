@@ -54,6 +54,9 @@ import {
   Tags,
   FolderInput,
   Network,
+  FolderPlus,
+  BarChart3,
+  Target,
 } from 'lucide-react';
 import {
   listProjects,
@@ -70,6 +73,14 @@ import {
   MA_TOTAL_UNIVERSE,
 } from '../data/marketAnalyzerCompanies.js';
 import FilterPanel from '../components/workbook/FilterPanel.jsx';
+import MarketAnalysisDashboard from '../components/market/MarketAnalysisDashboard.jsx';
+import {
+  goalsForPersona,
+  defaultGoalForPersona,
+  MARKET_GOALS_BY_ID,
+  goalChartBlurb,
+  goalTip,
+} from '../data/marketGoals.js';
 import { FILTER_REGISTRY } from '../data/filterRegistry.js';
 import {
   promoteSegmentToWorkbook,
@@ -164,20 +175,120 @@ export function MarketAnalyzerProjectsRoute() {
     ? projects.filter((p) => p.visibility === 'organization')
     : projects;
 
+  // Create a project from chat — the headless "create projects thru NLP" path.
+  const createProject = ({ name, description, visibility }) => {
+    const proj = {
+      id: `proj-new-${projectsRef.current.length + 1}`,
+      name: (name || '').trim() || 'Untitled project',
+      description: (description || '').trim(),
+      visibility: visibility || 'organization',
+      ownerId: 'priya',
+      ownerName: 'Priya Sharma',
+      createdAt: '2026-06-26',
+      updatedAt: '2026-06-26',
+      segmentCount: 0,
+      companyCount: 0,
+    };
+    setProjects((prev) => [proj, ...prev]);
+    return proj;
+  };
+
   // ─── Page agent ───────────────────────────────────────────────────
-  // Each suggestion mocks the agent reaching into this page and changing
-  // it: flipping visibility, reordering, renaming, foldering, or
-  // surfacing an insight. All visible immediately in the table below.
+  // Suggestions are one-shot edits; flows are guided, multi-step paths
+  // that surface inline UI (a create form, a chart) right in the chat.
   usePageAgent({
     cta: 'Manage your projects with AI',
     title: 'Projects Agent',
     subtitle: 'Market Analyzer · Projects',
+    flows: [
+      {
+        id: 'create-project',
+        label: 'Create a project',
+        category: 'Build',
+        description: 'Spin up a new TAM / SAM / SOM analysis — no form-hunting.',
+        keywords: ['create project', 'new project', 'add project', 'start a project'],
+        icon: FolderPlus,
+        run: async (ctx, { hint }) => {
+          // Prefill a name from natural language like "...called Fintech TAM".
+          const m = (hint || '').match(/(?:called|named|for|:)\s+(.+)$/i);
+          const guess = m ? m[1].replace(/['"]/g, '').trim() : '';
+          await ctx.say(
+            "Let's set up a new project. I pre-filled what I could — tweak anything and hit create.",
+          );
+          const v = await ctx.ask({
+            title: 'New project',
+            submitLabel: 'Create project',
+            summarize: (val) => `Creating “${val.name || 'Untitled project'}”…`,
+            fields: [
+              { key: 'name', label: 'Project name', type: 'text', placeholder: 'e.g. Q3 CNAPP TAM Analysis', default: guess },
+              { key: 'description', label: 'Description', type: 'textarea', placeholder: 'What market is this sizing?' },
+              {
+                key: 'visibility',
+                label: 'Visibility',
+                type: 'select',
+                default: 'organization',
+                options: [
+                  { id: 'organization', label: 'Org-visible' },
+                  { id: 'private', label: 'Private' },
+                ],
+              },
+            ],
+          });
+          const proj = createProject(v);
+          setTab('all');
+          setInsight(null);
+          setHighlightIds([proj.id]);
+          await ctx.say(
+            `Done — “${proj.name}” is live in your projects list${
+              proj.visibility === 'organization' ? ' and visible to your org' : ''
+            }. Open it to add segments, or ask me to size the market next.`,
+          );
+        },
+      },
+      {
+        id: 'analyze-projects',
+        label: 'Analyze my portfolio',
+        category: 'Analyze',
+        description: 'A breakdown of coverage across your projects, explained.',
+        keywords: ['analyze', 'breakdown', 'chart', 'compare projects', 'portfolio'],
+        icon: BarChart3,
+        run: async (ctx) => {
+          await ctx.say('Here’s how your projects compare by company coverage.');
+          const list = [...projectsRef.current].sort((a, b) => b.companyCount - a.companyCount);
+          const total = list.reduce((s, p) => s + p.companyCount, 0) || 1;
+          const top = list[0];
+          const pct = Math.round((top.companyCount / total) * 100);
+          await ctx.chart({
+            title: 'Companies per project',
+            data: list.map((p) => ({ label: p.name, value: p.companyCount })),
+            explanation: `Your largest analysis, ${top.name}, holds ${top.companyCount.toLocaleString()} companies — about ${pct}% of everything you're tracking. The remaining ${
+              list.length - 1
+            } projects are tighter, more targeted cuts. If two of them overlap heavily, consider merging before you push to Sales Co-Pilot.`,
+          });
+        },
+      },
+    ],
     intro:
       'I can reorganize, inspect, and tidy up your TAM / SAM / SOM projects right here. Try one of these:',
+    seedHistory: [
+      {
+        title: 'Which projects overlap?',
+        preview:
+          'Q3 CNAPP TAM and AI / Runtime Defense share ~1,240 companies — mostly Banking + Tech.',
+        ts: '2d ago',
+      },
+      {
+        title: 'Make my Q3 projects org-visible',
+        preview: 'Set 2 private projects to Org-visible across the workspace.',
+        ts: '5d ago',
+      },
+    ],
     suggestions: [
       {
         id: 'make-all-visible',
         label: 'Make all visible',
+        category: 'Organize',
+        description: 'Flip every project to org-visible so the whole team can see them.',
         icon: Eye,
         thinking: 'Updating visibility on your projects…',
         run: () => {
@@ -196,6 +307,8 @@ export function MarketAnalyzerProjectsRoute() {
       {
         id: 'inspect-updates',
         label: 'Inspect latest updates',
+        category: 'Inspect',
+        description: 'Sort by last touched and flag what’s recent vs. going stale.',
         icon: Clock,
         thinking: 'Scanning recent activity…',
         run: () => {
@@ -214,6 +327,8 @@ export function MarketAnalyzerProjectsRoute() {
       {
         id: 'find-common-companies',
         label: 'Find common companies',
+        category: 'Inspect',
+        description: 'Surface companies that overlap across projects before you push.',
         icon: Network,
         thinking: 'Comparing company sets across projects…',
         run: () => {
@@ -236,6 +351,8 @@ export function MarketAnalyzerProjectsRoute() {
       {
         id: 'move-projects',
         label: 'Move projects',
+        category: 'Organize',
+        description: 'Group projects into a shared workspace folder.',
         icon: FolderInput,
         thinking: 'Moving projects into a shared folder…',
         run: () => {
@@ -250,6 +367,8 @@ export function MarketAnalyzerProjectsRoute() {
       {
         id: 'categorize',
         label: 'Categorize projects (bulk rename)',
+        category: 'Clean up',
+        description: 'Auto-tag and bulk-rename projects by theme (CNAPP, Healthcare…).',
         icon: Tags,
         thinking: 'Categorizing and renaming projects…',
         run: () => {
@@ -1234,6 +1353,11 @@ export function MarketAnalyzerCompaniesRoute() {
   const [saveToast, setSaveToast] = useState(null); // { message }
   const [appliedProfileId, setAppliedProfileId] = useState(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const { persona } = usePersona();
+  const marketGoals = useMemo(() => goalsForPersona(persona), [persona]);
+  const [analysisGoal, setAnalysisGoal] = useState(() => defaultGoalForPersona(persona));
+  const [analysisGoalDetail, setAnalysisGoalDetail] = useState('');
   const profiles = listScoringProfiles();
   const appliedProfile = appliedProfileId ? getScoringProfile(appliedProfileId) : null;
 
@@ -1276,6 +1400,14 @@ export function MarketAnalyzerCompaniesRoute() {
   totalFoundRef.current = totalFound;
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
+  const filteredCompaniesRef = useRef(filteredCompanies);
+  filteredCompaniesRef.current = filteredCompanies;
+  const appliedProfileIdRef = useRef(appliedProfileId);
+  appliedProfileIdRef.current = appliedProfileId;
+  // Current analysis goal — read by suggestions/flows so every operation
+  // can close with a goal-aligned tip.
+  const analysisGoalRef = useRef(analysisGoal);
+  analysisGoalRef.current = analysisGoal;
   const pageCount = Math.max(1, Math.ceil(totalFound / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const pageStart = safePage * pageSize;
@@ -1360,16 +1492,277 @@ export function MarketAnalyzerCompaniesRoute() {
     return n * mult;
   };
 
+  // Apply several filters in one shot (avoids the stale-ref race that
+  // sequential single applies would hit inside a flow), return the count.
+  const applyFilters = (specValuePairs) => {
+    let next = [...filtersRef.current];
+    for (const [specId, value] of specValuePairs) {
+      const spec = FILTER_REGISTRY[specId];
+      if (!spec) continue;
+      next = [
+        ...next.filter((x) => x.id !== specId),
+        { id: specId, specId, group: spec.group, label: spec.label, value, displayValue: spec.format ? spec.format(value) : undefined },
+      ];
+    }
+    setFilters(next);
+    setPage(0);
+    let rows = allCompanies;
+    for (const active of next) {
+      const pred = FILTER_REGISTRY[active.specId]?.buildPredicate(active.value);
+      if (pred) rows = rows.filter(pred);
+    }
+    return rows.length;
+  };
+
+  // Bucket the universe into coarse industry groups for "analyze market".
+  const industryBuckets = (rows) => {
+    const BUCKETS = [
+      { label: 'Financial Svcs', keys: ['financial', 'banking', 'bnpl'] },
+      { label: 'Insurance', keys: ['insurance'] },
+      { label: 'Healthcare / Pharma', keys: ['health', 'pharmaceutical', 'life science'] },
+      { label: 'Tech / Software', keys: ['computer', 'electronic', 'software', 'internet', 'semiconductor'] },
+      { label: 'Manufacturing', keys: ['manufacturing'] },
+      { label: 'Retail', keys: ['retail'] },
+    ];
+    return BUCKETS.map((b) => ({
+      label: b.label,
+      value: rows.filter((r) => b.keys.some((k) => String(r.industry || '').toLowerCase().includes(k))).length,
+    }))
+      .filter((b) => b.value > 0)
+      .sort((a, b) => b.value - a.value);
+  };
+
+  // Save-as-segment as an inline flow step (no modal) — collects a name,
+  // note, and target project right in the chat, then writes the segment.
+  const saveSegmentInline = async (ctx) => {
+    const count = totalFoundRef.current;
+    const projectList = listProjects();
+    await ctx.say(`Let's save the current ${count.toLocaleString()} companies as a segment.`);
+    const v = await ctx.ask({
+      title: 'Save as segment',
+      submitLabel: 'Save segment',
+      summarize: (val) =>
+        `Saving “${(val.name || '').trim() || 'Untitled segment'}” · ${count.toLocaleString()} companies…`,
+      fields: [
+        {
+          key: 'name',
+          label: 'Segment name',
+          type: 'text',
+          default: filtersRef.current.length ? 'ICP segment' : 'Company shortlist',
+          placeholder: 'e.g. Fintech CNAPP-ready',
+        },
+        { key: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional note for your team' },
+        {
+          key: 'projectId',
+          label: 'Attach to project',
+          type: 'select',
+          default: projectList[0]?.id || '',
+          options: projectList.map((p) => ({ id: p.id, label: p.name })),
+        },
+      ],
+    });
+    const proj = projectList.find((p) => p.id === v.projectId);
+    const seg = addSegment({
+      name: (v.name || '').trim() || 'Untitled segment',
+      description: v.description,
+      projectId: v.projectId || null,
+      projectName: proj?.name,
+      companyCount: count,
+      appliedProfileId: appliedProfileIdRef.current,
+    });
+    setSaveToast({ message: `Saved "${seg.name}" — ${count.toLocaleString()} companies` });
+    setTimeout(() => setSaveToast(null), 3500);
+    await ctx.say(
+      `Saved “${seg.name}” — ${count.toLocaleString()} companies${
+        proj ? ` under ${proj.name}` : ''
+      }. It's in your Segments list now, ready to push to Sales Co-Pilot.`,
+    );
+  };
+
   usePageAgent({
     cta: 'Explore companies with AI',
     title: 'Companies Agent',
     subtitle: 'Market Analyzer · Companies',
     intro:
-      'I can slice HG’s universe for you — filter, score, rank, and save the view as a segment. Try one of these:',
+      'What do you want to do? I can drive Market Analyzer for you — analyze the market, build an ICP segment, or set up scoring. UI shows up when it helps.',
+    // Goal-aligned tip appended by the launcher after each operation.
+    tip: () => goalTip(analysisGoalRef.current),
+    flows: [
+      {
+        id: 'analyze-market',
+        label: 'Analyze my market',
+        category: 'Analyze',
+        description: 'Break down HG’s universe with a chart and a plain-English read.',
+        keywords: ['analyze', 'market', 'breakdown', 'chart', 'overview', 'tam'],
+        icon: BarChart3,
+        run: async (ctx) => {
+          // 1) Ask what the user is trying to achieve — drives the analysis.
+          await ctx.say('First — what are you trying to get out of this analysis?');
+          const g = await ctx.ask({
+            title: 'Your goal',
+            submitLabel: 'Analyze',
+            summarize: (val) => `Goal: ${MARKET_GOALS_BY_ID[val.goal]?.label}.`,
+            fields: [
+              {
+                key: 'goal',
+                label: 'What do you want to do?',
+                type: 'select',
+                default: analysisGoalRef.current,
+                options: marketGoals.map((x) => ({ id: x.id, label: x.label })),
+              },
+            ],
+          });
+          let detail = '';
+          const goalObj = MARKET_GOALS_BY_ID[g.goal];
+          if (goalObj?.requiresDetail) {
+            const d = await ctx.ask({
+              title: goalObj.detailLabel || 'Details',
+              submitLabel: 'Continue',
+              summarize: (val) => (val.detail ? `Partner: ${val.detail}.` : 'No partner specified.'),
+              fields: [{ key: 'detail', type: 'text', placeholder: goalObj.detailPlaceholder || '' }],
+            });
+            detail = (d.detail || '').trim();
+          }
+          setAnalysisGoal(g.goal);
+          setAnalysisGoalDetail(detail);
+
+          // 2) Chart + goal-framed read-out.
+          await ctx.say(`Got it — analyzing through a “${goalObj?.label}” lens.`);
+          const data = industryBuckets(filteredCompaniesRef.current);
+          const top = data[0];
+          await ctx.chart({
+            title: `Universe by industry · ${filteredCompaniesRef.current.length.toLocaleString()} companies`,
+            data,
+            explanation: goalChartBlurb(g.goal, {
+              topLabel: top?.label,
+              topVal: top?.value,
+              total: filteredCompaniesRef.current.length,
+              detail,
+            }),
+            action: { label: 'View detailed analysis', run: () => setAnalysisOpen(true) },
+          });
+        },
+      },
+      {
+        id: 'create-icp',
+        label: 'Create an ICP segment',
+        category: 'Build',
+        description: 'Define ideal-customer criteria; I filter live, then save it.',
+        keywords: ['icp', 'ideal customer', 'icp segment', 'define icp', 'build a segment'],
+        icon: Target,
+        run: async (ctx, { hint }) => {
+          await ctx.say('Let’s define your ICP. Pick the criteria and I’ll filter the universe live.');
+          const guessFin = /fin|bank/i.test(hint || '');
+          const v = await ctx.ask({
+            title: 'ICP criteria',
+            submitLabel: 'Apply filters',
+            summarize: (val) =>
+              `ICP: ${(val.industries || []).length || 'any'} industries${val.minRev ? `, ${val.minRev}+ revenue` : ''}.`,
+            fields: [
+              {
+                key: 'industries',
+                label: 'Target industries',
+                type: 'chips',
+                default: guessFin ? ['banking'] : ['banking'],
+                options: [
+                  { id: 'banking', label: 'Financial Svcs' },
+                  { id: 'healthcare', label: 'Healthcare' },
+                  { id: 'tech', label: 'Tech' },
+                  { id: 'manufacturing', label: 'Manufacturing' },
+                  { id: 'retail', label: 'Retail' },
+                ],
+              },
+              {
+                key: 'minRev',
+                label: 'Minimum revenue',
+                type: 'select',
+                default: '1B',
+                options: [
+                  { id: '', label: 'Any' },
+                  { id: '1B', label: '$1B+' },
+                  { id: '10B', label: '$10B+' },
+                ],
+              },
+            ],
+          });
+          const pairs = [];
+          if (v.industries?.length) pairs.push(['industry', v.industries]);
+          if (v.minRev) pairs.push(['revenue', { min: v.minRev, max: '' }]);
+          const n = pairs.length ? applyFilters(pairs) : allCompanies.length;
+          await ctx.say(
+            `Filtered the table to your ICP — ${n.toLocaleString()} companies match. The filter chips are live on the page so you can fine-tune. Save it as a segment?`,
+          );
+          const conf = await ctx.ask({
+            title: 'Save as segment?',
+            submitLabel: 'Continue',
+            summarize: (val) => (val.save ? 'Saving as a segment…' : 'Left it as a live view.'),
+            fields: [{ key: 'save', type: 'toggle', label: 'Save this as a segment now' }],
+          });
+          if (conf.save) {
+            await saveSegmentInline(ctx);
+          } else {
+            await ctx.say('Kept it as a live view. Say the word when you want to save it.');
+          }
+        },
+      },
+      {
+        id: 'build-scoring',
+        label: 'Set up scoring',
+        category: 'Score',
+        description: 'Weight what matters; I apply a fit lens to the universe.',
+        keywords: ['scoring', 'score', 'weights', 'fit model', 'rank by fit'],
+        icon: Gauge,
+        run: async (ctx) => {
+          await ctx.say('Let’s weight what defines a good-fit account. Drag the sliders.');
+          const v = await ctx.ask({
+            title: 'Scoring weights',
+            submitLabel: 'Apply scoring',
+            summarize: (val) => `Weights — firmographic ${val.firmographic}, intent ${val.intent}, tech ${val.tech}.`,
+            fields: [
+              { key: 'firmographic', label: 'Firmographic fit', type: 'slider', min: 0, max: 100, step: 5, default: 60 },
+              { key: 'intent', label: 'Intent signals', type: 'slider', min: 0, max: 100, step: 5, default: 30 },
+              { key: 'tech', label: 'Technographic match', type: 'slider', min: 0, max: 100, step: 5, default: 10 },
+            ],
+          });
+          const profile = listScoringProfiles()[0];
+          if (profile) setAppliedProfileId(profile.id);
+          await ctx.say(
+            `Built a fit lens weighted ${v.firmographic} / ${v.intent} / ${v.tech} (firmographic / intent / tech) and applied it as “${
+              profile ? profile.name : 'Custom fit'
+            }”. The table is scoring now — sort by Fit Score to surface your best matches.`,
+          );
+        },
+      },
+      {
+        id: 'save-segment',
+        label: 'Save as a segment',
+        category: 'Save',
+        description: 'Snapshot the current view as a reusable segment — right here.',
+        keywords: ['save segment', 'save as segment', 'save view', 'create segment', 'save this'],
+        icon: Bookmark,
+        run: async (ctx) => {
+          await saveSegmentInline(ctx);
+        },
+      },
+    ],
+    seedHistory: [
+      {
+        title: 'Top IT spenders in my list',
+        preview: 'Sorted by IT spend — Amazon, Apple and JPMorgan lead the universe.',
+        ts: '1d ago',
+      },
+      {
+        title: 'Enterprise fintech targets',
+        preview: 'Filtered to 13 Banking & Financial Services accounts over $10B revenue.',
+        ts: '4d ago',
+      },
+    ],
     suggestions: [
       {
         id: 'top-it-spend',
         label: 'Rank by IT spend',
+        category: 'Rank & sort',
+        description: 'Order the universe by IT spend to find where budget already exists.',
         icon: TrendingUp,
         thinking: 'Ranking by IT spend…',
         run: () => {
@@ -1388,6 +1781,8 @@ export function MarketAnalyzerCompaniesRoute() {
       {
         id: 'enterprise',
         label: 'Filter to enterprise ($10B+)',
+        category: 'Filter',
+        description: 'Keep only $10B+ revenue accounts and sort high to low.',
         icon: Building2,
         thinking: 'Filtering to enterprise accounts…',
         run: () => {
@@ -1400,6 +1795,8 @@ export function MarketAnalyzerCompaniesRoute() {
       {
         id: 'financial-vertical',
         label: 'Focus on Financial Services',
+        category: 'Filter',
+        description: 'Narrow to Banking & Financial Services accounts.',
         icon: DollarSign,
         thinking: 'Narrowing to Financial Services…',
         run: () => {
@@ -1411,6 +1808,8 @@ export function MarketAnalyzerCompaniesRoute() {
       {
         id: 'apply-scoring',
         label: 'Score against my ICP',
+        category: 'Score',
+        description: 'Apply your ICP scoring profile to rank accounts by fit.',
         icon: Gauge,
         thinking: 'Applying your scoring profile…',
         run: () => {
@@ -1418,16 +1817,6 @@ export function MarketAnalyzerCompaniesRoute() {
           if (!profile) return 'No scoring profiles exist yet — build one in Scoring Profiles first.';
           setAppliedProfileId(profile.id);
           return `Now scoring every company with “${profile.name}”. The fit lens is live — sort or filter on Fit Score to push your best-match accounts to the top.`;
-        },
-      },
-      {
-        id: 'save-segment',
-        label: 'Save this view as a segment',
-        icon: Bookmark,
-        thinking: 'Opening the save dialog…',
-        run: () => {
-          setSaveModalOpen(true);
-          return `Opened the save dialog for the current ${totalFoundRef.current.toLocaleString()} companies. Name it and pick a project to keep this view for ongoing work.`;
         },
       },
     ],
@@ -1561,8 +1950,16 @@ export function MarketAnalyzerCompaniesRoute() {
           />
         </div>
 
+        {/* Analyze market — opens the detailed analysis dashboard */}
+        <button
+          onClick={() => setAnalysisOpen(true)}
+          className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/40 text-primary bg-primary/5 rounded-md hover:bg-primary/10 transition-colors"
+        >
+          <Sparkles size={12} /> Analyze market
+        </button>
+
         {/* LIST / MATRIX view toggle */}
-        <div className="ml-auto inline-flex items-center rounded-md border border-border overflow-hidden">
+        <div className="inline-flex items-center rounded-md border border-border overflow-hidden">
           <button className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold bg-primary/10 text-primary">
             <Rows3 size={11} /> List
           </button>
@@ -1796,6 +2193,19 @@ export function MarketAnalyzerCompaniesRoute() {
         onSave={handleSave}
         filterCount={filters.length}
         companyCount={totalFound}
+      />
+
+      {/* Detailed market-analysis dashboard */}
+      <MarketAnalysisDashboard
+        open={analysisOpen}
+        onClose={() => setAnalysisOpen(false)}
+        companies={filteredCompanies}
+        filters={filters}
+        appliedProfile={appliedProfile}
+        goals={marketGoals}
+        goal={analysisGoal}
+        goalDetail={analysisGoalDetail}
+        onGoalChange={setAnalysisGoal}
       />
 
       {/* Toast */}
