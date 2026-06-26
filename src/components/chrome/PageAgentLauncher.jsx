@@ -250,7 +250,7 @@ function ChartBlock({ m }) {
   );
 }
 
-function AgentMessage({ m, onSubmitForm }) {
+function AgentMessage({ m, onSubmitForm, onTipAction }) {
   if (m.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -311,6 +311,18 @@ function AgentMessage({ m, onSubmitForm }) {
         </span>
         <div className="text-[11.5px] text-text-secondary leading-relaxed bg-amber-500/[0.06] border border-amber-500/20 rounded-lg rounded-tl-sm px-3 py-1.5">
           {m.text}
+          {m.action && (
+            <>
+              {' '}
+              <button
+                onClick={() => onTipAction?.(m.action.id)}
+                className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+              >
+                {m.action.label}
+                <ChevronRight size={11} />
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -354,6 +366,10 @@ export default function PageAgentLauncher() {
   const [editingQuick, setEditingQuick] = useState(false);
   const scrollRef = useRef(null);
   const formResolvers = useRef({});
+  // Tip cadence: surface a tip every Nth operation, rotating through the
+  // goal's pool, so tips stay occasional and varied.
+  const tipOpsRef = useRef(1);
+  const tipIdxRef = useRef(0);
 
   // Stable per-page key for persisting the user's quick-action choices.
   const quickKey = `pa-quick:${(config?.title || config?.cta || 'default').replace(/\s+/g, '-')}`;
@@ -365,6 +381,8 @@ export default function PageAgentLauncher() {
     setDraft('');
     setEditingQuick(false);
     formResolvers.current = {};
+    tipOpsRef.current = 1;
+    tipIdxRef.current = 0;
     // Load the user's pinned quick actions, defaulting to the page's
     // one-shot suggestions when nothing has been saved yet.
     let saved = null;
@@ -461,6 +479,35 @@ export default function PageAgentLauncher() {
     entry?.resolve?.(values);
   };
 
+  // Surface a goal-aligned tip only every 3rd operation, rotating through
+  // the pool so it neither repeats nor fires after every action.
+  const TIP_EVERY = 3;
+  const maybeTip = () => {
+    const tips = config.tips?.();
+    if (!tips || !tips.length) return;
+    tipOpsRef.current += 1;
+    if (tipOpsRef.current < TIP_EVERY) return;
+    tipOpsRef.current = 0;
+    const tip = tips[tipIdxRef.current % tips.length];
+    tipIdxRef.current += 1;
+    append({ role: 'tip', text: tip.text, action: tip.action });
+  };
+
+  // Run the action a tip links to — a flow/suggestion by id, or a named
+  // page action (e.g. 'open-analysis') the page registered on config.
+  const runTipAction = (actionId) => {
+    if (busy) return;
+    const pooled = actionPool.find((x) => x.id === actionId);
+    if (pooled) {
+      return pooled.isFlow ? runFlow(pooled) : runSuggestion(pooled);
+    }
+    const fn = config.actions?.[actionId];
+    if (fn) {
+      setView('chat');
+      fn();
+    }
+  };
+
   const runFlow = async (flow, opts = {}) => {
     if (busy) return;
     setView('chat');
@@ -468,8 +515,7 @@ export default function PageAgentLauncher() {
     append({ role: 'user', text: opts.userText || flow.label });
     try {
       await flow.run(ctx, { hint: opts.hint });
-      const tip = config.tip?.();
-      if (tip) append({ role: 'tip', text: tip });
+      maybeTip();
     } catch (err) {
       append({ role: 'agent', text: `Hmm, that didn't go through: ${err.message}` });
     }
@@ -493,13 +539,10 @@ export default function PageAgentLauncher() {
         result = `Something went wrong: ${err.message}`;
       }
       const summary = typeof result === 'string' ? result : result?.summary || 'Done.';
-      const tip = config.tip?.();
-      setMessages((prev) => {
-        const base = prev.filter((m) => m.role !== 'thinking');
-        const next = [...base, { id: nextId(), role: 'agent', text: summary }];
-        if (tip) next.push({ id: nextId(), role: 'tip', text: tip });
-        return next;
-      });
+      setMessages((prev) =>
+        prev.filter((m) => m.role !== 'thinking').concat({ id: nextId(), role: 'agent', text: summary }),
+      );
+      maybeTip();
       setBusy(false);
     }, 850);
   };
@@ -544,6 +587,8 @@ export default function PageAgentLauncher() {
     }
     setMessages([]);
     setView('chat');
+    tipOpsRef.current = 1;
+    tipIdxRef.current = 0;
   };
 
   const openHistoryItem = (item) => {
@@ -678,7 +723,7 @@ export default function PageAgentLauncher() {
                       )}
 
                       {messages.map((m) => (
-                        <AgentMessage key={m.id} m={m} onSubmitForm={submitForm} />
+                        <AgentMessage key={m.id} m={m} onSubmitForm={submitForm} onTipAction={runTipAction} />
                       ))}
                     </div>
 

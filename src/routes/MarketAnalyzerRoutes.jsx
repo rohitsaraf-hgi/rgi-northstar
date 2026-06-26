@@ -79,7 +79,7 @@ import {
   defaultGoalForPersona,
   MARKET_GOALS_BY_ID,
   goalChartBlurb,
-  goalTip,
+  goalTips,
 } from '../data/marketGoals.js';
 import { FILTER_REGISTRY } from '../data/filterRegistry.js';
 import {
@@ -1585,8 +1585,10 @@ export function MarketAnalyzerCompaniesRoute() {
     subtitle: 'Market Analyzer · Companies',
     intro:
       'What do you want to do? I can drive Market Analyzer for you — analyze the market, build an ICP segment, or set up scoring. UI shows up when it helps.',
-    // Goal-aligned tip appended by the launcher after each operation.
-    tip: () => goalTip(analysisGoalRef.current),
+    // Rotating, goal-aligned tips — the launcher surfaces them occasionally.
+    tips: () => goalTips(analysisGoalRef.current),
+    // Named page actions a tip link can trigger (beyond flows/suggestions).
+    actions: { 'open-analysis': () => setAnalysisOpen(true) },
     flows: [
       {
         id: 'analyze-market',
