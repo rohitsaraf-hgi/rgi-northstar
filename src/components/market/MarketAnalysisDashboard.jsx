@@ -334,6 +334,51 @@ function AnalysisCard({ card }) {
   );
 }
 
+// Per-block insight: the strategic "so what", not a restatement of the
+// chart. Shifts with the goal where the implication genuinely changes.
+function blockInsight(block, goalId, a) {
+  const n = a.n || 1;
+  const pct = (x) => Math.round((x / n) * 100);
+  const topInd = a.industry[0];
+  const topGeo = a.geography[0];
+  const topSpend = a.spenders[0];
+  const largeShare = a.employees
+    .filter((b) => b.label === '10K – 50K' || b.label === '50K+')
+    .reduce((s, b) => s + b.value, 0);
+
+  switch (block) {
+    case 'industry':
+      if (!topInd) return null;
+      if (goalId === 'whitespace')
+        return `${topInd.label} holds the most untapped accounts — the highest-yield place to open net-new territory.`;
+      if (goalId === 'competitor')
+        return `Incumbents concentrate where the market does; ${topInd.label} is where displacement volume and competitive intel run highest.`;
+      if (goalId === 'partnership')
+        return `A partner strong in ${topInd.label} compounds reach fastest — that's where joint pipeline concentrates.`;
+      return `Concentration in ${topInd.label} (${pct(topInd.value)}%) lets one message and a few reference logos cover most of the market — but pipeline rides that sector's cycle.`;
+    case 'revenue':
+      if (goalId === 'outreach')
+        return `An enterprise-weighted book means larger ACV per win — worth prioritizing the few accounts that actually move the number.`;
+      return `At ${a.enterprisePct}% $1B+, the budget to adopt new tooling already exists; the constraint is cycle length and stakeholder count, not spend.`;
+    case 'size':
+      return `${pct(largeShare)}% run 10K+ employees — complex, multi-cloud estates with broad attack surface, exactly where platform consolidation pays off.`;
+    case 'geography':
+      if (!topGeo) return null;
+      if (goalId === 'partnership')
+        return `${pct(topGeo.value)}% concentrate in ${topGeo.label}; a partner with reach beyond it is the fastest way to diversify pipeline.`;
+      return `${pct(topGeo.value)}% in ${topGeo.label} keeps GTM simple (one regulatory regime, one timezone) — but the geographic concentration is a risk worth flagging.`;
+    case 'itspend':
+      if (!topSpend) return null;
+      if (goalId === 'outreach')
+        return `IT budget is top-heavy — sequence these named accounts first; they hold both the spend and the surface area.`;
+      return `A handful of accounts hold outsized IT budget, favoring a named-account land-and-expand motion over volume outreach.`;
+    case 'icpfit':
+      return `${a.regulated} regulated + ${a.enterprise} enterprise pull entry toward compliance-led urgency; the ${a.cloudNative} cloud-native accounts size the workload-protection upside.`;
+    default:
+      return null;
+  }
+}
+
 export default function MarketAnalysisDashboard({
   open,
   onClose,
@@ -520,17 +565,13 @@ export default function MarketAnalysisDashboard({
     outreach: ['itspend', 'icpfit'],
   };
   const focus = new Set(FOCUS_BY_GOAL[goalId] || []);
-  const pct = (x) => Math.round((x / (a.n || 1)) * 100);
-  const largeShare = a.employees
-    .filter((b) => b.label === '10K – 50K' || b.label === '50K+')
-    .reduce((s, b) => s + b.value, 0);
   const insights = {
-    industry: a.industry[0] ? `${a.industry[0].label} leads at ${pct(a.industry[0].value)}% of the set.` : null,
-    revenue: `${a.enterprisePct}% clear $1B in revenue — capital to fund new tooling.`,
-    size: `${pct(largeShare)}% run 10K+ employees.`,
-    geography: a.geography[0] ? `${pct(a.geography[0].value)}% are HQ'd in ${a.geography[0].label}.` : null,
-    itspend: a.spenders[0] ? `${a.spenders[0].label} leads IT spend at ${fmtMoney(a.spenders[0].value)}.` : null,
-    icpfit: `${a.regulated} regulated · ${a.cloudNative} cloud-native · ${a.enterprise} enterprise.`,
+    industry: blockInsight('industry', goalId, a),
+    revenue: blockInsight('revenue', goalId, a),
+    size: blockInsight('size', goalId, a),
+    geography: blockInsight('geography', goalId, a),
+    itspend: blockInsight('itspend', goalId, a),
+    icpfit: blockInsight('icpfit', goalId, a),
   };
 
   return (
