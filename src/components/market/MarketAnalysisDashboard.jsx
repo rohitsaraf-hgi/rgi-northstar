@@ -659,6 +659,25 @@ export default function MarketAnalysisDashboard({
                 <Bars data={profiles} accent />
               </div>
 
+              {/* AI analysis — tailored to the selected goal */}
+              <div className="border border-primary/30 bg-primary/[0.04] rounded-xl p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={15} className="text-primary" />
+                  <span className="text-[13px] font-semibold text-text-primary">AI analysis</span>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                    {goalLabel}
+                  </span>
+                </div>
+
+                <p className="text-[13px] text-text-secondary leading-relaxed">{analysis.headline}</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {analysis.cards.map((card) => (
+                    <AnalysisCard key={card.title} card={card} />
+                  ))}
+                </div>
+              </div>
+
               {/* Charts — goal-aware highlighting + per-block insight */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Panel icon={Building2} title="Industry mix" hint={`${a.industry.length} sectors`} focus={focus.has('industry')} insight={insights.industry}>
@@ -692,25 +711,6 @@ export default function MarketAnalysisDashboard({
                     </div>
                   </div>
                 </Panel>
-              </div>
-
-              {/* AI analysis — tailored to the selected goal */}
-              <div className="border border-primary/30 bg-primary/[0.04] rounded-xl p-5 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={15} className="text-primary" />
-                  <span className="text-[13px] font-semibold text-text-primary">AI analysis</span>
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                    {goalLabel}
-                  </span>
-                </div>
-
-                <p className="text-[13px] text-text-secondary leading-relaxed">{analysis.headline}</p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {analysis.cards.map((card) => (
-                    <AnalysisCard key={card.title} card={card} />
-                  ))}
-                </div>
               </div>
             </div>
           </motion.div>
