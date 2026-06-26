@@ -13,6 +13,7 @@ import { ApprovalProvider } from './context/ApprovalContext.jsx';
 import { DemoProvider } from './context/DemoContext.jsx';
 import { ModuleDetailProvider } from './context/ModuleDetailContext.jsx';
 import { TenantProvider } from './context/TenantContext.jsx';
+import { PageAgentProvider } from './context/PageAgentContext.jsx';
 
 // Wire whitespace fallback getters so getFitFor / getRGIF work for HG-universe
 // accounts that aren't in the rep's CRM book.
@@ -39,7 +40,9 @@ createRoot(document.getElementById('root')).render(
                     <ModuleDetailProvider>
                       <CompanyDetailProvider>
                         <PlaybookDetailProvider>
-                          <App />
+                          <PageAgentProvider>
+                            <App />
+                          </PageAgentProvider>
                         </PlaybookDetailProvider>
                       </CompanyDetailProvider>
                     </ModuleDetailProvider>

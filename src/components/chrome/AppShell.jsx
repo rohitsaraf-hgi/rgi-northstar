@@ -7,21 +7,33 @@ import NotificationPanel from './NotificationPanel.jsx';
 import UseCaseActivationModal from '../usecase/UseCaseActivationModal.jsx';
 import CompanyDetailDrawer from '../company/CompanyDetailDrawer.jsx';
 import PlaybookDetailDrawer from '../admin/PlaybookDetailDrawer.jsx';
+import PageAgentLauncher from './PageAgentLauncher.jsx';
 import { usePersona } from '../../context/PersonaContext.jsx';
+import { usePageAgentControls } from '../../context/PageAgentContext.jsx';
 
 export default function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const { isSwitching, persona } = usePersona();
+  const { open: agentOpen } = usePageAgentControls();
 
   return (
     <div className="h-screen flex bg-bg overflow-hidden">
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed((c) => !c)}
-        onNewThread={() => setNewThreadOpen(true)}
-      />
+      {/* App sidebar — collapses away while the page agent is open, for a
+          focused side-by-side view. */}
+      <motion.div
+        initial={false}
+        animate={{ width: agentOpen ? 0 : collapsed ? 56 : 240 }}
+        transition={{ type: 'tween', ease: [0.32, 0.72, 0, 1], duration: 0.3 }}
+        className="flex-shrink-0 h-full overflow-hidden"
+      >
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={() => setCollapsed((c) => !c)}
+          onNewThread={() => setNewThreadOpen(true)}
+        />
+      </motion.div>
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopNav onBellClick={() => setBellOpen(true)} />
@@ -54,6 +66,7 @@ export default function AppShell() {
       />
       <CompanyDetailDrawer />
       <PlaybookDetailDrawer />
+      <PageAgentLauncher />
     </div>
   );
 }
