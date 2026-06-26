@@ -13,7 +13,7 @@
 // Design follows the RGI Northstar tokens — same Tailwind utilities,
 // DM Sans, lucide-react icons. Don't import HG Insights chrome.
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Folder,
@@ -49,6 +49,11 @@ import {
   Send,
   CheckCircle2,
   AlertTriangle,
+  Eye,
+  Clock,
+  Tags,
+  FolderInput,
+  Network,
 } from 'lucide-react';
 import {
   listProjects,
@@ -72,6 +77,7 @@ import {
 } from '../data/workbooks.js';
 import { useDemo } from '../context/DemoContext.jsx';
 import { usePersona } from '../context/PersonaContext.jsx';
+import { usePageAgent } from '../context/PageAgentContext.jsx';
 
 // ─── Shared layout helpers ──────────────────────────────────────────
 
@@ -128,15 +134,143 @@ function Tabs({ tabs, active, onChange }) {
 
 // ─── Projects ───────────────────────────────────────────────────────
 
+// Derive a category label for a project from its name + description.
+// Used by the "categorize / bulk rename" agent action.
+function projectCategory(p) {
+  const text = `${p.name} ${p.description}`.toLowerCase();
+  if (text.includes('cnapp')) return 'CNAPP';
+  if (text.includes('healthcare') || text.includes('life science')) return 'Healthcare';
+  if (text.includes('ai') || text.includes('runtime') || text.includes('agent')) return 'AI Defense';
+  if (text.includes('palo alto') || text.includes('displacement') || text.includes('competit'))
+    return 'Competitive';
+  return 'General';
+}
+
 export function MarketAnalyzerProjectsRoute() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('mine');
-  const all = listProjects();
+  const [projects, setProjects] = useState(() => listProjects());
+  const [highlightIds, setHighlightIds] = useState([]);
+  const [insight, setInsight] = useState(null);
+
+  // The agent is registered once on mount, so its `run` callbacks read
+  // the latest projects through this ref and mutate via functional updates.
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+
   const filtered = tab === 'mine'
-    ? all.filter((p) => p.ownerId === 'priya')
+    ? projects.filter((p) => p.ownerId === 'priya')
     : tab === 'organization'
-    ? all.filter((p) => p.visibility === 'organization')
-    : all;
+    ? projects.filter((p) => p.visibility === 'organization')
+    : projects;
+
+  // ─── Page agent ───────────────────────────────────────────────────
+  // Each suggestion mocks the agent reaching into this page and changing
+  // it: flipping visibility, reordering, renaming, foldering, or
+  // surfacing an insight. All visible immediately in the table below.
+  usePageAgent({
+    cta: 'Manage your projects with AI',
+    title: 'Projects Agent',
+    subtitle: 'Market Analyzer · Projects',
+    intro:
+      'I can reorganize, inspect, and tidy up your TAM / SAM / SOM projects right here. Try one of these:',
+    suggestions: [
+      {
+        id: 'make-all-visible',
+        label: 'Make all visible',
+        icon: Eye,
+        thinking: 'Updating visibility on your projects…',
+        run: () => {
+          const current = projectsRef.current;
+          const privates = current.filter((p) => p.visibility !== 'organization');
+          setProjects((prev) => prev.map((p) => ({ ...p, visibility: 'organization' })));
+          setTab('all');
+          setHighlightIds(privates.map((p) => p.id));
+          if (privates.length === 0)
+            return 'Every project is already Org-visible — nothing to change.';
+          return `Set all ${current.length} projects to Org-visible. ${privates.length} were private: ${privates
+            .map((p) => p.name)
+            .join(', ')}.`;
+        },
+      },
+      {
+        id: 'inspect-updates',
+        label: 'Inspect latest updates',
+        icon: Clock,
+        thinking: 'Scanning recent activity…',
+        run: () => {
+          const sorted = [...projectsRef.current].sort((a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt)
+          );
+          setProjects(sorted);
+          setTab('all');
+          const newest = sorted[0];
+          const stale = sorted[sorted.length - 1];
+          setHighlightIds([newest.id]);
+          setInsight(null);
+          return `Sorted by last updated.\n• Most recent: ${newest.name} — ${newest.updatedAt} (${newest.segmentCount} segments)\n• Oldest touch: ${stale.name} — ${stale.updatedAt}; might be worth a refresh.`;
+        },
+      },
+      {
+        id: 'find-common-companies',
+        label: 'Find common companies',
+        icon: Network,
+        thinking: 'Comparing company sets across projects…',
+        run: () => {
+          const byCount = [...projectsRef.current].sort(
+            (a, b) => b.companyCount - a.companyCount
+          );
+          const [a, b] = byCount;
+          if (!b) return 'Need at least two projects to compare. Create another first.';
+          const overlap = Math.round(Math.min(a.companyCount, b.companyCount) * 0.34);
+          setHighlightIds([a.id, b.id]);
+          setTab('all');
+          setInsight({
+            overlap,
+            a: a.name,
+            b: b.name,
+          });
+          return `Found ~${overlap.toLocaleString()} companies shared between ${a.name} and ${b.name} — mostly Banking + Tech accounts already in CRM. I've flagged both projects below.`;
+        },
+      },
+      {
+        id: 'move-projects',
+        label: 'Move projects',
+        icon: FolderInput,
+        thinking: 'Moving projects into a shared folder…',
+        run: () => {
+          const folder = 'FY26 Planning Book';
+          const count = projectsRef.current.length;
+          setProjects((prev) => prev.map((p) => ({ ...p, folder })));
+          setTab('all');
+          setHighlightIds([]);
+          return `Moved all ${count} projects into the “${folder}” folder so they group together in your workspace.`;
+        },
+      },
+      {
+        id: 'categorize',
+        label: 'Categorize projects (bulk rename)',
+        icon: Tags,
+        thinking: 'Categorizing and renaming projects…',
+        run: () => {
+          const tags = [...new Set(projectsRef.current.map(projectCategory))];
+          setProjects((prev) =>
+            prev.map((p) => {
+              const tag = projectCategory(p);
+              return p.name.startsWith(`[${tag}]`)
+                ? p
+                : { ...p, name: `[${tag}] ${p.name}` };
+            })
+          );
+          setTab('all');
+          setHighlightIds([]);
+          return `Categorized and renamed ${projectsRef.current.length} projects across ${tags.length} categories: ${tags.join(
+            ', '
+          )}. Prefixes are now on each name.`;
+        },
+      },
+    ],
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-8">
@@ -161,6 +295,30 @@ export function MarketAnalyzerProjectsRoute() {
         active={tab}
         onChange={setTab}
       />
+
+      {insight && (
+        <div className="mb-4 flex items-start gap-3 px-4 py-3 rounded-md border border-primary/30 bg-primary/5">
+          <span className="grid place-items-center w-6 h-6 rounded-md bg-primary/10 text-primary flex-shrink-0 mt-0.5">
+            <Network size={13} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-semibold text-text-primary">
+              ~{insight.overlap.toLocaleString()} shared companies
+            </div>
+            <div className="text-[11.5px] text-text-secondary leading-relaxed">
+              {insight.a} and {insight.b} overlap heavily — mostly Banking + Tech accounts already
+              in CRM. Consider merging or de-duping before you push to Sales Co-Pilot.
+            </div>
+          </div>
+          <button
+            onClick={() => setInsight(null)}
+            className="p-1 rounded hover:bg-surface-2 text-text-muted hover:text-text-primary flex-shrink-0"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       <div className="bg-surface border border-border rounded-md overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-bg/40 border-b border-border">
@@ -178,9 +336,20 @@ export function MarketAnalyzerProjectsRoute() {
               <tr
                 key={p.id}
                 onClick={() => navigate(`/market-analyzer/segments?project=${p.id}`)}
-                className="border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors"
+                className={`border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors ${
+                  highlightIds.includes(p.id) ? 'bg-primary/5 ring-1 ring-inset ring-primary/40' : ''
+                }`}
               >
-                <td className="px-4 py-2.5 text-text-primary font-medium">{p.name}</td>
+                <td className="px-4 py-2.5 text-text-primary font-medium">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span>{p.name}</span>
+                    {p.folder && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/30">
+                        <Folder size={9} /> {p.folder}
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-2.5 text-text-secondary text-[12px] max-w-md truncate">{p.description}</td>
                 <td className="px-4 py-2.5">
                   <VisibilityBadge visibility={p.visibility} />
@@ -1102,6 +1271,11 @@ export function MarketAnalyzerCompaniesRoute() {
   }, [allCompanies, search, filters, sort]);
 
   const totalFound = filteredCompanies.length;
+  // Agent registers once on mount; read the live count through a ref.
+  const totalFoundRef = useRef(totalFound);
+  totalFoundRef.current = totalFound;
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
   const pageCount = Math.max(1, Math.ceil(totalFound / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const pageStart = safePage * pageSize;
@@ -1148,6 +1322,116 @@ export function MarketAnalyzerCompaniesRoute() {
     setSaveToast({ message: `Saved "${seg.name}" — ${totalFound.toLocaleString()} companies` });
     setTimeout(() => setSaveToast(null), 3500);
   };
+
+  // ─── Page agent ───────────────────────────────────────────────────
+  // "Explore companies with AI" — each action drives the real page state
+  // (filters, sort, scoring profile, save flow) so the table responds
+  // immediately. Summaries count against the full universe via the same
+  // spec predicates the FilterPanel uses, so the numbers line up.
+  const applyFilterFromSpec = (specId, value) => {
+    const spec = FILTER_REGISTRY[specId];
+    if (!spec) return 0;
+    const f = {
+      id: specId,
+      specId,
+      group: spec.group,
+      label: spec.label,
+      value,
+      displayValue: spec.format ? spec.format(value) : undefined,
+    };
+    // Replace any same-id filter, keep the rest, so the reported count is
+    // the real intersection the table will show.
+    const next = [...filtersRef.current.filter((x) => x.id !== specId), f];
+    setFilters(next);
+    setPage(0);
+    let rows = allCompanies;
+    for (const active of next) {
+      const pred = FILTER_REGISTRY[active.specId]?.buildPredicate(active.value);
+      if (pred) rows = rows.filter(pred);
+    }
+    return rows.length;
+  };
+
+  const parseSpend = (s) => {
+    const m = String(s || '').match(/([\d.]+)\s*([KMBT])?/i);
+    if (!m) return 0;
+    const n = parseFloat(m[1]) || 0;
+    const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || '').toUpperCase()] || 1;
+    return n * mult;
+  };
+
+  usePageAgent({
+    cta: 'Explore companies with AI',
+    title: 'Companies Agent',
+    subtitle: 'Market Analyzer · Companies',
+    intro:
+      'I can slice HG’s universe for you — filter, score, rank, and save the view as a segment. Try one of these:',
+    suggestions: [
+      {
+        id: 'top-it-spend',
+        label: 'Rank by IT spend',
+        icon: TrendingUp,
+        thinking: 'Ranking by IT spend…',
+        run: () => {
+          setSort({ key: 'itSpend', dir: 'desc' });
+          setPage(0);
+          const ranked = [...allCompanies].sort(
+            (a, b) => parseSpend(b.itSpend) - parseSpend(a.itSpend)
+          );
+          const top = ranked
+            .slice(0, 3)
+            .map((c) => `${c.name} (${c.itSpend})`)
+            .join(', ');
+          return `Sorted by IT spend, highest first. Top spenders: ${top}. These are where budget already exists for new tooling.`;
+        },
+      },
+      {
+        id: 'enterprise',
+        label: 'Filter to enterprise ($10B+)',
+        icon: Building2,
+        thinking: 'Filtering to enterprise accounts…',
+        run: () => {
+          const value = { min: '10B', max: '' };
+          const n = applyFilterFromSpec('revenue', value);
+          setSort({ key: 'revenue', dir: 'desc' });
+          return `${n.toLocaleString()} companies in HG’s universe clear $10B+ in revenue. Added a Revenue filter and sorted high to low — your biggest-ticket targets are up top.`;
+        },
+      },
+      {
+        id: 'financial-vertical',
+        label: 'Focus on Financial Services',
+        icon: DollarSign,
+        thinking: 'Narrowing to Financial Services…',
+        run: () => {
+          const value = ['banking'];
+          const n = applyFilterFromSpec('industry', value);
+          return `Narrowed to ${n.toLocaleString()} Banking & Financial Services accounts. Add an intent or technographic filter next to find the ones actively evaluating.`;
+        },
+      },
+      {
+        id: 'apply-scoring',
+        label: 'Score against my ICP',
+        icon: Gauge,
+        thinking: 'Applying your scoring profile…',
+        run: () => {
+          const profile = profiles[0];
+          if (!profile) return 'No scoring profiles exist yet — build one in Scoring Profiles first.';
+          setAppliedProfileId(profile.id);
+          return `Now scoring every company with “${profile.name}”. The fit lens is live — sort or filter on Fit Score to push your best-match accounts to the top.`;
+        },
+      },
+      {
+        id: 'save-segment',
+        label: 'Save this view as a segment',
+        icon: Bookmark,
+        thinking: 'Opening the save dialog…',
+        run: () => {
+          setSaveModalOpen(true);
+          return `Opened the save dialog for the current ${totalFoundRef.current.toLocaleString()} companies. Name it and pick a project to keep this view for ongoing work.`;
+        },
+      },
+    ],
+  });
 
   return (
     <div className="px-8 py-6">

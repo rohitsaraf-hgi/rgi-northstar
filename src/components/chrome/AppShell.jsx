@@ -7,6 +7,7 @@ import NotificationPanel from './NotificationPanel.jsx';
 import UseCaseActivationModal from '../usecase/UseCaseActivationModal.jsx';
 import CompanyDetailDrawer from '../company/CompanyDetailDrawer.jsx';
 import PlaybookDetailDrawer from '../admin/PlaybookDetailDrawer.jsx';
+import PageAgentLauncher from './PageAgentLauncher.jsx';
 import { usePersona } from '../../context/PersonaContext.jsx';
 
 export default function AppShell() {
@@ -54,6 +55,7 @@ export default function AppShell() {
       />
       <CompanyDetailDrawer />
       <PlaybookDetailDrawer />
+      <PageAgentLauncher />
     </div>
   );
 }
