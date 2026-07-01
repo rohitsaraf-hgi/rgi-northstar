@@ -20,6 +20,7 @@ import {
   Layers,
   Bookmark,
   History,
+  Sparkles,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
@@ -79,6 +80,19 @@ export default function SidebarMarketAnalyzer({ collapsed, onToggle }) {
         {/* MARKET ANALYZER */}
         {!collapsed && <SectionLabel>Market Analyzer</SectionLabel>}
         <div className={collapsed ? 'pt-3 space-y-1' : 'space-y-0.5'}>
+          {/* Copilot is the new MA landing — conversational front door
+              for the 8-JTBD analyst flows. Lives at /market-analyzer
+              and /market-analyzer/copilot. */}
+          <NavRow
+            icon={Sparkles}
+            label="Copilot"
+            active={
+              location.pathname === '/market-analyzer' ||
+              startsWith('/market-analyzer/copilot')
+            }
+            onClick={() => navigate('/market-analyzer')}
+            collapsed={collapsed}
+          />
           <NavRow
             icon={Folder}
             label="Projects"

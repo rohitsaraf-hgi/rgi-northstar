@@ -30,6 +30,7 @@ import {
   MarketAnalyzerSavedCollectionsRoute,
   MarketAnalyzerExportHistoryRoute,
 } from './routes/MarketAnalyzerRoutes.jsx';
+import MarketAnalyzerCopilotRoute from './routes/MarketAnalyzerCopilotRoute.jsx';
 import PlaysRoute from './routes/PlaysRoute.jsx';
 import WorkflowsRoute from './routes/WorkflowsRoute.jsx';
 import WorkflowDetailRoute from './routes/WorkflowDetailRoute.jsx';
@@ -74,8 +75,11 @@ export default function App() {
           <Route path="/workbook/:workbookId" element={<WorkbookRoute />} />
           {/* Market Analyzer routes — admin-only module (gated through
               ModuleSwitcher visibility, not RequireAdmin here, so URL
-              hand-off from Sales Co-Pilot stays seamless). */}
-          <Route path="/market-analyzer" element={<RequireAdmin><MarketAnalyzerProjectsRoute /></RequireAdmin>} />
+              hand-off from Sales Co-Pilot stays seamless).
+              The Copilot is the new MA landing page; legacy CRUD routes
+              remain accessible via the sidebar. */}
+          <Route path="/market-analyzer" element={<RequireAdmin><MarketAnalyzerCopilotRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/copilot" element={<RequireAdmin><MarketAnalyzerCopilotRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/projects" element={<RequireAdmin><MarketAnalyzerProjectsRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/companies" element={<RequireAdmin><MarketAnalyzerCompaniesRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/segments" element={<RequireAdmin><MarketAnalyzerSegmentsRoute /></RequireAdmin>} />
