@@ -39,7 +39,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { useAIThinking } from '../context/AIThinkingContext.jsx';
 import { listOfferings, getOffering } from '../data/offerings.js';
 import { getFitFor, getAllFitFor, tierForScore, bestOfferingFor } from '../data/accountOfferingFit.js';
-import { getHgIntelligence, OFFERING_CODES } from '../data/hgIntelligence.js';
+import { getHgIntelligence, OFFERING_CODES, resolveAccountOverview } from '../data/hgIntelligence.js';
 import { workflowsForOffering, listWorkflows } from '../data/workflows.js';
 import { listSignals } from '../data/signals.js';
 import { analyzeAccountCoverage, PRIORITY_TREATMENTS, getAccountStakeholders } from '../data/buyingCommittees.js';
@@ -513,23 +513,335 @@ function LookalikesDrawer({ open, sourceAccount, onClose, onSaveAsList, onOpenAc
   );
 }
 
-function OverviewTab({ account, onChangeLens, onFindLookalikes }) {
-  // Per the spec: Overview shows what's happening, the pain points this
-  // account is facing, which offerings to lead with, and the agentic
-  // lookalikes callout at the bottom. Defensive null checks throughout
-  // so a missing HG_INTELLIGENCE entry or offering-id mismatch never
-  // crashes the tab.
+// ────────────────────────────────────────────────────────────────────
+// Account Card v2 — Overview
+//
+// Spec source: /docs — Account Card Overview.
+// The rep opening an account is answering three questions:
+//   1. Is now the moment?     → Why Now (narrative + trigger chips)
+//   2. Do I believe it?       → Key Highlights (3–5 signal tiles)
+//   3. What do I do?          → Lead With (offering + entry + opener)
+//                                + Co-sell Follow-on (secondary)
+//
+// Sections render conditionally — an account without triggers hides
+// Why Now, an account without pain hides Pain Points, etc. The old
+// "AI intelligence is generating" empty state stays for accounts with
+// no intelligence record at all.
+// ────────────────────────────────────────────────────────────────────
 
+function ConfidenceChip({ confidence }) {
+  const map = {
+    high:   { color: 'bg-emerald-500', label: 'High confidence' },
+    medium: { color: 'bg-amber-500',   label: 'Medium confidence' },
+    low:    { color: 'bg-rose-500',    label: 'Low confidence' },
+  };
+  const cfg = map[confidence] || map.medium;
+  return (
+    <span className="inline-flex items-center gap-1 text-[10.5px] text-text-muted">
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.color}`} />
+      {cfg.label}
+    </span>
+  );
+}
+
+const TRIGGER_KIND_STYLE = {
+  tech_change:     { bg: 'bg-sky-500/10',     text: 'text-sky-700 dark:text-sky-300',         border: 'border-sky-500/30' },
+  news:            { bg: 'bg-violet-500/10',  text: 'text-violet-700 dark:text-violet-300',   border: 'border-violet-500/30' },
+  funding:         { bg: 'bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-500/30' },
+  hiring:          { bg: 'bg-amber-500/10',   text: 'text-amber-700 dark:text-amber-300',     border: 'border-amber-500/30' },
+  intent:          { bg: 'bg-rose-500/10',    text: 'text-rose-700 dark:text-rose-300',       border: 'border-rose-500/30' },
+  spend_delta:     { bg: 'bg-amber-500/10',   text: 'text-amber-700 dark:text-amber-300',     border: 'border-amber-500/30' },
+  competitor_move: { bg: 'bg-rose-500/10',    text: 'text-rose-700 dark:text-rose-300',       border: 'border-rose-500/30' },
+  derived:         { bg: 'bg-primary/8',      text: 'text-text-secondary',                     border: 'border-border' },
+};
+
+function TriggerChip({ trigger }) {
+  const s = TRIGGER_KIND_STYLE[trigger.kind] || TRIGGER_KIND_STYLE.derived;
+  return (
+    <span
+      className={`inline-flex items-center text-[10.5px] font-medium px-2 py-0.5 rounded border ${s.bg} ${s.text} ${s.border}`}
+      title={trigger.detectedAt || undefined}
+    >
+      {trigger.label}
+    </span>
+  );
+}
+
+function WhyNowSection({ accountName, whyNow }) {
+  if (!whyNow) return null;
+  return (
+    <div className="bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/30 rounded-md p-4">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-md bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+          <Sparkles size={16} className="text-violet-700 dark:text-violet-300" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-3 mb-1">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-violet-700 dark:text-violet-300">
+              Why now · {accountName}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {whyNow.freshness && (
+                <span className="text-[10.5px] text-text-muted">{whyNow.freshness}</span>
+              )}
+              <ConfidenceChip confidence={whyNow.confidence} />
+            </div>
+          </div>
+          <p className="text-[13px] text-text-secondary leading-relaxed">{whyNow.narrative}</p>
+          {Array.isArray(whyNow.triggers) && whyNow.triggers.length > 0 && (
+            <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted mr-0.5">
+                Triggered by
+              </span>
+              {whyNow.triggers.map((t) => (
+                <TriggerChip key={t.id} trigger={t} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeadWithSection({ leadWith, coSell, onChangeLens, onCopyOpener, onRegenerateOpener }) {
+  if (!leadWith) return null;
+  const leadOffering = leadWith.offering;
+  const nextOffering = coSell?.offering;
+  return (
+    <div className={`grid gap-2 ${coSell ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
+      {/* Lead With — primary card */}
+      <div className="bg-surface border-2 border-primary/30 rounded-md p-3.5">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-primary inline-flex items-center gap-1.5">
+            <Crown size={11} />
+            Lead with
+          </div>
+          {leadOffering && onChangeLens && (
+            <button
+              onClick={() => onChangeLens(leadOffering.id)}
+              className="inline-flex items-center gap-1 text-[10.5px] text-primary hover:underline font-semibold"
+            >
+              Open lens <ArrowRight size={9} />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 mb-1">
+          {leadOffering && (
+            <span className={`w-5 h-5 rounded ${leadOffering.bg || 'bg-primary/10'} flex items-center justify-center flex-shrink-0`}>
+              <Package size={11} className={leadOffering.textColor || 'text-primary'} />
+            </span>
+          )}
+          <span className="text-[14px] font-semibold text-text-primary truncate">
+            {leadWith.offeringName}
+          </span>
+        </div>
+        {leadWith.entryPoint && (
+          <div className="text-[11px] text-text-secondary leading-snug mb-2">
+            Entry point: <span className="font-medium text-text-primary">{leadWith.entryPoint}</span>
+          </div>
+        )}
+        {leadWith.rationaleLine && (
+          <div className="text-[11.5px] text-text-secondary italic leading-snug mb-2.5">
+            {leadWith.rationaleLine}
+          </div>
+        )}
+        {leadWith.opener && (
+          <div className="mt-2 pt-2.5 border-t border-border/60">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-1 flex items-center justify-between">
+              <span>Opener you can say</span>
+              <span className="flex items-center gap-2">
+                <button
+                  onClick={() => onCopyOpener?.(leadWith.opener)}
+                  className="text-[10px] font-semibold text-text-muted hover:text-primary transition-colors"
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={onRegenerateOpener}
+                  className="text-[10px] font-semibold text-text-muted hover:text-primary transition-colors"
+                >
+                  Regenerate
+                </button>
+              </span>
+            </div>
+            <div className="text-[12px] text-text-primary leading-relaxed font-medium">
+              {leadWith.opener}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Co-sell follow-on — secondary card */}
+      {coSell && (
+        <div className="bg-surface border border-border rounded-md p-3.5">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-1.5 inline-flex items-center gap-1.5">
+            {coSell.type === 'expansion' ? 'Expansion follow-on' : 'Co-sell follow-on'}
+            <span
+              className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded border ${
+                coSell.type === 'expansion'
+                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                  : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
+              }`}
+            >
+              {coSell.type === 'expansion' ? 'Expand' : 'Co-sell'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 mb-1">
+            {nextOffering && (
+              <span className={`w-5 h-5 rounded ${nextOffering.bg || 'bg-primary/10'} flex items-center justify-center flex-shrink-0`}>
+                <Package size={11} className={nextOffering.textColor || 'text-primary'} />
+              </span>
+            )}
+            <span className="text-[13px] font-semibold text-text-primary truncate">
+              {coSell.offeringName}
+            </span>
+          </div>
+          {coSell.rationaleLine && (
+            <div className="text-[11px] text-text-secondary leading-snug">
+              {coSell.rationaleLine}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KeyHighlightsSection({ highlights }) {
+  if (!Array.isArray(highlights) || highlights.length === 0) return null;
+  return (
+    <div className="bg-surface border border-border rounded-md p-4">
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <Lightbulb size={12} className="text-primary" />
+        <h3 className="text-xs uppercase tracking-wider font-semibold text-text-secondary">
+          Key highlights
+        </h3>
+        <span className="text-[10.5px] text-text-muted">· evidence for the wedge</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {highlights.map((h) => (
+          <div key={h.id} className="p-3 rounded border border-border bg-bg/30 hover:border-primary/30 transition-colors">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-[9.5px] uppercase tracking-wider font-bold text-text-muted truncate">
+                {h.category}
+              </span>
+              {h.magnitude && (
+                <span className="text-[10px] font-mono font-semibold text-primary flex-shrink-0">
+                  {h.magnitude}
+                </span>
+              )}
+            </div>
+            <div className="text-[12.5px] font-semibold text-text-primary leading-snug mb-0.5">
+              {h.headline}
+            </div>
+            <div className="text-[11px] text-text-secondary leading-relaxed">{h.detail}</div>
+          </div>
+        ))}
+      </div>
+      {highlights.length < 3 && (
+        <div className="mt-2 text-[10.5px] text-text-muted italic">
+          HG is still gathering signal on this account — additional highlights will appear as data lands.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PainPointsSection({ accountName, painPoints, offeringLookup }) {
+  if (!Array.isArray(painPoints) || painPoints.length === 0) return null;
+  return (
+    <div className="bg-surface border border-border rounded-md p-4">
+      <div className="flex items-center gap-1.5 mb-2">
+        <AlertTriangle size={12} className="text-amber-700 dark:text-amber-300" />
+        <h3 className="text-xs uppercase tracking-wider font-semibold text-text-secondary">
+          Pain points {accountName} is facing
+        </h3>
+        <span className="text-[10.5px] text-text-muted">· tagged by offering that addresses it</span>
+      </div>
+      <ul className="space-y-1.5">
+        {painPoints.map((p, i) => (
+          <li key={i} className="flex items-start gap-2 text-[12px] text-text-secondary leading-snug">
+            <span className="text-amber-700 dark:text-amber-300 mt-0.5">·</span>
+            <span className="flex-1 min-w-0">
+              {p.text}
+              {Array.isArray(p.addressedBy) && p.addressedBy.length > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1 flex-wrap">
+                  {p.addressedBy.map((code) => {
+                    const offering = offeringLookup(code);
+                    if (!offering) return null;
+                    const shortName = offering.name.replace(/^Wiz\s+/i, '');
+                    return (
+                      <span
+                        key={code}
+                        className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${offering.bg || 'bg-primary/10'} ${offering.textColor || 'text-primary'}`}
+                      >
+                        {shortName}
+                      </span>
+                    );
+                  })}
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function NextActionsSection({ onFindLookalikes, onDraftOutreach, onGoToContacts, accountName }) {
+  return (
+    <div className="bg-surface border border-border rounded-md p-3">
+      <div className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-2">
+        Suggested next actions
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {onDraftOutreach && (
+          <button
+            onClick={onDraftOutreach}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded hover:bg-primary-dim transition-colors"
+          >
+            <Mail size={11} /> Draft outreach <ArrowRight size={10} className="opacity-70" />
+          </button>
+        )}
+        {onFindLookalikes && (
+          <button
+            onClick={onFindLookalikes}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface text-text-secondary border border-border hover:border-primary/40 hover:text-primary rounded transition-colors"
+          >
+            <Wand2 size={11} /> Find accounts like {accountName} <ArrowRight size={10} className="opacity-70" />
+          </button>
+        )}
+        {onGoToContacts && (
+          <button
+            onClick={onGoToContacts}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface text-text-secondary border border-border hover:border-primary/40 hover:text-primary rounded transition-colors"
+          >
+            <UsersIcon size={11} /> Book stakeholder intro <ArrowRight size={10} className="opacity-70" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTab({
+  account,
+  onChangeLens,
+  onFindLookalikes,
+  onDraftOutreach,
+  onGoToContacts,
+}) {
   const intel = getHgIntelligence(account.id);
+  const toastCtx = useToast?.();
 
-  // Resolve the lead / next offerings against the tenant's offering
-  // catalog. Falls through OFFERING_CODES → offering.key → offering.id
-  // so wizard-saved offerings (wiz-cnapp, wiz-code, wiz-defend) resolve
-  // alongside legacy ids.
+  // Resolve offerings — falls through OFFERING_CODES → offering.key →
+  // offering.id so wizard-saved offerings resolve alongside legacy ids.
+  const offerings = useMemo(() => listOfferings(), []);
   const resolveOfferingByCode = (code) => {
     if (!code) return null;
     const key = OFFERING_CODES?.[code]?.key;
-    const offerings = listOfferings();
     return (
       offerings.find((o) => o.key === key || o.id === key) ||
       offerings.find((o) => o.id === code) ||
@@ -539,155 +851,59 @@ function OverviewTab({ account, onChangeLens, onFindLookalikes }) {
   const leadOffering = resolveOfferingByCode(intel?.lead?.code);
   const nextOffering = resolveOfferingByCode(intel?.next?.code);
 
-  // Pain points — pulled from the lead offering's painPoints. Tenant
-  // config is authored as an array of strings; fall back to the
-  // narrative if no offering painPoints exist.
-  const painPoints = Array.isArray(leadOffering?.painPoints)
-    ? leadOffering.painPoints
-    : [];
+  const overview = useMemo(
+    () =>
+      resolveAccountOverview({
+        intel,
+        account,
+        leadOffering,
+        nextOffering,
+      }),
+    [intel, account, leadOffering, nextOffering],
+  );
+
+  // No intelligence at all → show the empty state (same as before).
+  if (!overview) {
+    return (
+      <div className="bg-surface border border-dashed border-border rounded-md p-6 text-center text-[12px] text-text-muted">
+        AI intelligence for this account is generating. Refresh in a moment, or run an Account Brief from the Account AI tab.
+      </div>
+    );
+  }
+
+  const handleCopyOpener = (text) => {
+    if (!text) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    toastCtx?.showToast?.('Opener copied to clipboard');
+  };
+  const handleRegenerateOpener = () => {
+    toastCtx?.showToast?.('Regeneration will hit the LLM in v2 — showing authored opener for the demo');
+  };
 
   return (
-    <div className="space-y-4">
-      {/* What's happening + Lead with + Co-sell follow-on */}
-      {intel ? (
-        <div className="bg-gradient-to-br from-violet-500/5 via-primary/5 to-emerald-500/5 border border-violet-500/30 rounded-md p-4">
-          <div className="flex items-start gap-3 mb-3">
-            <div className="w-9 h-9 rounded-md bg-violet-500/15 flex items-center justify-center flex-shrink-0">
-              <Sparkles size={16} className="text-violet-700 dark:text-violet-300" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-violet-700 dark:text-violet-300 mb-0.5">
-                What's happening at {account.name}
-              </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed">
-                {intel.narrative}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 mt-3">
-            {/* Lead with */}
-            {intel.lead && (
-              <div className="bg-surface/80 border border-border rounded p-3">
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1">
-                  Lead with
-                </div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  {leadOffering && (
-                    <span className={`w-5 h-5 rounded ${leadOffering.bg || 'bg-primary/10'} flex items-center justify-center flex-shrink-0`}>
-                      <Package size={11} className={leadOffering.textColor || 'text-primary'} />
-                    </span>
-                  )}
-                  <span className="text-[13px] font-semibold text-text-primary truncate">
-                    {intel.lead.name}
-                  </span>
-                </div>
-                {intel.lead.entryPoint && (
-                  <div className="text-[11px] text-text-secondary leading-snug">
-                    Entry point:{' '}
-                    <span className="font-medium text-text-primary">{intel.lead.entryPoint}</span>
-                  </div>
-                )}
-                {leadOffering && onChangeLens && (
-                  <button
-                    onClick={() => onChangeLens(leadOffering.id)}
-                    className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
-                  >
-                    Open this offering's lens <ArrowRight size={9} />
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Next — co-sell or expansion */}
-            {intel.next && (
-              <div className="bg-surface/80 border border-border rounded p-3">
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-1 inline-flex items-center gap-1.5">
-                  {intel.next.type === 'expansion' ? 'Expansion follow-on' : 'Co-sell follow-on'}
-                  <span
-                    className={`text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded border ${
-                      intel.next.type === 'expansion'
-                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                        : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
-                    }`}
-                  >
-                    {intel.next.type === 'expansion' ? 'Expand' : 'Co-sell'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  {nextOffering && (
-                    <span className={`w-5 h-5 rounded ${nextOffering.bg || 'bg-primary/10'} flex items-center justify-center flex-shrink-0`}>
-                      <Package size={11} className={nextOffering.textColor || 'text-primary'} />
-                    </span>
-                  )}
-                  <span className="text-[13px] font-semibold text-text-primary truncate">
-                    {intel.next.name}
-                  </span>
-                </div>
-                {intel.next.reasoning && (
-                  <div className="text-[11px] text-text-secondary leading-snug">
-                    {intel.next.reasoning}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-surface border border-dashed border-border rounded-md p-6 text-center text-[12px] text-text-muted">
-          AI intelligence for this account is generating. Refresh in a moment, or run an Account Brief from the Account AI tab.
-        </div>
-      )}
-
-      {/* Pain points this account is facing */}
-      {painPoints.length > 0 && (
-        <div className="bg-surface border border-border rounded-md p-4">
-          <div className="flex items-center gap-1.5 mb-2">
-            <AlertTriangle size={12} className="text-amber-700 dark:text-amber-300" />
-            <h3 className="text-xs uppercase tracking-wider font-semibold text-text-secondary">
-              Pain points {account.name} is facing
-            </h3>
-            {leadOffering && (
-              <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${leadOffering.bg || 'bg-primary/10'} ${leadOffering.textColor || 'text-primary'}`}>
-                {leadOffering.name.replace(/^Wiz\s+/i, '')}
-              </span>
-            )}
-          </div>
-          <ul className="space-y-1.5">
-            {painPoints.map((p, i) => (
-              <li key={i} className="flex items-start gap-2 text-[12px] text-text-secondary leading-snug">
-                <span className="text-amber-700 dark:text-amber-300 mt-0.5">·</span>
-                <span>{p}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Find lookalikes — agentic callout */}
-      {onFindLookalikes && (
-        <div className="bg-gradient-to-r from-primary/5 to-violet-500/5 border border-primary/20 rounded-md p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-md bg-gradient-to-br from-primary to-violet-500 flex items-center justify-center flex-shrink-0">
-            <Search size={15} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-text-primary mb-0.5">
-              Find more accounts like {account.name}
-            </div>
-            <div className="text-[11px] text-text-secondary leading-relaxed">
-              An agent will search HG's universe for whitespace accounts that mirror {account.name}'s
-              industry, cloud, tech stack, size, and intent — and save the result as a workbook.
-            </div>
-          </div>
-          <button
-            onClick={onFindLookalikes}
-            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded hover:bg-primary-dim"
-          >
-            <Wand2 size={11} />
-            Find lookalikes
-          </button>
-        </div>
-      )}
+    <div className="space-y-3">
+      <WhyNowSection accountName={account.name} whyNow={overview.whyNow} />
+      <LeadWithSection
+        leadWith={overview.leadWith}
+        coSell={overview.coSell}
+        onChangeLens={onChangeLens}
+        onCopyOpener={handleCopyOpener}
+        onRegenerateOpener={handleRegenerateOpener}
+      />
+      <KeyHighlightsSection highlights={overview.highlights} />
+      <PainPointsSection
+        accountName={account.name}
+        painPoints={overview.painPoints}
+        offeringLookup={resolveOfferingByCode}
+      />
+      <NextActionsSection
+        accountName={account.name}
+        onFindLookalikes={onFindLookalikes}
+        onDraftOutreach={onDraftOutreach}
+        onGoToContacts={onGoToContacts}
+      />
     </div>
   );
 }
@@ -1629,6 +1845,8 @@ export default function AccountThread() {
               account={account}
               onChangeLens={handleChangeLens}
               onFindLookalikes={() => setLookalikesOpen(true)}
+              onDraftOutreach={() => setTab('chat')}
+              onGoToContacts={() => setTab('stakeholders')}
             />
           )}
           {tab === 'stakeholders' && (
