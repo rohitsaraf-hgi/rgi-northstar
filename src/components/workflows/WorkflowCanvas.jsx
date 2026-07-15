@@ -2,24 +2,34 @@ import { useMemo } from 'react';
 import {
   Database, Edit, ListTodo, Send, Bell, Webhook,
   GitBranch, GitMerge, Repeat,
-  CheckSquare, Eye,
+  CheckSquare, Eye, ListChecks,
   Clock, Hourglass,
   CircleCheck,
   Zap, Hand,
   Mail, Sword, Users, Calendar, Sparkles, Handshake, FileSearch, Bot,
+  Building2, UserCog, UserPlus, BadgeCheck, History, Bookmark, FileText, Target, Activity,
   Trash2, CornerDownRight,
+  ShieldCheck,
 } from 'lucide-react';
-import { WORKFLOW_NODE_TYPES, NODE_FAMILIES, MODE_BADGES } from '../../data/workflowNodes.js';
+import {
+  WORKFLOW_NODE_TYPES,
+  NODE_FAMILIES,
+  MODE_BADGES,
+  contractForNodeType,
+  nodeRequiresApprovalGate,
+} from '../../data/workflowNodes.js';
+import { AGENTS } from '../../data/agents.js';
 import { computeWorkflowLayout } from '../../data/workflowGraph.js';
 
 const NODE_ICONS = {
   Database, Edit, ListTodo, Send, Bell, Webhook,
   GitBranch, GitMerge, Repeat,
-  CheckSquare, Eye,
+  CheckSquare, Eye, ListChecks,
   Clock, Hourglass,
   CircleCheck,
   Zap, Hand,
   Mail, Sword, Users, Calendar, Sparkles, Handshake, FileSearch, Bot,
+  Building2, UserCog, UserPlus, BadgeCheck, History, Bookmark, FileText, Target, Activity,
 };
 
 const NODE_WIDTH = 210;
@@ -163,8 +173,30 @@ export default function WorkflowCanvas({
       const y2 = tp.y;
       const midY = (y1 + y2) / 2;
       const d = `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`;
-      const fam = WORKFLOW_NODE_TYPES[tree.nodes[from]?.type]?.family || 'agent';
-      return { key: `${from}|${to}`, d, family: fam, stroke: NODE_FAMILIES[fam]?.stroke };
+      const fromNode = tree.nodes[from];
+      const fam = WORKFLOW_NODE_TYPES[fromNode?.type]?.family || 'agent';
+
+      // Compute the data-flow label — take the first 1-2 output keys emitted by
+      // the from-node, or fall back to the trigger data fields.
+      let label = '';
+      const contract = contractForNodeType(fromNode?.type, AGENTS);
+      if (contract?.outputs?.length) {
+        label = contract.outputs.slice(0, 2).map((o) => o.name || o.key).join(', ');
+      }
+
+      // Approval gate: source node is non-reversible → mark the transition.
+      const approvalGate = nodeRequiresApprovalGate(fromNode?.type, AGENTS, fromNode?.config);
+
+      return {
+        key: `${from}|${to}`,
+        d,
+        family: fam,
+        stroke: NODE_FAMILIES[fam]?.stroke,
+        midX: (x1 + x2) / 2,
+        midY,
+        label,
+        approvalGate,
+      };
     }).filter(Boolean);
   }, [tree.edges, tree.nodes, nodePositions]);
 
@@ -207,6 +239,30 @@ export default function WorkflowCanvas({
             />
           ))}
         </svg>
+
+        {/* Edge labels — key output name(s) being passed, plus approval-gate badge */}
+        {edgePaths.map((edge) => {
+          if (!edge.label && !edge.approvalGate) return null;
+          return (
+            <div
+              key={`label-${edge.key}`}
+              className="absolute pointer-events-none flex flex-col items-center gap-0.5"
+              style={{ left: edge.midX - 70, top: edge.midY - 12, width: 140 }}
+            >
+              {edge.label && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-bg/95 border border-border text-text-secondary shadow-sm truncate max-w-full">
+                  {edge.label}
+                </span>
+              )}
+              {edge.approvalGate && (
+                <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 inline-flex items-center gap-0.5">
+                  <ShieldCheck size={8} />
+                  approval
+                </span>
+              )}
+            </div>
+          );
+        })}
 
         {Object.entries(tree.nodes || {}).map(([id, node]) => {
           const pos = nodePositions[id];

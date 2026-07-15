@@ -8,9 +8,17 @@
 //   - 'draft':   produces an artifact pending human approval before any side-effect
 //   - 'act':     can execute against external systems (still gated by runtime policy + approvals)
 //
+// Contract fields (used by the workflow builder for approval gates + input mapping):
+//   - inputs[]:  { key, type, required, label? }
+//   - outputs[]: { key, type, desc? }
+//   - is_reversible:                 false → workflow builder shows approval toggle
+//   - requires_approval_by_default:  seeds the approval toggle when a step is added
+//   - output_type: 'artifact' | 'crm_record' | 'data' | 'notification' — drives
+//                  how the RunPreviewRail renders the step output.
+//   - batch_capable: agent works on either a single record or a list
+//
 // Each agent has a `simulatedSteps` array used by the mock orchestrator to render
-// the step-breadcrumb in an agent-run turn. Steps are tool calls + intermediate
-// outputs that compose into the final artifact.
+// the step-breadcrumb in an agent-run turn.
 
 export const AGENT_CATEGORIES = {
   data: { label: 'Data', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-500/10', dot: 'bg-blue-500' },
@@ -164,6 +172,9 @@ export const AGENTS = {
     ceiling: 'draft',
     inputs: [{ name: 'contact', type: 'string', required: true }],
     outputs: [{ name: 'message', type: 'string' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['linkedin.send_invite'],
     simulatedSteps: [
@@ -201,6 +212,9 @@ export const AGENTS = {
     ceiling: 'act',
     inputs: [{ name: 'recipient', type: 'string', required: true }, { name: 'context', type: 'object' }],
     outputs: [{ name: 'email', type: 'document' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['gmail.send', 'outreach.send'],
     simulatedSteps: [
@@ -219,6 +233,9 @@ export const AGENTS = {
     ceiling: 'draft',
     inputs: [{ name: 'thread_id', type: 'string', required: true }],
     outputs: [{ name: 'sequence', type: 'array' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['outreach.create_sequence'],
     simulatedSteps: [
@@ -236,6 +253,9 @@ export const AGENTS = {
     ceiling: 'draft',
     inputs: [{ name: 'opportunity_id', type: 'string', required: true }],
     outputs: [{ name: 'proposal', type: 'document' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['gdrive.create'],
     simulatedSteps: [
@@ -253,6 +273,9 @@ export const AGENTS = {
     ceiling: 'draft',
     inputs: [{ name: 'account_id', type: 'string', required: true }],
     outputs: [{ name: 'deck', type: 'document' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['gslides.create'],
     simulatedSteps: [
@@ -272,6 +295,9 @@ export const AGENTS = {
     ceiling: 'act',
     inputs: [{ name: 'account_id', type: 'string', required: true }, { name: 'to_user', type: 'string' }],
     outputs: [{ name: 'handoff_doc', type: 'document' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'crm_record',
     requiredModule: 'sales_copilot',
     writeScope: ['sfdc.update_owner', 'gdrive.create'],
     simulatedSteps: [
@@ -289,6 +315,9 @@ export const AGENTS = {
     ceiling: 'draft',
     inputs: [{ name: 'transcript_id', type: 'string', required: true }],
     outputs: [{ name: 'summary', type: 'document' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['sfdc.create_task'],
     simulatedSteps: [
@@ -306,6 +335,9 @@ export const AGENTS = {
     ceiling: 'draft',
     inputs: [{ name: 'account_id', type: 'string', required: true }],
     outputs: [{ name: 'readiness_report', type: 'document' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'artifact',
     requiredModule: 'sales_copilot',
     writeScope: ['vitally.create_plan'],
     simulatedSteps: [
@@ -450,6 +482,9 @@ export const AGENTS = {
       { name: 'location', type: 'array' },
     ],
     outputs: [{ name: 'personas', type: 'array', desc: 'Ranked persona candidates with reveal actions' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
     requiredModule: 'sales_copilot',
     writeScope: ['sfdc.contact.create', 'outreach.add_to_sequence'],
     simulatedSteps: [
@@ -473,6 +508,10 @@ export const AGENTS = {
       { name: 'fields', type: 'array', desc: 'fields to write back' },
     ],
     outputs: [{ name: 'run_summary', type: 'document', desc: 'rows enriched, fields written, errors' }],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'crm_record',
+    batch_capable: true,
     requiredModule: 'market_analyzer',
     writeScope: ['sfdc.account.update', 'sfdc.lead.update', 'hubspot.company.update'],
     composes: ['corporate_linkage', 'technographic', 'spend_intelligence', 'intent_signal'],
@@ -486,13 +525,515 @@ export const AGENTS = {
       { tool: 'crm.write', detail: 'Salesforce: 15 accounts updated · 8 custom fields per account', durationMs: 1100 },
     ],
   },
+
+  // ============================================================
+  // GTM WORKFLOW ATOMIC AGENTS (Sales_Copilot_GTM_Workflows_Requirements.md)
+  //
+  // Two groups:
+  //   1. Write agents — CRM / sequence / task writes. is_reversible: false.
+  //      requires_approval_by_default: true (spec §2 "Write Agents").
+  //   2. Read / Generate agents — enrichment, drafting, scoring. is_reversible: true.
+  //      requires_approval_by_default: false. Draft-type outputs still require
+  //      approval when their side-effect (e.g. email send) is enabled downstream.
+  // ============================================================
+
+  // ----- Write agents -----
+  upsert_crm_account: {
+    id: 'upsert_crm_account',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Upsert CRM account',
+    desc: 'Creates a CRM account or resolves an existing one by domain match (idempotent).',
+    icon: 'Building2',
+    ceiling: 'act',
+    inputs: [
+      { name: 'company_name', type: 'string', required: true, label: 'Company name' },
+      { name: 'domain', type: 'string', required: true, label: 'Domain' },
+    ],
+    outputs: [
+      { name: 'account_id', type: 'string' },
+      { name: 'is_new_record', type: 'boolean', desc: 'True if a new account was created' },
+    ],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'crm_record',
+    batch_capable: false,
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.account.upsert'],
+    simulatedSteps: [
+      { tool: 'crm.account.search', detail: 'Searched by domain — no match', durationMs: 260 },
+      { tool: 'crm.account.create', detail: 'Created Snowflake · acct_9f3a', durationMs: 340 },
+    ],
+  },
+  update_crm_contact_fields: {
+    id: 'update_crm_contact_fields',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Update CRM contact fields',
+    desc: 'Patches specific fields on an existing CRM contact record.',
+    icon: 'UserCog',
+    ceiling: 'act',
+    inputs: [
+      { name: 'contact_id', type: 'string', required: true, label: 'Contact' },
+      { name: 'fields', type: 'object', required: true, label: 'Fields to update (map)' },
+    ],
+    outputs: [
+      { name: 'updated_contact_id', type: 'string' },
+      { name: 'fields_changed', type: 'array' },
+    ],
+    is_reversible: false,
+    requires_approval_by_default: false,
+    output_type: 'crm_record',
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.contact.update'],
+    simulatedSteps: [
+      { tool: 'crm.contact.update', detail: '2 fields patched (company, title)', durationMs: 210 },
+    ],
+  },
+  add_contacts_to_crm: {
+    id: 'add_contacts_to_crm',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Add contacts to CRM',
+    desc: 'Bulk-creates CRM contacts. Skips duplicates by email match (idempotent).',
+    icon: 'UserPlus',
+    ceiling: 'act',
+    inputs: [
+      { name: 'contact_list', type: 'array', required: true, label: 'Contacts (name/email/title/company)' },
+    ],
+    outputs: [
+      { name: 'contact_ids', type: 'array' },
+      { name: 'duplicates_skipped', type: 'number' },
+    ],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'crm_record',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.contact.create'],
+    simulatedSteps: [
+      { tool: 'crm.contact.dedupe', detail: 'Matched 3 existing contacts — skipped', durationMs: 320 },
+      { tool: 'crm.contact.create_bulk', detail: 'Created 8 new contacts', durationMs: 640 },
+    ],
+  },
+  update_account_status: {
+    id: 'update_account_status',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Update account status',
+    desc: 'Sets a CRM picklist status (e.g., "Prospecting") on one or more accounts.',
+    icon: 'BadgeCheck',
+    ceiling: 'act',
+    inputs: [
+      { name: 'account_ids', type: 'array', required: true, label: 'Account(s)' },
+      { name: 'status_value', type: 'string', required: true, label: 'Status value' },
+    ],
+    outputs: [{ name: 'confirmation_list', type: 'array' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'crm_record',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.account.update'],
+    simulatedSteps: [
+      { tool: 'crm.account.status', detail: 'Updated 10 accounts → Prospecting', durationMs: 480 },
+    ],
+  },
+  update_contact_status: {
+    id: 'update_contact_status',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Update contact status',
+    desc: 'Sets a CRM picklist status (e.g., "Prospecting") on one or more contacts.',
+    icon: 'BadgeCheck',
+    ceiling: 'act',
+    inputs: [
+      { name: 'contact_ids', type: 'array', required: true, label: 'Contact(s)' },
+      { name: 'status_value', type: 'string', required: true, label: 'Status value' },
+    ],
+    outputs: [{ name: 'confirmation_list', type: 'array' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'crm_record',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.contact.update'],
+    simulatedSteps: [
+      { tool: 'crm.contact.status', detail: 'Updated 24 contacts → Prospecting', durationMs: 520 },
+    ],
+  },
+  add_contacts_to_sequence: {
+    id: 'add_contacts_to_sequence',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Add contacts to sequence',
+    desc: 'Enrolls contacts in an outbound cadence. V1 proxies through a CRM task if Outreach isn\'t connected (spec §5 D1).',
+    icon: 'Send',
+    ceiling: 'act',
+    inputs: [
+      { name: 'contact_ids', type: 'array', required: true, label: 'Contact(s)' },
+      { name: 'sequence_id', type: 'string', required: true, label: 'Sequence' },
+    ],
+    outputs: [
+      { name: 'enrolled_count', type: 'number' },
+      { name: 'skipped_count', type: 'number' },
+    ],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'crm_record',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: ['outreach.sequence.enroll', 'sfdc.task.create'],
+    simulatedSteps: [
+      { tool: 'sequence.check_enrollment', detail: '2 contacts already enrolled — skipped', durationMs: 240 },
+      { tool: 'sequence.enroll_bulk', detail: 'Enrolled 22 contacts in "EMEA Outbound Q3"', durationMs: 620 },
+    ],
+  },
+  create_crm_tasks: {
+    id: 'create_crm_tasks',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Create CRM tasks',
+    desc: 'Bulk-creates follow-up tasks against accounts, contacts, or opportunities.',
+    icon: 'ListTodo',
+    ceiling: 'act',
+    inputs: [
+      { name: 'task_list', type: 'array', required: true, label: 'Tasks (description, assignee_id, due_date, related_record_id)' },
+    ],
+    outputs: [{ name: 'task_ids', type: 'array' }],
+    is_reversible: true,
+    requires_approval_by_default: true,
+    output_type: 'crm_record',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.task.create'],
+    simulatedSteps: [
+      { tool: 'crm.task.create_bulk', detail: 'Created 12 follow-up tasks', durationMs: 520 },
+    ],
+  },
+  update_opportunity_field: {
+    id: 'update_opportunity_field',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Update opportunity field',
+    desc: 'Updates a single field on a CRM opportunity record.',
+    icon: 'Edit',
+    ceiling: 'act',
+    inputs: [
+      { name: 'opportunity_id', type: 'string', required: true, label: 'Opportunity' },
+      { name: 'field', type: 'string', required: true, label: 'Field' },
+      { name: 'value', type: 'string', required: true, label: 'Value' },
+    ],
+    outputs: [{ name: 'confirmation', type: 'object' }],
+    is_reversible: false,
+    requires_approval_by_default: false,
+    output_type: 'crm_record',
+    requiredModule: 'sales_copilot',
+    writeScope: ['sfdc.opportunity.update'],
+    simulatedSteps: [
+      { tool: 'crm.opportunity.update', detail: 'Set competitor_mentioned = "CrowdStrike"', durationMs: 220 },
+    ],
+  },
+
+  // ----- Read / Generate agents -----
+  get_engagement_history: {
+    id: 'get_engagement_history',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Get engagement history',
+    desc: 'Pulls the last N days of interactions (emails, meetings, calls) for a contact.',
+    icon: 'History',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'contact_id', type: 'string', required: true, label: 'Contact' },
+      { name: 'lookback_days', type: 'number', required: false, label: 'Lookback (days)' },
+    ],
+    outputs: [{ name: 'interactions', type: 'array', desc: 'Type, date, summary per touch' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'crm.activity.timeline', detail: 'Pulled 14 interactions across 90 days', durationMs: 360 },
+    ],
+  },
+  draft_personalized_email: {
+    id: 'draft_personalized_email',
+    kind: 'atomic',
+    category: 'content',
+    label: 'Draft personalized email',
+    desc: 'Composes a personalized email using engagement history and an admin-defined purpose.',
+    icon: 'Mail',
+    ceiling: 'draft',
+    inputs: [
+      { name: 'contact_id', type: 'string', required: true, label: 'Contact' },
+      { name: 'purpose', type: 'string', required: true, label: 'Email purpose' },
+      { name: 'engagement_history', type: 'object', required: false, label: 'Engagement history' },
+      { name: 'context_notes', type: 'string', required: false, label: 'Additional context for AI' },
+    ],
+    outputs: [
+      { name: 'email_subject', type: 'string' },
+      { name: 'email_body', type: 'string' },
+      { name: 'draft_id', type: 'string' },
+    ],
+    is_reversible: false,
+    requires_approval_by_default: true,
+    output_type: 'artifact',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: ['gmail.send', 'outreach.send'],
+    estimatedLatencyMs: 60000,
+    simulatedSteps: [
+      { tool: 'context.gather', detail: 'Read engagement history + account brief', durationMs: 340 },
+      { tool: 'compose.email', detail: 'Drafted subject + body (Account AI)', durationMs: 4200 },
+      { tool: 'tone.check', detail: 'Tone matched to contact seniority', durationMs: 180 },
+    ],
+  },
+  get_book_of_accounts: {
+    id: 'get_book_of_accounts',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Get book of accounts',
+    desc: 'Returns the rep\'s top accounts, optionally filtered by fit tier or ARR.',
+    icon: 'Bookmark',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'rep_id', type: 'string', required: true, label: 'Rep' },
+      { name: 'filters', type: 'object', required: false, label: 'Filters (fit tier, ARR band, etc.)' },
+      { name: 'limit', type: 'number', required: false, label: 'Max accounts' },
+    ],
+    outputs: [{ name: 'account_list', type: 'array', desc: 'Accounts with id, name, score, ARR' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'crm.book.fetch', detail: 'Loaded 143 accounts owned by rep', durationMs: 380 },
+      { tool: 'score.filter', detail: 'Retained 10 accounts scoring High/Medium', durationMs: 220 },
+    ],
+  },
+  generate_account_brief: {
+    id: 'generate_account_brief',
+    kind: 'atomic',
+    category: 'research',
+    label: 'Generate account brief',
+    desc: 'Produces a concise per-account brief tuned to the calling motion (prospecting, closed-won follow-up, etc.).',
+    icon: 'FileText',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'account_ids', type: 'array', required: true, label: 'Account(s)' },
+      { name: 'brief_type', type: 'string', required: false, label: 'Brief type' },
+    ],
+    outputs: [{ name: 'brief_list', type: 'array', desc: 'One brief per account (or single brief)' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'artifact',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    estCostTokens: 1800,
+    simulatedSteps: [
+      { tool: 'account.context', detail: 'Loaded HG + CRM + intent per account', durationMs: 620 },
+      { tool: 'compose.brief', detail: '10 briefs generated · 240 tokens each', durationMs: 3400 },
+    ],
+  },
+  find_buying_personas: {
+    id: 'find_buying_personas',
+    kind: 'atomic',
+    category: 'research',
+    label: 'Find buying personas',
+    desc: 'Queries HG Contact Discovery for contacts matching admin-defined persona criteria (title, seniority, department).',
+    icon: 'Users',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'account_ids', type: 'array', required: true, label: 'Account(s)' },
+      { name: 'persona_criteria', type: 'object', required: true, label: 'Persona criteria' },
+    ],
+    outputs: [{ name: 'contact_list', type: 'array', desc: 'Contacts w/ name, title, email, fit_score' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    batch_capable: true,
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'hg.contact_discovery', detail: 'Matched 34 contacts across 10 accounts', durationMs: 720 },
+      { tool: 'persona.rank', detail: 'Ranked by title + seniority + department', durationMs: 280 },
+    ],
+  },
+  enrich_lead: {
+    id: 'enrich_lead',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Enrich lead',
+    desc: 'Enriches an inbound lead with firmographic, technographic, and HG signal data. Attempts CRM match.',
+    icon: 'Sparkles',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'lead_email', type: 'string', required: false, label: 'Lead email' },
+      { name: 'lead_domain', type: 'string', required: false, label: 'Lead domain' },
+    ],
+    outputs: [
+      { name: 'firmographic', type: 'object' },
+      { name: 'technographic', type: 'object' },
+      { name: 'hg_signals', type: 'object' },
+      { name: 'inferred_account_id', type: 'string', desc: 'CRM match if found' },
+    ],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'lead.resolve', detail: 'Matched domain → HG Company · Databricks', durationMs: 320 },
+      { tool: 'firmographic.fetch', detail: 'Loaded firmographics (industry, employees, HQ)', durationMs: 260 },
+      { tool: 'technographic.fetch', detail: 'Loaded 214 verified installs', durationMs: 420 },
+      { tool: 'hg.signals', detail: '3 active surge topics found', durationMs: 220 },
+      { tool: 'crm.match', detail: 'CRM match → acct_1a2b · owner: Rohan', durationMs: 240 },
+    ],
+  },
+  score_account: {
+    id: 'score_account',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Score account',
+    desc: 'Runs the tenant\'s fit-score model against an account or a freshly enriched lead.',
+    icon: 'Target',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'account_id', type: 'string', required: false, label: 'Account (if resolved)' },
+      { name: 'lead_data', type: 'object', required: false, label: 'Lead enrichment payload' },
+    ],
+    outputs: [
+      { name: 'fit_score', type: 'number' },
+      { name: 'fit_tier', type: 'string', desc: 'High / Medium / Low' },
+    ],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'score.evaluate', detail: 'Applied fit model v4.1', durationMs: 260 },
+      { tool: 'score.tier', detail: 'Score 84 → tier High', durationMs: 80 },
+    ],
+  },
+  get_account_context: {
+    id: 'get_account_context',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Get account context',
+    desc: 'Unified account snapshot — CRM record, open opportunities, HG signals, ICP attributes.',
+    icon: 'FileSearch',
+    ceiling: 'suggest',
+    inputs: [{ name: 'account_id', type: 'string', required: true, label: 'Account' }],
+    outputs: [
+      { name: 'account_summary', type: 'object' },
+      { name: 'crm_data', type: 'object' },
+      { name: 'hg_signals', type: 'object' },
+      { name: 'open_opportunities', type: 'array' },
+      { name: 'icp_attributes', type: 'object' },
+    ],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'crm.account.fetch', detail: 'Loaded CRM record + 6 contacts + 2 open opps', durationMs: 420 },
+      { tool: 'hg.signals', detail: 'Pulled active surge topics', durationMs: 260 },
+      { tool: 'compose.context', detail: 'Composed account snapshot', durationMs: 180 },
+    ],
+  },
+  find_competitor_accounts: {
+    id: 'find_competitor_accounts',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Find competitor accounts',
+    desc: 'Finds accounts in HG technographic data that have installs of specific competitor products, filtered to the rep\'s territory.',
+    icon: 'Sword',
+    ceiling: 'suggest',
+    inputs: [
+      { name: 'reference_account_id', type: 'string', required: true, label: 'Reference account (recent win)' },
+      { name: 'competitor_product_ids', type: 'array', required: true, label: 'Competitor products' },
+      { name: 'territory_filter', type: 'object', required: false, label: 'Territory filter' },
+    ],
+    outputs: [{ name: 'account_list', type: 'array', desc: 'Accounts using those competitors, in territory' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'hg.installs.search', detail: 'Found 218 accounts using CrowdStrike', durationMs: 620 },
+      { tool: 'territory.filter', detail: 'Filtered to rep\'s territory · 24 accounts', durationMs: 240 },
+    ],
+  },
+  get_trigger_event_details: {
+    id: 'get_trigger_event_details',
+    kind: 'atomic',
+    category: 'data',
+    label: 'Get trigger event details',
+    desc: 'Resolves the event payload for an event-fired trigger (TrustRadius product comparison, 1P webinar attended, etc.).',
+    icon: 'Activity',
+    ceiling: 'suggest',
+    inputs: [{ name: 'event_id', type: 'string', required: true, label: 'Event' }],
+    outputs: [
+      { name: 'event_type', type: 'string' },
+      { name: 'event_source', type: 'string' },
+      { name: 'event_data', type: 'object', desc: 'Source-specific payload' },
+    ],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'data',
+    requiredModule: 'sales_copilot',
+    writeScope: [],
+    simulatedSteps: [
+      { tool: 'event.fetch', detail: 'Resolved TrustRadius product_comparison event', durationMs: 220 },
+    ],
+  },
+  notify_rep: {
+    id: 'notify_rep',
+    kind: 'atomic',
+    category: 'workflow',
+    label: 'Notify rep',
+    desc: 'Sends an in-app / Slack notification to the rep with a workflow summary and links.',
+    icon: 'Bell',
+    ceiling: 'act',
+    inputs: [
+      { name: 'rep_id', type: 'string', required: true, label: 'Rep' },
+      { name: 'message', type: 'string', required: true, label: 'Message' },
+      { name: 'account_id', type: 'string', required: false, label: 'Related account' },
+      { name: 'channel', type: 'string', required: false, label: 'Channel (slack / in_app / both)' },
+    ],
+    outputs: [{ name: 'notification_id', type: 'string' }],
+    is_reversible: true,
+    requires_approval_by_default: false,
+    output_type: 'notification',
+    requiredModule: 'sales_copilot',
+    writeScope: ['slack.message.send'],
+    simulatedSteps: [
+      { tool: 'notify.compose', detail: 'Rendered summary card', durationMs: 140 },
+      { tool: 'notify.dispatch', detail: 'Delivered · Slack + in-app', durationMs: 220 },
+    ],
+  },
 };
 
 export const AGENTS_BY_CATEGORY = {
-  data: ['corporate_linkage', 'intent_signal', 'technographic', 'spend_intelligence', 'contact_list'],
-  research: ['account_research', 'web_research', 'sec_financials', 'kb_resource_search', 'persona_discovery', 'competitive_battlecard', 'linkedin_connect', 'meeting_prep'],
-  content: ['email_draft', 'follow_up_drafting', 'proposal_builder', 'qbr_builder'],
-  workflow: ['account_handoff', 'crm_360', 'meddic_compose', 'call_summary', 'renewal_readiness', 'value_hypothesis', 'crm_enrichment'],
+  data: ['corporate_linkage', 'intent_signal', 'technographic', 'spend_intelligence', 'contact_list', 'get_engagement_history', 'get_book_of_accounts', 'find_buying_personas', 'enrich_lead', 'score_account', 'get_account_context', 'find_competitor_accounts', 'get_trigger_event_details'],
+  research: ['account_research', 'web_research', 'sec_financials', 'kb_resource_search', 'persona_discovery', 'competitive_battlecard', 'linkedin_connect', 'meeting_prep', 'generate_account_brief'],
+  content: ['email_draft', 'draft_personalized_email', 'follow_up_drafting', 'proposal_builder', 'qbr_builder'],
+  workflow: ['account_handoff', 'crm_360', 'meddic_compose', 'call_summary', 'renewal_readiness', 'value_hypothesis', 'crm_enrichment', 'upsert_crm_account', 'update_crm_contact_fields', 'add_contacts_to_crm', 'update_account_status', 'update_contact_status', 'add_contacts_to_sequence', 'create_crm_tasks', 'update_opportunity_field', 'notify_rep'],
+};
+
+// Output-type helpers — used by RunPreviewRail and the batch-approval modal.
+export const OUTPUT_TYPES = {
+  artifact:     { label: 'Artifact',     desc: 'Email draft, brief, deck',  color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-500/10' },
+  crm_record:   { label: 'CRM record',   desc: 'Account, contact, task',    color: 'text-sky-700 dark:text-sky-300',       bg: 'bg-sky-500/10' },
+  data:         { label: 'Data',         desc: 'List, score, enrichment',   color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-500/10' },
+  notification: { label: 'Notification', desc: 'Slack, in-app, email ping', color: 'text-amber-700 dark:text-amber-300',   bg: 'bg-amber-500/10' },
 };
 
 // Resolve effective capability for a single agent invocation, applying the

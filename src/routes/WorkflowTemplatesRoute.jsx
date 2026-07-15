@@ -1,12 +1,12 @@
 import { useNavigate } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Library, Workflow, TrendingUp, GitFork, AlertCircle } from 'lucide-react';
-import { listWorkflowTemplates, WORKFLOW_VERTICALS } from '../data/workflowTemplates.js';
+import { ArrowLeft, Library, Workflow, TrendingUp, GitFork, AlertCircle, Layers } from 'lucide-react';
+import { listWorkflowTemplates, WORKFLOW_VERTICALS, WORKFLOW_MOTIONS } from '../data/workflowTemplates.js';
 import { workflowSummary, triggerSummary } from '../data/workflows.js';
 import { saveWorkflowDraft, nextWorkflowId } from '../data/workflowStore.js';
 import { cloneWorkflowTree } from '../data/workflowGraph.js';
-import { MODE_BADGES } from '../data/workflowNodes.js';
+import { MODE_BADGES, WORKFLOW_NODE_TYPES } from '../data/workflowNodes.js';
 import { useToast } from '../context/ToastContext.jsx';
 
 function VerticalChip({ vertical, active, onClick }) {
@@ -26,6 +26,7 @@ function TemplateCard({ template, onFork }) {
   const summary = workflowSummary(template);
   const trigger = triggerSummary(template);
   const verticalCfg = WORKFLOW_VERTICALS.find((v) => v.id === template.vertical);
+  const motionCfg = WORKFLOW_MOTIONS.find((m) => m.id === template.motion);
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -39,10 +40,21 @@ function TemplateCard({ template, onFork }) {
           </div>
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-text-primary leading-tight truncate">{template.name}</h3>
-            <div className="flex items-center gap-1.5 mt-0.5">
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              {motionCfg && (
+                <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${motionCfg.bg} ${motionCfg.color}`}>
+                  {motionCfg.label}
+                </span>
+              )}
               {verticalCfg && (
                 <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${verticalCfg.bg} ${verticalCfg.color}`}>
                   {verticalCfg.label}
+                </span>
+              )}
+              {template.batch_mode && (
+                <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 inline-flex items-center gap-1">
+                  <Layers size={9} />
+                  Batch
                 </span>
               )}
               <span className="text-[10px] text-text-muted">HG-curated</span>
@@ -121,21 +133,26 @@ export default function WorkflowTemplatesRoute() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [vertical, setVertical] = useState('all');
+  const [motion, setMotion] = useState('all');
 
   const templates = useMemo(() => listWorkflowTemplates(), []);
-  const filtered = useMemo(
-    () => (vertical === 'all' ? templates : templates.filter((t) => t.vertical === vertical)),
-    [templates, vertical],
-  );
+  const filtered = useMemo(() => {
+    let list = templates;
+    if (motion !== 'all') list = list.filter((t) => t.motion === motion);
+    if (vertical !== 'all') list = list.filter((t) => t.vertical === vertical);
+    return list;
+  }, [templates, vertical, motion]);
 
   const handleFork = (template) => {
     const id = nextWorkflowId(template.name);
-    const triggerNode = Object.values(template.tree.nodes).find((n) => n.type === 'trigger.signal');
+    const triggerNode = Object.values(template.tree.nodes).find((n) => WORKFLOW_NODE_TYPES[n.type]?.isTrigger);
     const meta = {
       name: `${template.name} (Forked)`,
       description: template.description,
       audience_roles: ['AE', 'AM'],
       bound_signal: triggerNode?.config?.signal_id || null,
+      motion: template.motion || null,
+      batch_mode: template.batch_mode === true,
     };
     saveWorkflowDraft(id, {
       tree: cloneWorkflowTree(template.tree),
@@ -181,23 +198,45 @@ export default function WorkflowTemplatesRoute() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mb-5">
-        <VerticalChip
-          vertical={{ id: 'all', label: `All (${templates.length})`, bg: 'bg-primary/15', color: 'text-primary' }}
-          active={vertical === 'all'}
-          onClick={() => setVertical('all')}
-        />
-        {WORKFLOW_VERTICALS.map((v) => {
-          const count = templates.filter((t) => t.vertical === v.id).length;
-          return (
-            <VerticalChip
-              key={v.id}
-              vertical={{ ...v, label: `${v.label} (${count})` }}
-              active={vertical === v.id}
-              onClick={() => setVertical(v.id)}
-            />
-          );
-        })}
+      <div className="space-y-2 mb-5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-text-muted font-semibold w-16 flex-shrink-0">Motion</span>
+          <VerticalChip
+            vertical={{ id: 'all', label: `All (${templates.length})`, bg: 'bg-primary/15', color: 'text-primary' }}
+            active={motion === 'all'}
+            onClick={() => setMotion('all')}
+          />
+          {WORKFLOW_MOTIONS.map((m) => {
+            const count = templates.filter((t) => t.motion === m.id).length;
+            return (
+              <VerticalChip
+                key={m.id}
+                vertical={{ ...m, label: `${m.label} (${count})` }}
+                active={motion === m.id}
+                onClick={() => setMotion(m.id)}
+              />
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-text-muted font-semibold w-16 flex-shrink-0">Vertical</span>
+          <VerticalChip
+            vertical={{ id: 'all', label: 'All', bg: 'bg-primary/15', color: 'text-primary' }}
+            active={vertical === 'all'}
+            onClick={() => setVertical('all')}
+          />
+          {WORKFLOW_VERTICALS.map((v) => {
+            const count = templates.filter((t) => t.vertical === v.id).length;
+            return (
+              <VerticalChip
+                key={v.id}
+                vertical={{ ...v, label: `${v.label} (${count})` }}
+                active={vertical === v.id}
+                onClick={() => setVertical(v.id)}
+              />
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

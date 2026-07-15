@@ -102,6 +102,45 @@ export const WORKFLOW_NODE_TYPES = {
     desc: 'Runs on a cron schedule',
     isTrigger: true,
   },
+  'trigger.champion_job_change': {
+    label: 'Champion Job Change',
+    family: 'trigger',
+    mode: 'control',
+    icon: 'UserCog',
+    desc: 'Fires when a tracked contact changes job — surfaces old and new company/title in the run context',
+    isTrigger: true,
+    triggerData: [
+      'contact_id', 'contact_name', 'contact_email',
+      'old_company_name', 'old_company_id',
+      'new_company_name', 'new_company_domain', 'new_title',
+      'related_opportunity_id',
+    ],
+  },
+  'trigger.event_fired': {
+    label: 'Event Fired',
+    family: 'trigger',
+    mode: 'control',
+    icon: 'Activity',
+    desc: 'Fires on a first-party or third-party event (TrustRadius, webinar attended, form fill, demo request)',
+    isTrigger: true,
+    triggerData: [
+      'event_type', 'event_source', 'event_data',
+      'account_id', 'contact_id',
+      'lead_email', 'lead_name', 'lead_company_domain', 'lead_form_data',
+    ],
+  },
+  'trigger.crm_field_updated': {
+    label: 'CRM Field Updated',
+    family: 'trigger',
+    mode: 'control',
+    icon: 'Edit',
+    desc: 'Fires when a CRM record field transitions to a target value (e.g., Opportunity.Stage → Closed Won)',
+    isTrigger: true,
+    triggerData: [
+      'opportunity_id', 'account_id', 'account_name',
+      'products_sold', 'competitor_mentioned', 'close_date', 'arr',
+    ],
+  },
 
   // ---- Phoenix agents (agentic) ----
   'agent.email_draft': {
@@ -166,6 +205,192 @@ export const WORKFLOW_NODE_TYPES = {
     agentId: 'account_research',
     desc: 'Web + SEC research synthesis',
     estCostTokens: 3500,
+  },
+
+  // ---- GTM Workflow atomic agents (Sales_Copilot_GTM_Workflows_Requirements.md) ----
+  // Write agents (is_reversible: false, approval gate on by default)
+  'agent.upsert_crm_account': {
+    label: 'Upsert CRM account',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Building2',
+    agentId: 'upsert_crm_account',
+    desc: 'Creates or resolves a CRM account by domain match (idempotent)',
+    estCostMs: 340,
+    writeScope: ['sfdc.account.upsert'],
+  },
+  'agent.update_crm_contact_fields': {
+    label: 'Update CRM contact fields',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'UserCog',
+    agentId: 'update_crm_contact_fields',
+    desc: 'Patches specific fields on an existing CRM contact record',
+    estCostMs: 210,
+    writeScope: ['sfdc.contact.update'],
+  },
+  'agent.add_contacts_to_crm': {
+    label: 'Add contacts to CRM',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'UserPlus',
+    agentId: 'add_contacts_to_crm',
+    desc: 'Bulk-creates CRM contacts; skips duplicates by email',
+    estCostMs: 640,
+    writeScope: ['sfdc.contact.create'],
+  },
+  'agent.update_account_status': {
+    label: 'Update account status',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'BadgeCheck',
+    agentId: 'update_account_status',
+    desc: 'Sets a CRM picklist status on one or more accounts',
+    estCostMs: 480,
+    writeScope: ['sfdc.account.update'],
+  },
+  'agent.update_contact_status': {
+    label: 'Update contact status',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'BadgeCheck',
+    agentId: 'update_contact_status',
+    desc: 'Sets a CRM picklist status on one or more contacts',
+    estCostMs: 520,
+    writeScope: ['sfdc.contact.update'],
+  },
+  'agent.add_contacts_to_sequence': {
+    label: 'Add contacts to sequence',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Send',
+    agentId: 'add_contacts_to_sequence',
+    desc: 'Enrolls contacts in an outbound cadence',
+    estCostMs: 620,
+    writeScope: ['outreach.sequence.enroll'],
+  },
+  'agent.create_crm_tasks': {
+    label: 'Create CRM tasks',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'ListTodo',
+    agentId: 'create_crm_tasks',
+    desc: 'Bulk-creates follow-up tasks against accounts, contacts, or opportunities',
+    estCostMs: 520,
+    writeScope: ['sfdc.task.create'],
+  },
+  'agent.update_opportunity_field': {
+    label: 'Update opportunity field',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Edit',
+    agentId: 'update_opportunity_field',
+    desc: 'Updates a single field on a CRM opportunity',
+    estCostMs: 220,
+    writeScope: ['sfdc.opportunity.update'],
+  },
+
+  // Read / Generate agents
+  'agent.get_engagement_history': {
+    label: 'Get engagement history',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'History',
+    agentId: 'get_engagement_history',
+    desc: 'Pulls last-N-days of interactions for a contact',
+    estCostMs: 360,
+  },
+  'agent.draft_personalized_email': {
+    label: 'Draft personalized email',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Mail',
+    agentId: 'draft_personalized_email',
+    desc: 'Personalized email draft using engagement history + purpose',
+    estCostTokens: 1400,
+    writeScope: ['gmail.send', 'outreach.send'],
+  },
+  'agent.get_book_of_accounts': {
+    label: 'Get book of accounts',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Bookmark',
+    agentId: 'get_book_of_accounts',
+    desc: 'Returns a rep\'s top accounts filtered by fit tier / ARR',
+    estCostMs: 460,
+  },
+  'agent.generate_account_brief': {
+    label: 'Generate account brief',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'FileText',
+    agentId: 'generate_account_brief',
+    desc: 'Concise per-account brief tuned to the calling motion',
+    estCostTokens: 1800,
+  },
+  'agent.find_buying_personas': {
+    label: 'Find buying personas',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Users',
+    agentId: 'find_buying_personas',
+    desc: 'Finds contacts matching admin-defined persona criteria via HG Contact Discovery',
+    estCostMs: 1000,
+  },
+  'agent.enrich_lead': {
+    label: 'Enrich lead',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Sparkles',
+    agentId: 'enrich_lead',
+    desc: 'Firmographic + technographic + HG signal enrichment on an inbound lead',
+    estCostMs: 1200,
+  },
+  'agent.score_account': {
+    label: 'Score account',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Target',
+    agentId: 'score_account',
+    desc: 'Runs the tenant fit-score model on an account or enriched lead',
+    estCostMs: 340,
+  },
+  'agent.get_account_context': {
+    label: 'Get account context',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'FileSearch',
+    agentId: 'get_account_context',
+    desc: 'Unified snapshot — CRM, opps, HG signals, ICP attributes',
+    estCostMs: 860,
+  },
+  'agent.find_competitor_accounts': {
+    label: 'Find competitor accounts',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Sword',
+    agentId: 'find_competitor_accounts',
+    desc: 'Finds accounts using specific competitor products (HG technographic), filtered to rep territory',
+    estCostMs: 860,
+  },
+  'agent.get_trigger_event_details': {
+    label: 'Get trigger event details',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Activity',
+    agentId: 'get_trigger_event_details',
+    desc: 'Resolves the event payload for an event-fired trigger',
+    estCostMs: 220,
+  },
+  'agent.notify_rep': {
+    label: 'Notify rep',
+    family: 'agent',
+    mode: 'agentic',
+    icon: 'Bell',
+    agentId: 'notify_rep',
+    desc: 'Sends an in-app / Slack notification to the rep with workflow summary + links',
+    estCostMs: 360,
+    writeScope: ['slack.message.send'],
   },
 
   // ---- API calls (deterministic) ----
@@ -303,6 +528,13 @@ export const WORKFLOW_NODE_TYPES = {
     icon: 'Eye',
     desc: 'Notification-only pause; auto-continues after SLA',
   },
+  'checkpoint.batch_approval': {
+    label: 'Batch Approval',
+    family: 'checkpoint',
+    mode: 'control',
+    icon: 'ListChecks',
+    desc: 'Rep reviews all items in a batch at once — approve all, reject all, or per-item accept/reject',
+  },
 
   // ---- Wait ----
   'wait.duration': {
@@ -354,6 +586,49 @@ export function isTrigger(type) {
 
 export function nodeMode(type) {
   return WORKFLOW_NODE_TYPES[type]?.mode || 'agentic';
+}
+
+// Resolves the atomic-agent contract that backs a given node type.
+// Returns the AGENTS[agentId] entry when the node type references an agent,
+// otherwise null. Used by the inspector and canvas to render approval-gate
+// badges and populate the InputMappingPanel with the agent's declared inputs.
+//
+// Import kept dynamic to avoid a hard circular ref between agents.js and this
+// file. Callers pass in the AGENTS map to keep the helper pure.
+export function contractForNodeType(type, AGENTS) {
+  const meta = WORKFLOW_NODE_TYPES[type];
+  if (!meta?.agentId || !AGENTS) return null;
+  return AGENTS[meta.agentId] || null;
+}
+
+// Approval gate rule (spec §1.2): non-reversible agents surface an approval
+// toggle in the builder. This helper is the single source of truth so the
+// canvas, inspector, and RunPreviewRail agree.
+export function nodeRequiresApprovalGate(type, AGENTS, nodeConfig) {
+  // Explicit per-node override wins.
+  if (nodeConfig?.approval_required === true) return true;
+  if (nodeConfig?.approval_required === false) return false;
+  const contract = contractForNodeType(type, AGENTS);
+  if (contract?.is_reversible === false) return contract.requires_approval_by_default !== false;
+  // Non-agent writes: infer from writeScope presence on the node type.
+  const meta = WORKFLOW_NODE_TYPES[type];
+  if (Array.isArray(meta?.writeScope) && meta.writeScope.length > 0) return true;
+  return false;
+}
+
+// Returns the field names available in the run context from a specific
+// trigger type (used by the InputMappingPanel to populate the "trigger.data.*"
+// options in an input-mapping dropdown).
+export function triggerDataFields(type) {
+  const meta = WORKFLOW_NODE_TYPES[type];
+  if (!meta?.isTrigger) return [];
+  if (Array.isArray(meta.triggerData)) return meta.triggerData;
+  // Legacy triggers — best-effort default set so existing workflows still show
+  // sensible bindings in the mapping panel.
+  if (type === 'trigger.signal') return ['account_id', 'signal_id', 'signal_score'];
+  if (type === 'trigger.manual') return ['account_id', 'contact_id', 'rep_id'];
+  if (type === 'trigger.scheduled') return ['rep_id', 'run_at'];
+  return [];
 }
 
 export const MODE_BADGES = {

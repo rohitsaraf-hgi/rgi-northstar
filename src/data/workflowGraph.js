@@ -4,10 +4,11 @@
 //   - At least one terminal output node
 //   - Branches may have 2+ outgoing edges (we don't enforce <=2)
 
-import { WORKFLOW_NODE_TYPES, isTerminal, isTrigger } from './workflowNodes.js';
+import { WORKFLOW_NODE_TYPES, isTerminal, isTrigger, contractForNodeType } from './workflowNodes.js';
 import { defaultWorkflowConfig, validateWorkflowNodeConfig } from './workflowSchemas.js';
 import { integrationForWorkflowNode, isAgentAccessEnabled } from './integrationGovernance.js';
 import { CONNECTED_APPS } from './surfaces.js';
+import { AGENTS } from './agents.js';
 
 function findIntegrationStatus(integrationId) {
   for (const cat of CONNECTED_APPS) {
@@ -108,6 +109,27 @@ export function removeWorkflowNode(tree, id) {
   };
   if (tree.output_node === id) next.output_node = null;
   return next;
+}
+
+// Returns the set of node IDs that transitively reach `target` (i.e. every
+// node whose output could feed `target`'s inputs). Used by the InputMapping
+// panel to populate the "step_N.output.*" dropdown options.
+export function upstreamNodeIds(tree, target) {
+  if (!tree?.nodes || !tree.nodes[target]) return [];
+  const incoming = {};
+  for (const [from, to] of tree.edges || []) {
+    if (!incoming[to]) incoming[to] = [];
+    incoming[to].push(from);
+  }
+  const seen = new Set();
+  const stack = [...(incoming[target] || [])];
+  while (stack.length) {
+    const id = stack.pop();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const parent of incoming[id] || []) stack.push(parent);
+  }
+  return Array.from(seen);
 }
 
 function workflowCanReach(tree, from, target) {
@@ -227,6 +249,25 @@ export function validateWorkflowTree(tree) {
       issues.push({
         severity: 'error',
         message: `${label} (${id}) missing required field${r.missing.length === 1 ? '' : 's'}: ${r.missing.join(', ')}`,
+      });
+    }
+  }
+  // Input-mapping validation — required agent inputs must resolve to a
+  // trigger.data.* or upstream-step output binding (spec §1.3).
+  for (const id of nodeIds) {
+    const node = tree.nodes[id];
+    const contract = contractForNodeType(node.type, AGENTS);
+    if (!contract || !Array.isArray(contract.inputs)) continue;
+    const bindings = node.config?.input_bindings || {};
+    const unmapped = contract.inputs
+      .filter((inp) => inp.required !== false)
+      .map((inp) => inp.name || inp.key)
+      .filter((key) => !bindings[key]);
+    if (unmapped.length > 0) {
+      const label = WORKFLOW_NODE_TYPES[node.type]?.label || node.type;
+      issues.push({
+        severity: 'warning',
+        message: `${label} (${id}) has unmapped input${unmapped.length === 1 ? '' : 's'}: ${unmapped.join(', ')}. Map to trigger data or a prior step output.`,
       });
     }
   }

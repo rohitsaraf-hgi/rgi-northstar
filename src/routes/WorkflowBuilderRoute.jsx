@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { ArrowLeft, Workflow, Save, CheckCircle2, AlertCircle, Users } from 'lucide-react';
+import { ArrowLeft, Workflow, Save, CheckCircle2, AlertCircle, Users, Layers, PlayCircle, ListChecks } from 'lucide-react';
 import {
   emptyWorkflowTree,
   cloneWorkflowTree,
@@ -23,6 +23,8 @@ import WorkflowNodePalette from '../components/workflows/WorkflowNodePalette.jsx
 import WorkflowNodeInspector from '../components/workflows/WorkflowNodeInspector.jsx';
 import WorkflowConversationPane from '../components/workflows/WorkflowConversationPane.jsx';
 import RunPreviewRail from '../components/workflows/RunPreviewRail.jsx';
+import TestRunModal from '../components/workflows/TestRunModal.jsx';
+import BatchApprovalPreview from '../components/workflows/BatchApprovalPreview.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { proposeWorkflowFromIntent, applyWorkflowRefinement } from '../data/workflowAgent.js';
 import { subscribeIntegrationGovernance } from '../data/integrationGovernance.js';
@@ -50,8 +52,12 @@ export default function WorkflowBuilderRoute() {
       description: sourceWorkflow?.description || '',
       audience_roles: sourceWorkflow?.audience_roles || ['AE', 'AM'],
       bound_signal: sourceWorkflow?.bound_signal || null,
+      batch_mode: sourceWorkflow?.batch_mode === true,
+      motion: sourceWorkflow?.motion || null,
     };
   });
+  const [testRunOpen, setTestRunOpen] = useState(false);
+  const [batchPreviewOpen, setBatchPreviewOpen] = useState(false);
   const [conversation, setConversation] = useState(() => draftPayload?.conversation || []);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [connectingFromId, setConnectingFromId] = useState(null);
@@ -279,6 +285,14 @@ export default function WorkflowBuilderRoute() {
               )}
             </div>
             <button
+              onClick={() => setTestRunOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 text-xs rounded-md transition-colors"
+              title="Dry-run this workflow on a sample account without writing to CRM or sending emails"
+            >
+              <PlayCircle size={11} />
+              Test run
+            </button>
+            <button
               onClick={handleSaveDraft}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 text-xs rounded-md transition-colors"
             >
@@ -380,10 +394,51 @@ export default function WorkflowBuilderRoute() {
             );
           })}
         </div>
+        <span>·</span>
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <Layers size={10} />
+          <span>Batch mode</span>
+          <input
+            type="checkbox"
+            checked={meta.batch_mode === true}
+            onChange={(e) => setMeta((m) => ({ ...m, batch_mode: e.target.checked }))}
+            className="rounded border-border"
+          />
+          <span className={`text-[10px] font-mono ${meta.batch_mode ? 'text-primary' : 'text-text-muted'}`}>
+            {meta.batch_mode ? 'on' : 'off'}
+          </span>
+        </label>
+        {meta.batch_mode && (
+          <>
+            <span>·</span>
+            <button
+              onClick={() => setBatchPreviewOpen(true)}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-primary hover:bg-primary/10 transition-colors"
+              title="Preview the batch approval UX with mock drafts"
+            >
+              <ListChecks size={10} />
+              Preview batch approval
+            </button>
+          </>
+        )}
         <span className="ml-auto">
           {isNew ? 'New workflow' : `Editing ${sourceWorkflow?.name || ''}`} {workflowId && <span className="font-mono">· {workflowId}</span>}
         </span>
       </div>
+
+      {testRunOpen && (
+        <TestRunModal
+          tree={tree}
+          meta={effectiveMeta}
+          onClose={() => setTestRunOpen(false)}
+        />
+      )}
+      {batchPreviewOpen && (
+        <BatchApprovalPreview
+          tree={tree}
+          onClose={() => setBatchPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }

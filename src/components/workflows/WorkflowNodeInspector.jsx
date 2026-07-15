@@ -1,7 +1,15 @@
-import { Trash2, CornerDownRight, CircleDot, Info, AlertCircle, Bot, Lock, Unlock, ExternalLink } from 'lucide-react';
-import { WORKFLOW_NODE_TYPES, NODE_FAMILIES, MODE_BADGES } from '../../data/workflowNodes.js';
+import { Trash2, CornerDownRight, CircleDot, Info, AlertCircle, Bot, Lock, Unlock, ExternalLink, ShieldCheck, ShieldOff } from 'lucide-react';
+import {
+  WORKFLOW_NODE_TYPES,
+  NODE_FAMILIES,
+  MODE_BADGES,
+  contractForNodeType,
+  nodeRequiresApprovalGate,
+} from '../../data/workflowNodes.js';
+import { AGENTS, OUTPUT_TYPES } from '../../data/agents.js';
 import { WORKFLOW_NODE_SCHEMAS, validateWorkflowNodeConfig } from '../../data/workflowSchemas.js';
 import { listActiveSignals } from '../../data/signals.js';
+import InputMappingPanel from './InputMappingPanel.jsx';
 import {
   integrationForWorkflowNode,
   getIntegrationGovernance,
@@ -178,6 +186,45 @@ function TypedConfig({ node, onChange }) {
   );
 }
 
+function ApprovalGateBlock({ node, onUpdateConfig }) {
+  const contract = contractForNodeType(node.type, AGENTS);
+  const outputType = contract?.output_type;
+  const outputMeta = outputType ? OUTPUT_TYPES[outputType] : null;
+  const isNonReversible = contract?.is_reversible === false;
+  const gateOn = nodeRequiresApprovalGate(node.type, AGENTS, node.config);
+  if (!isNonReversible && !contract) return null;
+  if (!isNonReversible) return null;
+  return (
+    <div className={`px-2 py-2 rounded border mb-3 ${gateOn ? 'bg-amber-500/5 border-amber-500/30 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/5 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'}`}>
+      <div className="flex items-center gap-1.5 mb-1">
+        {gateOn ? <ShieldCheck size={11} /> : <ShieldOff size={11} />}
+        <span className="text-[10px] uppercase tracking-wider font-bold">Approval gate</span>
+        {outputMeta && (
+          <span className={`ml-auto text-[9px] uppercase tracking-wider font-bold px-1 rounded ${outputMeta.bg} ${outputMeta.color}`}>
+            {outputMeta.label}
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] leading-snug mb-2">
+        {gateOn ? (
+          <>This step is non-reversible — a rep will approve the {outputMeta?.desc?.toLowerCase() || 'output'} before it executes.</>
+        ) : (
+          <>Approval bypassed — this step will run automatically. Only disable when the write is truly safe to skip review.</>
+        )}
+      </div>
+      <label className="inline-flex items-center gap-2 text-[11px] font-semibold cursor-pointer">
+        <input
+          type="checkbox"
+          checked={gateOn}
+          onChange={(e) => onUpdateConfig({ approval_required: e.target.checked })}
+          className="rounded border-border"
+        />
+        Require rep approval before this step runs
+      </label>
+    </div>
+  );
+}
+
 export default function WorkflowNodeInspector({
   selectedNodeId,
   tree,
@@ -269,6 +316,17 @@ export default function WorkflowNodeInspector({
 
       {/* Integration dependency / agent-access state */}
       <IntegrationDependencyBlock node={node} />
+
+      {/* Approval gate — surfaced automatically for non-reversible steps */}
+      <ApprovalGateBlock node={node} onUpdateConfig={(patch) => onUpdateConfig(selectedNodeId, patch)} />
+
+      {/* Input mapping — reads/writes node.config.input_bindings */}
+      <InputMappingPanel
+        node={node}
+        selectedNodeId={selectedNodeId}
+        tree={tree}
+        onUpdateConfig={(patch) => onUpdateConfig(selectedNodeId, patch)}
+      />
 
       <div className="mb-4">
         <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1.5">
