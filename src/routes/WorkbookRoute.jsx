@@ -33,6 +33,7 @@ import {
   Database,
   Plug,
   Save,
+  ListPlus,
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
 import { useTenant } from '../context/TenantContext.jsx';
@@ -44,6 +45,8 @@ import WorkbookSegmented from '../components/workbook/WorkbookSegmented.jsx';
 import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx';
 import WorkbookSelectionBar from '../components/workbook/WorkbookSelectionBar.jsx';
 import WorkbookContactsModal from '../components/workbook/WorkbookContactsModal.jsx';
+import SaveWorkbookAsModal from '../components/workbook/SaveWorkbookAsModal.jsx';
+import FilterPanel from '../components/workbook/FilterPanel.jsx';
 import IcpPill from '../components/workbook/IcpPill.jsx';
 import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
@@ -1704,6 +1707,12 @@ export default function WorkbookRoute() {
   // changes (records no longer apply).
   const [selectedRowIds, setSelectedRowIds] = useState([]);
   const [contactsModalOpen, setContactsModalOpen] = useState(false);
+  // Persistent toolbar state — filter chips applied directly on the workbook
+  // (independent of any play filter). Chips flow through the same
+  // FilterPanel component used by the play editor.
+  const [workbookFilters, setWorkbookFilters] = useState([]);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [saveWorkbookAsOpen, setSaveWorkbookAsOpen] = useState(false);
 
   // View state
   const initialViewId = searchParams.get('view');
@@ -2078,6 +2087,15 @@ export default function WorkbookRoute() {
     return list;
   }, [filteredAccounts, currentView]);
 
+  // Apply workbook-level filter chips on top of sortedAccounts. Chips run
+  // through the same predicate registry that plays use, so semantics match.
+  const visibleAccounts = useMemo(() => {
+    if (!Array.isArray(workbookFilters) || workbookFilters.length === 0) return sortedAccounts;
+    const preds = buildPredicates(workbookFilters);
+    if (!Array.isArray(preds) || preds.length === 0) return sortedAccounts;
+    return sortedAccounts.filter((a) => preds.every((p) => (typeof p === 'function' ? p(a) : true)));
+  }, [sortedAccounts, workbookFilters]);
+
   // Modals + drawers
   const [enrichOpen, setEnrichOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -2418,11 +2436,49 @@ export default function WorkbookRoute() {
                 />
               )}
               <button
+                onClick={() => setFilterPanelOpen(true)}
+                title="Filter this workbook by HG + 1P criteria"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border rounded-md transition-colors ${
+                  workbookFilters.length > 0
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border text-text-secondary hover:text-text-primary hover:bg-surface-2'
+                }`}
+              >
+                <Filter size={11} />
+                {workbookFilters.length > 0 ? `Filters (${workbookFilters.length})` : 'Filter'}
+              </button>
+              <button
+                onClick={() => setSaveWorkbookAsOpen(true)}
+                title="Save the current filtered view as a new workbook"
+                disabled={visibleAccounts.length === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ListPlus size={11} />
+                Save as workbook
+              </button>
+              <button
+                onClick={() => {
+                  const targetIds = selectedRowIds.length > 0 ? selectedRowIds : visibleAccounts.map((a) => a.id);
+                  const params = new URLSearchParams();
+                  if (activeWorkbook?.id) params.set('workbook', activeWorkbook.id);
+                  if (targetIds.length > 0) params.set('records', targetIds.join(','));
+                  navigate(`/plays/new?${params.toString()}`);
+                }}
+                title="Turn the current record set into a Sales Play"
+                disabled={visibleAccounts.length === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Wand2 size={11} />
+                {selectedRowIds.length > 0
+                  ? `Create Sales Play (${selectedRowIds.length})`
+                  : `Create Sales Play (${visibleAccounts.length})`}
+              </button>
+              <button
                 onClick={() => setEnrichOpen(true)}
                 title="Ask any question across the current view — answers become columns"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded-md hover:opacity-90 transition-opacity shadow-card"
               >
-                <Wand2 size={11} />
+                <Sparkles size={11} />
                 Enrich with AI
               </button>
               {/* Demo · First-time toggle retired — ICP Match is always
@@ -2431,6 +2487,41 @@ export default function WorkbookRoute() {
                   available; uploads + CRM-connect live inside it. */}
             </div>
           </div>
+
+          {/* Applied filter chips — inline under the toolbar. Rep can drop
+              individual chips or clear all. Fires against the same predicate
+              engine used by plays, so semantics match. */}
+          {workbookFilters.length > 0 && (
+            <div className="mt-3 flex items-center gap-1.5 flex-wrap text-[11px]">
+              <Filter size={10} className="text-primary flex-shrink-0" />
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted flex-shrink-0">Filters</span>
+              {workbookFilters.map((f) => (
+                <span
+                  key={f.id}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded border bg-primary/5 border-primary/30 text-primary"
+                >
+                  <span className="font-mono opacity-60 text-[9px]">{f.group}</span>
+                  <span>{f.label}: {f.displayValue}</span>
+                  <button
+                    onClick={() => setWorkbookFilters(workbookFilters.filter((x) => x.id !== f.id))}
+                    className="hover:text-rose-600 transition-colors"
+                    title="Remove filter"
+                  >
+                    <X size={9} />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={() => setWorkbookFilters([])}
+                className="text-[10px] text-text-muted hover:text-text-secondary underline"
+              >
+                Clear all
+              </button>
+              <span className="text-[10px] text-text-muted ml-1">
+                &middot; {visibleAccounts.length} of {sortedAccounts.length} records
+              </span>
+            </div>
+          )}
 
           {/* Empty-book hero retired — the picker always offers ICP Match
               as a populated landing workbook, so the platform never falls
@@ -2551,12 +2642,12 @@ export default function WorkbookRoute() {
               and now belongs in Market Analyzer. */}
           <div className="text-[11px] text-text-muted mb-2">
             {isAdmin ? 'Book of accounts · ' : 'My book · '}
-            {sortedAccounts.length} accounts
+            {visibleAccounts.length} accounts
             {enrichedCols.length > 0 && <> · {enrichedCols.length} AI-enriched column{enrichedCols.length === 1 ? '' : 's'}</>}
             {isAdmin && <> · slice via Sales Plays</>}
           </div>
 
-          {sortedAccounts.length === 0 ? (
+          {visibleAccounts.length === 0 ? (
             source === 'needs_review' ? (
               <div className="bg-surface border border-dashed border-amber-500/30 rounded-md p-10 text-center">
                 <AlertCircle size={20} className="mx-auto text-amber-500 mb-2" />
@@ -2582,7 +2673,7 @@ export default function WorkbookRoute() {
             // Segmented view (admin + seller) — one section per selected
             // offering. Driven by OfferingSelector in the header.
             <WorkbookSegmented
-              accounts={sortedAccounts}
+              accounts={visibleAccounts}
               offerings={tableOfferings}
               source={source}
               onOpenAccount={(a) => navigate(`/account/${a.id}`)}
@@ -2603,7 +2694,7 @@ export default function WorkbookRoute() {
             // Flat view (admin + seller, default) — one row per company,
             // every offering as a fit column. Same column set Alex sees.
             <SellerWorkbookTable
-              accounts={sortedAccounts}
+              accounts={visibleAccounts}
               offerings={tableOfferings}
               onOpenAccount={(a) => (isAdmin ? handleRowClick(a) : navigate(`/account/${a.id}`))}
               onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
@@ -2626,7 +2717,7 @@ export default function WorkbookRoute() {
                 )
               }
               onToggleSelectAll={(shouldSelect) =>
-                setSelectedRowIds(shouldSelect ? sortedAccounts.map((a) => a.id) : [])
+                setSelectedRowIds(shouldSelect ? visibleAccounts.map((a) => a.id) : [])
               }
             />
           )}
@@ -2656,6 +2747,37 @@ export default function WorkbookRoute() {
         sourceWorkbookId={activeWorkbook?.id}
         onClose={() => setContactsModalOpen(false)}
       />
+      {/* Persistent-toolbar modals — Filter chip editor + Save-as-workbook.
+          Filter chips apply to the visible set; Save-as freezes the visible
+          rows into a new custom workbook. */}
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        filters={workbookFilters}
+        onAddOrUpdate={(filter) => {
+          const exists = workbookFilters.some((f) => f.id === filter.id);
+          setWorkbookFilters(exists
+            ? workbookFilters.map((f) => (f.id === filter.id ? filter : f))
+            : [...workbookFilters, filter]);
+        }}
+        onRemove={(id) => setWorkbookFilters(workbookFilters.filter((f) => f.id !== id))}
+        onClearAll={() => setWorkbookFilters([])}
+        crmConnected={workbookState.hasCrm === true}
+        title={`Filter · ${activeWorkbook?.name || 'workbook'}`}
+      />
+      <SaveWorkbookAsModal
+        open={saveWorkbookAsOpen}
+        rows={selectedRowIds.length > 0
+          ? visibleAccounts.filter((a) => selectedRowIds.includes(a.id))
+          : visibleAccounts}
+        sourceWorkbook={activeWorkbook}
+        filterSummary={workbookFilters.length > 0
+          ? `${workbookFilters.length} filter${workbookFilters.length === 1 ? '' : 's'} applied`
+          : selectedRowIds.length > 0
+          ? `${selectedRowIds.length} row${selectedRowIds.length === 1 ? '' : 's'} selected`
+          : null}
+        onClose={() => setSaveWorkbookAsOpen(false)}
+      />
 
       {/* Modals */}
       <SaveAsModal
@@ -2667,7 +2789,7 @@ export default function WorkbookRoute() {
       />
       <EnrichmentModal
         open={enrichOpen}
-        accounts={sortedAccounts}
+        accounts={visibleAccounts}
         currentView={currentView}
         onClose={() => setEnrichOpen(false)}
         onAddColumn={handleAddEnrichedColumn}

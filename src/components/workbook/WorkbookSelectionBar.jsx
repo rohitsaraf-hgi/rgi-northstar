@@ -1,17 +1,16 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Wand2, Users, ListPlus, ArrowRight } from 'lucide-react';
+import { X, Users, ListPlus } from 'lucide-react';
 import { getContactsForAccounts, createContactWorkbook } from '../../data/workbooks.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { usePersona } from '../../context/PersonaContext.jsx';
 
 // Sticky bulk-action bar shown when ≥1 workbook row is selected.
-// Actions:
-//   - Create Sales Play (primary — routes to /plays/new with pre-selected records)
-//   - View contacts (opens a modal listing contacts from the selected companies)
-//   - Save contacts as new Workbook (creates a CONTACT_LIST workbook)
-//   - Clear
+//
+// Focused on CONTACT-SPECIFIC actions. Create Sales Play + Save-as-Workbook
+// (accounts) live in the persistent toolbar at the top of the workbook,
+// which is always visible and updates its label with the selection count.
 export default function WorkbookSelectionBar({
   workbookId,
   selectedIds,
@@ -28,13 +27,6 @@ export default function WorkbookSelectionBar({
   const contactCount = contacts.length;
 
   if (!selectedIds || selectedIds.length === 0) return null;
-
-  const handleCreatePlay = () => {
-    const params = new URLSearchParams();
-    if (workbookId) params.set('workbook', workbookId);
-    params.set('records', selectedIds.join(','));
-    navigate(`/plays/new?${params.toString()}`);
-  };
 
   const handleSaveContacts = () => {
     const name = wbName.trim() || `Contacts from ${selectedIds.length} accounts`;
@@ -72,6 +64,9 @@ export default function WorkbookSelectionBar({
                 &middot; {contactCount} contact{contactCount === 1 ? '' : 's'} in scope
               </span>
             )}
+            <span className="text-[10px] text-text-muted">
+              &middot; Create Sales Play + Save as Workbook available in the toolbar above
+            </span>
           </div>
 
           <div className="flex-1" />
@@ -92,19 +87,10 @@ export default function WorkbookSelectionBar({
             onClick={() => setSaveOpen(true)}
             disabled={contactCount === 0}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 text-xs rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Save contacts as a new workbook"
+            title="Save contacts as a new contact-list workbook"
           >
             <ListPlus size={11} />
-            Save as workbook
-          </button>
-
-          <button
-            onClick={handleCreatePlay}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-md hover:bg-primary-dim transition-colors"
-          >
-            <Wand2 size={11} />
-            Create Sales Play
-            <ArrowRight size={10} />
+            Save contacts as workbook
           </button>
 
           <button
