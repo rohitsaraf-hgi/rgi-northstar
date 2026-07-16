@@ -81,11 +81,26 @@
 //    createdAt:           ISODate
 //    updatedAt:           ISODate
 //
+//    // Play type + activation (spec: Play = Who × When × What)
+//    type:                'outbound' | 'inbound'
+//    activation: {
+//      mode:              'admin_activated' | 'trigger'
+//      // Outbound-only:
+//      batchSize:         number                   // default 10
+//      batchGapMinutes:   number                   // default 30
+//      autoRunOnNewRecords: boolean                // dynamic workbooks: auto-add
+//      activatedAt:       ISODate | null
+//      batches: Array<{ index, total, recordCount, status, scheduledAt, completedAt? }>
+//      // Inbound-only:
+//      triggerType:       'signal' | 'champion_job_change' | 'event_fired' | 'crm_field_updated' | null
+//      triggerConfig:     object                   // trigger-specific fields
+//    }
+//
 //    // Legacy display fields kept for backward compat
 //    offering_id?:        offeringId                // = offerings[0]
 //    surface_scope?:      'book' | 'whitespace' | 'both'
 //    is_default_chip?:    boolean
-//    recommended_workflows?: Array<workflowId>
+//    recommended_workflows?: Array<workflowId>      // attached workflows (UI label: "Workflows")
 //    eligibility?:        { min_offering_fit?: number }
 //    version?:            number
 //    created_by?:         string
@@ -209,6 +224,10 @@ function adaptLegacyPlay(legacy) {
     eligibility: legacy.eligibility,
     version: legacy.version,
     created_by: legacy.created_by,
+    // Play type + activation — passed through so seed-defined types stick.
+    // ensureLegacyPlayFields fills in defaults when missing.
+    type: legacy.type,
+    activation: legacy.activation,
   };
 }
 
@@ -244,28 +263,48 @@ const LEGACY_PLAYS_BY_ID = Object.fromEntries(LEGACY_PLAYS.map((p) => [p.id, p])
 // migration runs, admin edits persist normally.
 // v3: stripped industries/regions from seeded plays so they inherit
 //     offering Target ICP via getEffectivePlayAudience().
-const PLAYS_SCHEMA_VERSION = 3;
+// v4: added type + activation and two new inbound seed plays
+//     (play-champion-move, play-renewal-defense).
+const PLAYS_SCHEMA_VERSION = 4;
 
 function migrateStaleState(parsed) {
   const needsPlaysReseed = (parsed.playsSchemaVersion || 0) < PLAYS_SCHEMA_VERSION;
+  const kept = (parsed.plays || [])
+    .filter((p) => SEEDED_PLAY_IDS.has(p.id))
+    .map((p) => {
+      if (!needsPlaysReseed) return ensureLegacyPlayFields(p);
+      const canonical = LEGACY_PLAYS_BY_ID[p.id];
+      const merged = canonical
+        ? {
+            ...p,
+            firmoFilters: canonical.firmoFilters || p.firmoFilters,
+            technoFilters: canonical.technoFilters || p.technoFilters,
+            visibility: p.visibility || canonical.visibility || 'tenant',
+            // Pick up new seed fields the cached copy is missing.
+            type: p.type || canonical.type,
+            activation: p.activation || canonical.activation,
+            recommended_workflows:
+              (p.recommended_workflows && p.recommended_workflows.length > 0)
+                ? p.recommended_workflows
+                : (canonical.recommended_workflows || []),
+          }
+        : p;
+      return ensureLegacyPlayFields(merged);
+    });
+  // Add newly-seeded plays (introduced in later schema versions) that the
+  // cached state is missing. Only runs when a reseed is needed.
+  let plays = kept;
+  if (needsPlaysReseed) {
+    const existingIds = new Set(kept.map((p) => p.id));
+    const missing = LEGACY_PLAYS
+      .filter((seed) => !existingIds.has(seed.id))
+      .map((seed) => ensureLegacyPlayFields(adaptLegacyPlay(seed)));
+    plays = [...kept, ...missing];
+  }
   return {
     ...parsed,
     offerings: (parsed.offerings || []).map(ensureLegacyOfferingFields),
-    plays: (parsed.plays || [])
-      .filter((p) => SEEDED_PLAY_IDS.has(p.id))
-      .map((p) => {
-        if (!needsPlaysReseed) return ensureLegacyPlayFields(p);
-        const canonical = LEGACY_PLAYS_BY_ID[p.id];
-        const merged = canonical
-          ? {
-              ...p,
-              firmoFilters: canonical.firmoFilters || p.firmoFilters,
-              technoFilters: canonical.technoFilters || p.technoFilters,
-              visibility: p.visibility || canonical.visibility || 'tenant',
-            }
-          : p;
-        return ensureLegacyPlayFields(merged);
-      }),
+    plays,
     playsSchemaVersion: PLAYS_SCHEMA_VERSION,
     scoringModelStatus: parsed.scoringModelStatus || {},
   };
@@ -313,7 +352,53 @@ export function getOffering(id) {
 // mirrors that older consumers (PlaysRoute, WorkflowStudio, SellerHome, etc.)
 // expect. Without these fallbacks, .join() / .map() calls on undefined
 // throw at render time. Idempotent — safe to apply on every read + write.
+// Play motion → default play type. Outbound plays proactively prospect a
+// workbook; inbound plays fire in response to a trigger event.
+export function inferPlayTypeFromMotion(motion) {
+  if (motion === 'renewal' || motion === 'in_market' || motion === 'opportunity_window') return 'inbound';
+  return 'outbound'; // displacement, new_logo, expansion — all workbook-driven prospecting
+}
+
+// Default trigger type for an inbound play based on motion — the workflow
+// picker uses this to pre-filter the trigger dropdown.
+export function defaultTriggerTypeForMotion(motion) {
+  if (motion === 'renewal') return 'signal';
+  if (motion === 'opportunity_window') return 'event_fired';
+  if (motion === 'in_market') return 'signal';
+  return 'signal';
+}
+
+function defaultActivationForType(type, motion) {
+  if (type === 'inbound') {
+    return {
+      mode: 'trigger',
+      batchSize: 10,
+      batchGapMinutes: 30,
+      autoRunOnNewRecords: false,
+      triggerType: defaultTriggerTypeForMotion(motion),
+      triggerConfig: {},
+      activatedAt: null,
+      batches: [],
+    };
+  }
+  return {
+    mode: 'admin_activated',
+    batchSize: 10,
+    batchGapMinutes: 30,
+    autoRunOnNewRecords: true,
+    triggerType: null,
+    triggerConfig: {},
+    activatedAt: null,
+    batches: [],
+  };
+}
+
 function ensureLegacyPlayFields(play) {
+  const inferredType = play.type || inferPlayTypeFromMotion(play.motion);
+  const baseActivation = defaultActivationForType(inferredType, play.motion);
+  const activation = play.activation
+    ? { ...baseActivation, ...play.activation, batches: play.activation.batches || [] }
+    : baseActivation;
   return {
     ...play,
     audience_roles: play.audience_roles || play.audienceRoles || ['AE'],
@@ -334,6 +419,9 @@ function ensureLegacyPlayFields(play) {
     // select supported so a play can range over (e.g.) ICP Match + the
     // seller's My Book at the same time.
     workbookIds: Array.isArray(play.workbookIds) ? play.workbookIds : [],
+    // Play type (outbound / inbound) — inferred from motion for legacy plays.
+    type: inferredType,
+    activation,
   };
 }
 

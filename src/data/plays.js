@@ -11,6 +11,8 @@ import {
   upsertPlay as upsertPlayInStore,
   deletePlay as deletePlayInStore,
   subscribeConfig,
+  inferPlayTypeFromMotion,
+  defaultTriggerTypeForMotion,
 } from './configStore.js';
 
 // Snapshot view (legacy consumers). Live readers below preferred.
@@ -286,3 +288,133 @@ export function effectivePinnedPlayIds(personaId, role) {
   if (override != null) return override;
   return listDefaultPlaysForRole(role).map((p) => p.id);
 }
+
+// -----------------------------------------------------------------------------
+// Play type + activation + workflow attachment helpers
+//
+// A Play is Who × When × What:
+//   Who — the workbook (record set)
+//   When — admin activation (outbound) OR trigger event (inbound)
+//   What — the attached workflow(s)
+// -----------------------------------------------------------------------------
+
+export { inferPlayTypeFromMotion, defaultTriggerTypeForMotion };
+
+export function getPlayType(play) {
+  return play?.type || inferPlayTypeFromMotion(play?.motion);
+}
+
+// Attach a workflow id to a play (dedup). Returns the updated play.
+export function attachWorkflowToPlay(playId, workflowId) {
+  const play = getPlayFromStore(playId);
+  if (!play || !workflowId) return null;
+  const existing = play.recommended_workflows || [];
+  if (existing.includes(workflowId)) return play;
+  const next = { ...play, recommended_workflows: [...existing, workflowId] };
+  upsertPlayInStore(next);
+  return next;
+}
+
+// Detach a workflow id from a play. Returns the updated play.
+export function detachWorkflowFromPlay(playId, workflowId) {
+  const play = getPlayFromStore(playId);
+  if (!play || !workflowId) return null;
+  const next = {
+    ...play,
+    recommended_workflows: (play.recommended_workflows || []).filter((id) => id !== workflowId),
+  };
+  upsertPlayInStore(next);
+  return next;
+}
+
+// Set / merge activation config on a play. Pass a partial `patch` object; it
+// deep-merges over the existing activation. Returns the updated play.
+export function setPlayActivation(playId, patch) {
+  const play = getPlayFromStore(playId);
+  if (!play) return null;
+  const next = {
+    ...play,
+    activation: { ...(play.activation || {}), ...(patch || {}) },
+  };
+  upsertPlayInStore(next);
+  return next;
+}
+
+// Toggle the play type. Also resets/adjusts activation defaults so the play
+// lands with a sane mode (admin_activated ↔ trigger).
+export function setPlayType(playId, newType) {
+  const play = getPlayFromStore(playId);
+  if (!play) return null;
+  const activation = play.activation || {};
+  const nextActivation =
+    newType === 'inbound'
+      ? {
+          ...activation,
+          mode: 'trigger',
+          triggerType: activation.triggerType || defaultTriggerTypeForMotion(play.motion),
+        }
+      : {
+          ...activation,
+          mode: 'admin_activated',
+        };
+  const next = { ...play, type: newType, activation: nextActivation };
+  upsertPlayInStore(next);
+  return next;
+}
+
+// Motion + play type → recommended workflow template id. Used by the
+// empty-state "Attach the recommended workflow" one-click on the play detail
+// page. The picker filters by trigger-type compatibility, so the recommended
+// workflow must match the play's activation model:
+//   - Outbound plays  → workflows with trigger.manual / trigger.scheduled
+//   - Inbound plays   → workflows with signal / champion_job_change /
+//                       event_fired / crm_field_updated triggers
+export function recommendedWorkflowForMotion(motion, playType) {
+  if (playType === 'inbound') {
+    switch (motion) {
+      case 'renewal':             return 'renewal-defense-play';           // signal
+      case 'in_market':           return 'wf-tpl-inbound-lead';            // event_fired
+      case 'opportunity_window':  return 'wf-tpl-intent-event';            // event_fired
+      case 'displacement':        return 'wf-tpl-closed-won-competitor';   // crm_field_updated
+      case 'new_logo':            return 'wf-tpl-inbound-lead';
+      default:                    return null;
+    }
+  }
+  // Outbound — proactive prospecting motions.
+  switch (motion) {
+    case 'displacement':          return 'cnapp-displacement-brief';        // existing manual
+    case 'new_logo':              return 'wf-tpl-prospecting-agent';
+    case 'expansion':             return 'wf-tpl-prospecting-agent';
+    case 'renewal':               return 'account-brief-flow';
+    default:                      return 'wf-tpl-prospecting-agent';
+  }
+}
+
+// Mock activation — generates a `batches` history so the UI can render a
+// realistic batch queue without a real scheduler. `totalRecords` comes from
+// the workbook's account count.
+//
+// Behavior:
+//   Batch 1 → running, started at activatedAt
+//   Batch 2..N → scheduled, spaced `batchGapMinutes` apart
+export function generateMockBatches({ totalRecords, batchSize, batchGapMinutes, activatedAt }) {
+  const total = Math.max(1, Math.ceil((totalRecords || 0) / (batchSize || 10)));
+  const startMs = activatedAt ? new Date(activatedAt).getTime() : Date.now();
+  const batches = [];
+  for (let i = 0; i < total; i++) {
+    const scheduledMs = startMs + i * (batchGapMinutes || 30) * 60 * 1000;
+    const count = i === total - 1
+      ? Math.max(0, (totalRecords || 0) - i * batchSize)
+      : batchSize;
+    batches.push({
+      index: i + 1,
+      total,
+      recordCount: count,
+      status: i === 0 ? 'running' : 'scheduled',
+      scheduledAt: new Date(scheduledMs).toISOString(),
+      completedAt: null,
+    });
+  }
+  return batches;
+}
+

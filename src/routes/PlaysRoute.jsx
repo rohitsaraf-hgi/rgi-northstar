@@ -16,18 +16,24 @@ import {
   AlertTriangle,
   Globe,
   BookOpen,
-  ChevronRight,
   Pin,
   Layers,
   Workflow,
 } from 'lucide-react';
-import { listPlays, getPlay, upsertPlay, deletePlay, subscribePlays, MOTION_LABELS, playReferencesCrm } from '../data/plays.js';
+import {
+  listPlays, getPlay, upsertPlay, deletePlay, subscribePlays, MOTION_LABELS, playReferencesCrm,
+  getPlayType, setPlayType, setPlayActivation,
+  attachWorkflowToPlay, detachWorkflowFromPlay, recommendedWorkflowForMotion,
+} from '../data/plays.js';
 import { listOfferings } from '../data/offerings.js';
 import { ManagePlayDrawer } from '../components/onboarding/StepPlays.jsx';
 import { AnimatePresence } from 'framer-motion';
-import { Edit2, Trash2, Save } from 'lucide-react';
+import { Edit2, Trash2, Save, PlayCircle, Zap, Layers as LayersIcon, Bell, Repeat, ListChecks, GitBranch } from 'lucide-react';
 import { getOffering } from '../data/offerings.js';
 import { getWorkflow } from '../data/workflows.js';
+import { getWorkflowTemplate } from '../data/workflowTemplates.js';
+import PlayWorkflowPicker from '../components/plays/PlayWorkflowPicker.jsx';
+import PlayActivationModal from '../components/plays/PlayActivationModal.jsx';
 import { getSignalDef, SIGNAL_CATEGORIES } from '../data/rankingSignals.js';
 import { useToast } from '../context/ToastContext.jsx';
 import FilterPanel from '../components/workbook/FilterPanel.jsx';
@@ -257,6 +263,298 @@ function PlayWorkbookSection({ play, workbooks, onSave }) {
   );
 }
 
+// Attached-workflow card — renders a single workflow on the play detail with
+// Edit / View / Detach actions.
+function AttachedWorkflowCard({ workflow, onEdit, onView, onDetach }) {
+  const nodes = workflow?.tree?.nodes || {};
+  const trigger = Object.values(nodes).find((n) => (n.type || '').startsWith('trigger.'));
+  const triggerLabel = trigger
+    ? trigger.type.replace('trigger.', '').replace(/_/g, ' ')
+    : 'no trigger';
+  const stepCount = Math.max(0, Object.keys(nodes).length - 1);
+  return (
+    <div className="bg-bg/40 border border-border rounded p-3 flex items-center gap-3 hover:border-primary/30 transition-colors">
+      <div className="w-8 h-8 rounded-md bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+        <Workflow size={14} className="text-emerald-700 dark:text-emerald-300" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-text-primary truncate">{workflow.name}</span>
+          <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-300 inline-flex items-center gap-0.5">
+            <Zap size={8} />
+            {triggerLabel}
+          </span>
+          <span className="text-[10px] text-text-muted font-mono">{stepCount} steps</span>
+        </div>
+        <div className="text-[10px] text-text-muted truncate mt-0.5">{workflow.description}</div>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button
+          onClick={onView}
+          className="text-[10px] px-2 py-1 border border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 rounded transition-colors"
+          title="View workflow detail"
+        >
+          View
+        </button>
+        <button
+          onClick={onEdit}
+          className="text-[10px] px-2 py-1 border border-primary/30 text-primary hover:bg-primary/10 rounded transition-colors"
+          title="Open in workflow builder"
+        >
+          Edit
+        </button>
+        <button
+          onClick={onDetach}
+          className="p-1 text-text-muted hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
+          title="Detach from this play"
+        >
+          <X size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Play Type + Activation section — the WHEN of a play. Outbound plays run
+// on admin activation across a workbook; inbound plays fire on a trigger.
+function PlayTypeActivationSection({ play, playType, onSetPlayType, onPatchActivation, onOpenActivation, workbookRecordCount, attachedWorkbook }) {
+  const activation = play?.activation || {};
+  const activatedAt = activation.activatedAt;
+  const batchSize = activation.batchSize || 10;
+  const batchGap = activation.batchGapMinutes || 30;
+  const totalBatches = Math.max(1, Math.ceil((workbookRecordCount || 0) / batchSize));
+  const isDynamicWorkbook = attachedWorkbook?.type === 'dynamic' || attachedWorkbook?.isDynamic === true;
+
+  return (
+    <div className="bg-surface border border-border rounded-md p-4 mb-4">
+      <div className="flex items-start justify-between mb-3 gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+            Play type &amp; activation
+          </div>
+          <div className="text-[11px] text-text-secondary mt-0.5">
+            Determines when the attached workflow runs.
+          </div>
+        </div>
+        {/* Segmented control */}
+        <div className="flex items-center gap-1 bg-surface-2 border border-border rounded-md p-0.5 flex-shrink-0">
+          <button
+            onClick={() => onSetPlayType('outbound')}
+            className={`px-2.5 py-1 text-xs rounded transition-colors inline-flex items-center gap-1 ${
+              playType === 'outbound' ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 font-semibold' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Repeat size={10} />
+            Outbound
+          </button>
+          <button
+            onClick={() => onSetPlayType('inbound')}
+            className={`px-2.5 py-1 text-xs rounded transition-colors inline-flex items-center gap-1 ${
+              playType === 'inbound' ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 font-semibold' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Bell size={10} />
+            Inbound
+          </button>
+        </div>
+      </div>
+
+      {playType === 'outbound' ? (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-secondary leading-relaxed">
+            Admin-activated. When you activate this play, the attached workflow is queued to run for every
+            record in the workbook. Execution is batched to avoid CRM rate limits.
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Batch size</div>
+              <div className="flex items-center gap-1 mt-0.5">
+                <input
+                  type="number"
+                  value={batchSize}
+                  min={1}
+                  max={100}
+                  onChange={(e) => onPatchActivation({ batchSize: Math.max(1, Math.min(100, Number(e.target.value) || 10)) })}
+                  className="w-14 px-1.5 py-0.5 text-xs bg-bg border border-border rounded text-text-primary font-mono focus:outline-none focus:border-primary/40"
+                />
+                <span className="text-[10px] text-text-muted">records/batch</span>
+              </div>
+            </div>
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Gap between batches</div>
+              <div className="flex items-center gap-1 mt-0.5">
+                <input
+                  type="number"
+                  value={batchGap}
+                  min={0}
+                  max={1440}
+                  onChange={(e) => onPatchActivation({ batchGapMinutes: Math.max(0, Math.min(1440, Number(e.target.value) || 30)) })}
+                  className="w-14 px-1.5 py-0.5 text-xs bg-bg border border-border rounded text-text-primary font-mono focus:outline-none focus:border-primary/40"
+                />
+                <span className="text-[10px] text-text-muted">minutes</span>
+              </div>
+            </div>
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Total run</div>
+              <div className="flex items-center gap-1 mt-0.5">
+                <LayersIcon size={11} className="text-text-muted" />
+                <span className="text-xs font-mono text-text-primary">{totalBatches}</span>
+                <span className="text-[10px] text-text-muted">batches &middot; ~{(totalBatches - 1) * batchGap} min</span>
+              </div>
+            </div>
+          </div>
+
+          <label className="inline-flex items-center gap-2 text-[11px] text-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={activation.autoRunOnNewRecords !== false}
+              onChange={(e) => onPatchActivation({ autoRunOnNewRecords: e.target.checked })}
+              className="rounded border-border"
+            />
+            <span>
+              Auto-run for new records entering the workbook
+              {isDynamicWorkbook ? ' (dynamic workbook)' : ''}
+            </span>
+          </label>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-border">
+            {activatedAt ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 size={10} />
+                  Active
+                </span>
+                <span className="text-[11px] text-text-muted">
+                  Activated {new Date(activatedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </span>
+                <button
+                  onClick={onOpenActivation}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 border border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 text-xs rounded-md transition-colors"
+                >
+                  <ListChecks size={11} />
+                  View batch queue
+                </button>
+                {activation.autoRunOnNewRecords === false && (
+                  <button
+                    onClick={onOpenActivation}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-primary/30 text-primary hover:bg-primary/10 text-xs rounded-md transition-colors"
+                  >
+                    <Repeat size={11} />
+                    Run for new records
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] text-text-muted">
+                  Not activated. Reps will see this play but the workflow won&rsquo;t run automatically.
+                </span>
+                <button
+                  onClick={onOpenActivation}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-primary-dim transition-colors"
+                >
+                  <PlayCircle size={11} />
+                  Activate play
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-secondary leading-relaxed">
+            Trigger-driven. The workflow runs each time the trigger fires, but only for records in this play&rsquo;s workbook scope.
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">Trigger type</div>
+              <select
+                value={activation.triggerType || 'signal'}
+                onChange={(e) => onPatchActivation({ triggerType: e.target.value, triggerConfig: {} })}
+                className="w-full px-2 py-1 text-xs bg-bg border border-border rounded text-text-primary focus:outline-none focus:border-primary/40"
+              >
+                <option value="signal">Ranking signal fires</option>
+                <option value="champion_job_change">Champion changes jobs</option>
+                <option value="event_fired">External event (TrustRadius, webinar, form fill)</option>
+                <option value="crm_field_updated">CRM field updated (e.g., Stage → Closed Won)</option>
+              </select>
+            </div>
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">Scope</div>
+              <div className="text-[11px] text-text-primary leading-snug">
+                <GitBranch size={10} className="inline mr-1 text-text-muted" />
+                Fires only if the record is in <span className="font-semibold">{attachedWorkbook?.name || 'this play’s workbook'}</span>
+                {!attachedWorkbook && <> or in the rep&rsquo;s territory</>}.
+              </div>
+            </div>
+          </div>
+
+          {(activation.triggerType || 'signal') === 'event_fired' && (
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">Event filter</div>
+              <input
+                type="text"
+                value={activation.triggerConfig?.event_types || ''}
+                placeholder="form_fill,demo_request,tr_contact_request"
+                onChange={(e) => onPatchActivation({ triggerConfig: { ...(activation.triggerConfig || {}), event_types: e.target.value } })}
+                className="w-full px-2 py-1 text-xs bg-bg border border-border rounded text-text-primary font-mono focus:outline-none focus:border-primary/40"
+              />
+              <div className="text-[10px] text-text-muted mt-1">Comma-separated event types this play should respond to.</div>
+            </div>
+          )}
+
+          {(activation.triggerType || 'signal') === 'crm_field_updated' && (
+            <div className="grid grid-cols-3 gap-2">
+              <div className="px-3 py-2 rounded border border-border bg-bg/40">
+                <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">CRM object</div>
+                <input
+                  type="text"
+                  value={activation.triggerConfig?.object || ''}
+                  placeholder="opportunity"
+                  onChange={(e) => onPatchActivation({ triggerConfig: { ...(activation.triggerConfig || {}), object: e.target.value } })}
+                  className="w-full px-2 py-1 text-xs bg-bg border border-border rounded text-text-primary font-mono focus:outline-none focus:border-primary/40"
+                />
+              </div>
+              <div className="px-3 py-2 rounded border border-border bg-bg/40">
+                <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">Field</div>
+                <input
+                  type="text"
+                  value={activation.triggerConfig?.field || ''}
+                  placeholder="Stage"
+                  onChange={(e) => onPatchActivation({ triggerConfig: { ...(activation.triggerConfig || {}), field: e.target.value } })}
+                  className="w-full px-2 py-1 text-xs bg-bg border border-border rounded text-text-primary font-mono focus:outline-none focus:border-primary/40"
+                />
+              </div>
+              <div className="px-3 py-2 rounded border border-border bg-bg/40">
+                <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">New value</div>
+                <input
+                  type="text"
+                  value={activation.triggerConfig?.target_value || ''}
+                  placeholder="Closed Won"
+                  onChange={(e) => onPatchActivation({ triggerConfig: { ...(activation.triggerConfig || {}), target_value: e.target.value } })}
+                  className="w-full px-2 py-1 text-xs bg-bg border border-border rounded text-text-primary font-mono focus:outline-none focus:border-primary/40"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-2 border-t border-border">
+            <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-300">
+              <Bell size={10} />
+              Listening
+            </span>
+            <span className="text-[11px] text-text-muted">
+              Trigger is armed. The workflow will run automatically each time it fires for an in-scope record.
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlayDetail({ play, onBack }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -310,6 +608,39 @@ function PlayDetail({ play, onBack }) {
     persistAudienceFilters(audienceFilters.filter((f) => f.id !== id));
   const clearAudienceFilters = () => persistAudienceFilters([]);
 
+  // Play type + activation state
+  const playType = getPlayType(play);
+  const workbookId = Array.isArray(play.workbookIds) ? play.workbookIds[0] : null;
+  const attachedWorkbook = workbookId ? availableWorkbooks.find((w) => w.id === workbookId) : availableWorkbooks[0];
+  const workbookRecordCount = attachedWorkbook?.accountCount ?? attachedWorkbook?.count ?? play?.estimatedMatches ?? 108;
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [activationOpen, setActivationOpen] = useState(false);
+
+  const handleAttachWorkflow = (workflow) => {
+    attachWorkflowToPlay(play.id, workflow.id);
+    setPickerOpen(false);
+    showToast(`Attached "${workflow.name}" to this play.`, 'success');
+  };
+  const handleDetachWorkflow = (workflowId, workflowName) => {
+    detachWorkflowFromPlay(play.id, workflowId);
+    showToast(`Detached "${workflowName}".`, 'info');
+  };
+  const handleSetPlayType = (nextType) => {
+    if (nextType === playType) return;
+    setPlayType(play.id, nextType);
+    showToast(`Play type set to ${nextType}.`, 'success');
+  };
+  const handleActivationPatch = (patch) => {
+    setPlayActivation(play.id, patch);
+  };
+
+  const recommendedWorkflowId = recommendedWorkflowForMotion(play.motion, playType);
+  const recommendedWorkflowObj =
+    recommendedWorkflowId
+      ? getWorkflow(recommendedWorkflowId) || getWorkflowTemplate(recommendedWorkflowId)
+      : null;
+
   return (
     <div className="max-w-5xl mx-auto px-8 py-8">
       <button
@@ -351,6 +682,19 @@ function PlayDetail({ play, onBack }) {
               <CheckCircle2 size={9} />
               {play.status}
             </span>
+            {(() => {
+              const pt = getPlayType(play);
+              const badgeCfg = pt === 'inbound'
+                ? { label: 'Inbound', Icon: Bell, bg: 'bg-rose-500/10', color: 'text-rose-700 dark:text-rose-300', border: 'border-rose-500/30' }
+                : { label: 'Outbound', Icon: Repeat, bg: 'bg-sky-500/10', color: 'text-sky-700 dark:text-sky-300', border: 'border-sky-500/30' };
+              const BadgeIcon = badgeCfg.Icon;
+              return (
+                <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${badgeCfg.bg} ${badgeCfg.color} ${badgeCfg.border}`}>
+                  <BadgeIcon size={9} />
+                  {badgeCfg.label}
+                </span>
+              );
+            })()}
           </div>
           <p className="text-sm text-text-secondary leading-relaxed max-w-3xl">{play.description}</p>
           <div className="text-[10px] text-text-muted mt-2 flex items-center gap-2">
@@ -607,34 +951,110 @@ function PlayDetail({ play, onBack }) {
         title={`Audience for ${play.name}`}
       />
 
-      {/* Recommended workflows */}
+      {/* Play type + activation (WHEN) */}
+      <PlayTypeActivationSection
+        play={play}
+        playType={playType}
+        onSetPlayType={handleSetPlayType}
+        onPatchActivation={handleActivationPatch}
+        onOpenActivation={() => setActivationOpen(true)}
+        workbookRecordCount={workbookRecordCount}
+        attachedWorkbook={attachedWorkbook}
+      />
+
+      {/* Workflows (WHAT) */}
       <div className="bg-surface border border-border rounded-md p-4 mb-4">
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mb-3">
-          Recommended workflows ({recommendedWorkflows.length})
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+              Workflow{recommendedWorkflows.length === 1 ? '' : 's'} ({recommendedWorkflows.length})
+            </div>
+            <div className="text-[11px] text-text-secondary mt-0.5">
+              What the copilot will run on the rep&rsquo;s behalf when this play {playType === 'outbound' ? 'is activated' : 'fires'}.
+            </div>
+          </div>
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-primary-dim transition-colors"
+          >
+            <Plus size={11} />
+            Attach workflow
+          </button>
         </div>
+
         {recommendedWorkflows.length === 0 ? (
-          <div className="text-[11px] text-text-muted italic">No workflows attached. Sellers will see this play but won&rsquo;t have one-click actions.</div>
+          <div className="rounded border border-dashed border-border bg-bg/40 px-3 py-4 text-center">
+            <Workflow size={16} className="mx-auto mb-2 text-text-muted" />
+            <div className="text-xs text-text-secondary mb-2">No workflows attached yet.</div>
+            {recommendedWorkflowObj ? (
+              <>
+                <div className="text-[11px] text-text-muted mb-2 max-w-md mx-auto leading-relaxed">
+                  Recommended for <span className="font-semibold text-text-secondary">{motionLabel}</span> plays:
+                </div>
+                <button
+                  onClick={() => handleAttachWorkflow(recommendedWorkflowObj)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/30 text-primary text-xs rounded-md hover:bg-primary/20 transition-colors"
+                >
+                  <Sparkles size={11} />
+                  Attach &ldquo;{recommendedWorkflowObj.name}&rdquo;
+                </button>
+                <div className="text-[10px] text-text-muted mt-2">
+                  or{' '}
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="text-primary hover:underline"
+                  >
+                    browse all workflows
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => setPickerOpen(true)}
+                className="text-[11px] text-primary hover:underline"
+              >
+                Browse workflows
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-2">
             {recommendedWorkflows.map((w) => (
-              <button
+              <AttachedWorkflowCard
                 key={w.id}
-                onClick={() => navigate(`/admin/workflows/${w.id}`)}
-                className="w-full text-left bg-bg/40 border border-border rounded p-2.5 flex items-center gap-3 hover:border-primary/30 transition-colors"
-              >
-                <div className="w-7 h-7 rounded-md bg-emerald-500/10 flex items-center justify-center">
-                  <Workflow size={13} className="text-emerald-700 dark:text-emerald-300" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-text-primary">{w.name}</div>
-                  <div className="text-[10px] text-text-muted truncate">{w.description}</div>
-                </div>
-                <ChevronRight size={11} className="text-text-muted" />
-              </button>
+                workflow={w}
+                onEdit={() => navigate(`/admin/workflows/${w.id}/edit`)}
+                onView={() => navigate(`/admin/workflows/${w.id}`)}
+                onDetach={() => handleDetachWorkflow(w.id, w.name)}
+              />
             ))}
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-dashed border-border text-text-secondary hover:text-text-primary hover:bg-surface-2 text-xs rounded-md transition-colors"
+            >
+              <Plus size={11} />
+              Attach another workflow
+            </button>
           </div>
         )}
       </div>
+
+      {pickerOpen && (
+        <PlayWorkflowPicker
+          play={play}
+          recommendedWorkflowId={recommendedWorkflowId}
+          onAttach={handleAttachWorkflow}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+      {activationOpen && (
+        <PlayActivationModal
+          play={play}
+          workbookRecordCount={workbookRecordCount}
+          onClose={() => setActivationOpen(false)}
+          onActivated={() => showToast('Play activated. Batch queue running.', 'success')}
+        />
+      )}
 
       {/* Footer info */}
       <div className="text-[11px] text-text-muted leading-relaxed max-w-3xl border-t border-border pt-3">
