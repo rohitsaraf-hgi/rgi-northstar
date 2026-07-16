@@ -390,6 +390,74 @@ export function recommendedWorkflowForMotion(motion, playType) {
   }
 }
 
+// Individual action catalog — near-term focus per the seller-driven flow.
+// Each entry declares its UI + storage shape. Actions are stored on
+// play.actions[] with the fields defined below.
+export const PLAY_ACTION_TYPES = {
+  add_to_sequence: {
+    id: 'add_to_sequence',
+    label: 'Add to sequence',
+    desc: 'Enroll matching contacts in an outbound cadence (Outreach or Salesloft).',
+    icon: 'Send',
+    fields: [
+      { key: 'platform', label: 'Platform', type: 'select', options: ['outreach', 'salesloft'], required: true },
+      { key: 'sequence_id', label: 'Sequence', type: 'text', placeholder: 'e.g., EMEA Outbound Q3', required: true },
+      { key: 'notes', label: 'Notes (optional)', type: 'text', placeholder: 'e.g., Skip already-enrolled contacts' },
+    ],
+    requires_approval_by_default: true,
+  },
+  draft_email: {
+    id: 'draft_email',
+    label: 'Draft personalized email',
+    desc: 'Generate a personalized email draft per matching contact. Rep approves before sending.',
+    icon: 'Mail',
+    fields: [
+      { key: 'purpose', label: 'Email purpose', type: 'text', placeholder: 'e.g., Congratulate on new role and stay in touch', required: true },
+      { key: 'tone', label: 'Tone', type: 'select', options: ['consultative', 'executive', 'helpful', 'warm', 'urgent'], required: true },
+      { key: 'max_words', label: 'Max words', type: 'number', placeholder: '160' },
+    ],
+    requires_approval_by_default: true,
+  },
+  create_task: {
+    id: 'create_task',
+    label: 'Create CRM follow-up task',
+    desc: 'Create a follow-up task on the CRM record for the rep to action.',
+    icon: 'ListTodo',
+    fields: [
+      { key: 'description', label: 'Task description', type: 'text', placeholder: 'e.g., Follow up on inbound demo request', required: true },
+      { key: 'due_in_days', label: 'Due in (days)', type: 'number', placeholder: '3', required: true },
+    ],
+    requires_approval_by_default: false,
+  },
+};
+
+// Add an action to a play. Returns the updated play.
+export function addActionToPlay(playId, action) {
+  const play = getPlayFromStore(playId);
+  if (!play || !action) return null;
+  const now = new Date().toISOString();
+  const rnd = Math.floor(Math.random() * 900 + 100);
+  const withId = {
+    id: action.id || `act_${now.slice(0, 10).replace(/-/g, '')}_${rnd}`,
+    type: action.type,
+    config: action.config || {},
+    requires_approval: action.requires_approval ?? PLAY_ACTION_TYPES[action.type]?.requires_approval_by_default ?? true,
+    created_at: action.created_at || now,
+  };
+  const next = { ...play, actions: [...(play.actions || []), withId] };
+  upsertPlayInStore(next);
+  return next;
+}
+
+// Remove an action by id from a play. Returns the updated play.
+export function removeActionFromPlay(playId, actionId) {
+  const play = getPlayFromStore(playId);
+  if (!play || !actionId) return null;
+  const next = { ...play, actions: (play.actions || []).filter((a) => a.id !== actionId) };
+  upsertPlayInStore(next);
+  return next;
+}
+
 // Mock activation — generates a `batches` history so the UI can render a
 // realistic batch queue without a real scheduler. `totalRecords` comes from
 // the workbook's account count.

@@ -96,6 +96,21 @@
 //      triggerConfig:     object                   // trigger-specific fields
 //    }
 //
+//    // Individual actions attached to the play (near-term focus per the
+//    // seller-driven creation flow). Parallel to recommended_workflows.
+//    actions: Array<{
+//      id:                string
+//      type:              'add_to_sequence' | 'draft_email' | 'create_task'
+//      config:            object              // type-specific config
+//      requires_approval: boolean
+//      created_at:        ISODate
+//    }>
+//
+//    // Which workbook the play was born from + records selected at creation
+//    // time (rep clicked "Create Sales Play" from a workbook row selection).
+//    source_workbook_id?: workbookId
+//    source_record_ids?:  Array<recordId>
+//
 //    // Legacy display fields kept for backward compat
 //    offering_id?:        offeringId                // = offerings[0]
 //    surface_scope?:      'book' | 'whitespace' | 'both'
@@ -228,6 +243,9 @@ function adaptLegacyPlay(legacy) {
     // ensureLegacyPlayFields fills in defaults when missing.
     type: legacy.type,
     activation: legacy.activation,
+    actions: legacy.actions,
+    source_workbook_id: legacy.source_workbook_id,
+    source_record_ids: legacy.source_record_ids,
   };
 }
 
@@ -265,7 +283,9 @@ const LEGACY_PLAYS_BY_ID = Object.fromEntries(LEGACY_PLAYS.map((p) => [p.id, p])
 //     offering Target ICP via getEffectivePlayAudience().
 // v4: added type + activation and two new inbound seed plays
 //     (play-champion-move, play-renewal-defense).
-const PLAYS_SCHEMA_VERSION = 4;
+// v5: added actions[] + source_workbook_id + source_record_ids for the
+//     seller-driven "Create Sales Play" wizard flow.
+const PLAYS_SCHEMA_VERSION = 5;
 
 function migrateStaleState(parsed) {
   const needsPlaysReseed = (parsed.playsSchemaVersion || 0) < PLAYS_SCHEMA_VERSION;
@@ -422,6 +442,13 @@ function ensureLegacyPlayFields(play) {
     // Play type (outbound / inbound) — inferred from motion for legacy plays.
     type: inferredType,
     activation,
+    // Individual actions (spec §3 of seller-driven flow). Parallel to
+    // recommended_workflows — actions are shorthand for common single-step
+    // execution units (add to sequence, draft email).
+    actions: Array.isArray(play.actions) ? play.actions : [],
+    // Source workbook + record selection at creation time.
+    source_workbook_id: play.source_workbook_id || null,
+    source_record_ids: Array.isArray(play.source_record_ids) ? play.source_record_ids : [],
   };
 }
 

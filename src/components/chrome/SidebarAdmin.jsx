@@ -24,6 +24,7 @@ import {
   Plug,
   Package,
   AlertTriangle,
+  Wand2,
 } from 'lucide-react';
 import { usePersona } from '../../context/PersonaContext.jsx';
 import { listViewsBySource, subscribeViews } from '../../data/workbookViews.js';
@@ -270,6 +271,23 @@ export default function SidebarAdmin({ collapsed, onToggle }) {
                   </div>
                 )}
               </>
+            )}
+
+            {/* CREATE SALES PLAY — prominent CTA (spec §: sellers/admins
+                enter the play creation wizard from the sidebar). */}
+            {!collapsed && (
+              <div className="mt-3 mb-1 px-1">
+                <button
+                  onClick={() => navigate('/plays/new')}
+                  className="w-full inline-flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-primary to-primary-dim text-white text-xs font-semibold rounded-md hover:brightness-110 transition-all shadow-sm"
+                >
+                  <Wand2 size={13} />
+                  Create Sales Play
+                  <span className="ml-auto text-[9px] uppercase tracking-wider font-bold opacity-70 bg-white/15 px-1 py-0.5 rounded">
+                    New
+                  </span>
+                </button>
+              </div>
             )}
 
             {/* SALES PLAYS */}

@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Calendar,
   ArrowRight,
+  Wand2,
 } from 'lucide-react';
 import { usePersona, usePermissions } from '../../context/PersonaContext.jsx';
 import { THREADS, SIDEBAR_THREADS, SIDEBAR_CHANNELS, CHANNEL_ORIGINS } from '../../data/threads.js';
@@ -326,6 +327,23 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
           />
         </div>
 
+        {/* CREATE SALES PLAY — prominent CTA. Reps enter the play creation
+            flow from here. The flow starts with a workbook + selection. */}
+        {!collapsed && (
+          <div className="mt-3 mb-1 px-1">
+            <button
+              onClick={() => navigate('/plays/new')}
+              className="w-full inline-flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-primary to-primary-dim text-white text-xs font-semibold rounded-md hover:brightness-110 transition-all shadow-sm"
+            >
+              <Wand2 size={13} />
+              Create Sales Play
+              <span className="ml-auto text-[9px] uppercase tracking-wider font-bold opacity-70 bg-white/15 px-1 py-0.5 rounded">
+                New
+              </span>
+            </button>
+          </div>
+        )}
+
         {/* SALES PLAYS — tenant-wide plays (org-visible) + this user's
             own private plays. Sellers can launch + create their own
             (private only). Admins promote them to org-visible later. */}
@@ -365,7 +383,7 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
                 })
               )}
               <button
-                onClick={() => setPlayDrawerOpen(true)}
+                onClick={() => navigate('/plays/new')}
                 className="w-full pl-2.5 pr-2.5 py-1 text-[11px] text-left text-primary/80 hover:text-primary transition-colors flex items-center gap-1.5"
               >
                 <Plus size={11} /> Create play

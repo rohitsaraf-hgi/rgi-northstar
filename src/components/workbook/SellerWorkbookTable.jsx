@@ -451,7 +451,17 @@ export default function SellerWorkbookTable({
   // inline reassign affordance. Only meaningful for admin + routable
   // workbook kinds (PROMOTED_SEGMENT, CUSTOM_CSV) — caller gates this.
   ownerWorkbookId = null,
+  // Row selection — when selectedIds is an array (even if empty), a
+  // leading checkbox column is rendered and the caller controls
+  // selection state. Undefined → no checkbox column (legacy callers).
+  selectedIds,
+  onToggleSelection,
+  onToggleSelectAll,
 }) {
+  const selectionEnabled = Array.isArray(selectedIds);
+  const selectedSet = selectionEnabled ? new Set(selectedIds) : null;
+  const allSelected = selectionEnabled && accounts.length > 0 && accounts.every((a) => selectedSet.has(a.id));
+  const someSelected = selectionEnabled && !allSelected && accounts.some((a) => selectedSet.has(a.id));
   const isAdminFlat = columnSet === 'admin-flat';
   const showOwnerCol = Boolean(ownerWorkbookId);
   const [ownerPickerFor, setOwnerPickerFor] = useState(null);
@@ -512,6 +522,19 @@ export default function SellerWorkbookTable({
       <table className="w-full text-sm border-collapse">
         <thead className="bg-bg/30 border-b border-border">
           <tr className="text-text-muted">
+            {selectionEnabled && (
+              <th className="w-8 px-2 py-2">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                  onChange={() => onToggleSelectAll?.(!allSelected)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="cursor-pointer rounded border-border"
+                  title={allSelected ? 'Deselect all' : 'Select all rows'}
+                />
+              </th>
+            )}
             <th className="text-left text-[9px] uppercase tracking-wider font-semibold px-3 py-2 min-w-[220px]">Account</th>
             {confirmedOfferings.map((o) => (
               <th
@@ -615,8 +638,18 @@ export default function SellerWorkbookTable({
               <Fragment key={account.id}>
               <tr
                 onClick={() => onOpenAccount?.(account)}
-                className="border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors"
+                className={`border-b border-border/40 hover:bg-bg/40 cursor-pointer transition-colors ${selectionEnabled && selectedSet.has(account.id) ? 'bg-primary/5' : ''}`}
               >
+                {selectionEnabled && (
+                  <td className="w-8 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedSet.has(account.id)}
+                      onChange={() => onToggleSelection?.(account.id)}
+                      className="cursor-pointer rounded border-border"
+                    />
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     {account.logoColor && (
@@ -755,6 +788,7 @@ export default function SellerWorkbookTable({
                     key={`${account.id}-sub-${idx}`}
                     className="border-b border-border/30 bg-violet-500/[0.03]"
                   >
+                    {selectionEnabled && <td className="w-8 px-2 py-1.5" />}
                     <td className="px-3 py-1.5">
                       <div className="flex items-center gap-1.5 pl-9">
                         <CornerDownRight size={11} className="text-violet-500/70 flex-shrink-0" />

@@ -42,6 +42,8 @@ import { getCoverageStats } from '../data/territoryDesign.js';
 import { getCoachState, subscribeCoach, setCoachExpanded, restoreCoach } from '../data/onboardingCoach.js';
 import WorkbookSegmented from '../components/workbook/WorkbookSegmented.jsx';
 import SellerWorkbookTable from '../components/workbook/SellerWorkbookTable.jsx';
+import WorkbookSelectionBar from '../components/workbook/WorkbookSelectionBar.jsx';
+import WorkbookContactsModal from '../components/workbook/WorkbookContactsModal.jsx';
 import IcpPill from '../components/workbook/IcpPill.jsx';
 import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
@@ -1697,6 +1699,12 @@ export default function WorkbookRoute() {
     // (no useful behavior for 'segmented' without a list — ignore)
   };
 
+  // Row selection state — drives the bulk-action bar (create play, view
+  // contacts, save contacts as workbook). Reset when the active workbook
+  // changes (records no longer apply).
+  const [selectedRowIds, setSelectedRowIds] = useState([]);
+  const [contactsModalOpen, setContactsModalOpen] = useState(false);
+
   // View state
   const initialViewId = searchParams.get('view');
   const initialViewsKey = initialSource === 'whitespace' ? 'whitespace' : 'book';
@@ -2611,6 +2619,15 @@ export default function WorkbookRoute() {
                   ? activeWorkbook.id
                   : null
               }
+              selectedIds={selectedRowIds}
+              onToggleSelection={(id) =>
+                setSelectedRowIds((prev) =>
+                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                )
+              }
+              onToggleSelectAll={(shouldSelect) =>
+                setSelectedRowIds(shouldSelect ? sortedAccounts.map((a) => a.id) : [])
+              }
             />
           )}
 
@@ -2624,6 +2641,21 @@ export default function WorkbookRoute() {
           </div>
         </div>
       </div>
+
+      {/* Bulk-action bar (row selection → create play / view contacts /
+          save contacts as workbook). Appears only when ≥1 row is selected. */}
+      <WorkbookSelectionBar
+        workbookId={activeWorkbook?.id}
+        selectedIds={selectedRowIds}
+        onClear={() => setSelectedRowIds([])}
+        onViewContacts={() => setContactsModalOpen(true)}
+      />
+      <WorkbookContactsModal
+        open={contactsModalOpen}
+        selectedAccountIds={selectedRowIds}
+        sourceWorkbookId={activeWorkbook?.id}
+        onClose={() => setContactsModalOpen(false)}
+      />
 
       {/* Modals */}
       <SaveAsModal

@@ -32,6 +32,7 @@ import {
 } from './routes/MarketAnalyzerRoutes.jsx';
 import MarketAnalyzerCopilotRoute from './routes/MarketAnalyzerCopilotRoute.jsx';
 import PlaysRoute from './routes/PlaysRoute.jsx';
+import CreatePlayWizardRoute from './routes/CreatePlayWizardRoute.jsx';
 import WorkflowsRoute from './routes/WorkflowsRoute.jsx';
 import WorkflowDetailRoute from './routes/WorkflowDetailRoute.jsx';
 import WorkflowBuilderRoute from './routes/WorkflowBuilderRoute.jsx';
@@ -252,6 +253,7 @@ export default function App() {
               UI based on persona role. */}
           <Route path="/admin/plays" element={<PlaysRoute />} />
           <Route path="/admin/plays/:id" element={<PlaysRoute />} />
+          <Route path="/plays/new" element={<CreatePlayWizardRoute />} />
           <Route path="/plays" element={<PlaysRoute />} />
           <Route path="/plays/:id" element={<PlaysRoute />} />
           <Route

@@ -32,6 +32,7 @@ import { getFitFor } from './accountOfferingFit.js';
 import { getMarketAnalyzerCompanies } from './marketAnalyzerCompanies.js';
 import { ACCOUNTS_BY_OWNER, getAccountsForOwner } from './accounts.js';
 import { CRM_ONLY_ACCOUNTS } from './unifiedWorkbook.js';
+import { getAccountStakeholders } from './buyingCommittees.js';
 
 export const WORKBOOK_KINDS = {
   ICP_MATCH: 'ICP_MATCH',
@@ -39,6 +40,7 @@ export const WORKBOOK_KINDS = {
   MY_BOOK: 'MY_BOOK',
   CUSTOM_CSV: 'CUSTOM_CSV',
   PROMOTED_SEGMENT: 'PROMOTED_SEGMENT',
+  CONTACT_LIST: 'CONTACT_LIST',
 };
 
 export const WORKBOOK_KIND_META = {
@@ -76,6 +78,14 @@ export const WORKBOOK_KIND_META = {
     refresh: 'snapshot',
     tone: 'amber',
     icon: 'Layers',
+  },
+  CONTACT_LIST: {
+    label: 'Contacts',
+    description: 'Contacts saved from a company workbook. Row = contact, not account.',
+    refresh: 'static',
+    tone: 'rose',
+    icon: 'Users',
+    entityKind: 'contact',
   },
 };
 
@@ -398,6 +408,50 @@ export function createCustomWorkbook({ name, rows, ownerId, ownerName, visibilit
     visibility,
     rows,
     accountCount: rows.length,
+  });
+  WORKBOOKS.unshift(wb);
+  return wb;
+}
+
+// Derive a flat contact list from a set of account IDs. Uses ACCOUNT_STAKEHOLDERS
+// from buyingCommittees.js as the mock source. Each contact row carries a
+// `companyAccountId` back-pointer so the caller can group by company.
+export function getContactsForAccounts(accountIds) {
+  if (!Array.isArray(accountIds)) return [];
+  const contacts = [];
+  for (const aid of accountIds) {
+    const stakeholders = getAccountStakeholders(aid) || [];
+    for (const s of stakeholders) {
+      contacts.push({
+        id: s.id,
+        name: s.name,
+        title: s.title,
+        email: s.email,
+        company: aid.replace(/^acct-/, '').replace(/-/g, ' '),
+        companyAccountId: aid,
+        source: s.source || 'CRM',
+        isChampion: s.isChampion === true,
+      });
+    }
+  }
+  return contacts;
+}
+
+// Create a new CONTACT_LIST workbook from a set of contact rows saved
+// out of a company workbook. Rows are shaped like:
+//   { id, name, title, email, company, companyAccountId }
+export function createContactWorkbook({ name, contacts, ownerId, ownerName, visibility = 'private', sourceWorkbookId }) {
+  const wb = seedWorkbook({
+    id: `wb-contacts-${Date.now()}`,
+    kind: WORKBOOK_KINDS.CONTACT_LIST,
+    name,
+    ownerId,
+    ownerName,
+    visibility,
+    rows: contacts,
+    accountCount: contacts.length,
+    entityKind: 'contact',
+    sourceWorkbookId,
   });
   WORKBOOKS.unshift(wb);
   return wb;

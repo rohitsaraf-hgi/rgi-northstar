@@ -24,11 +24,12 @@ import {
   listPlays, getPlay, upsertPlay, deletePlay, subscribePlays, MOTION_LABELS, playReferencesCrm,
   getPlayType, setPlayType, setPlayActivation,
   attachWorkflowToPlay, detachWorkflowFromPlay, recommendedWorkflowForMotion,
+  removeActionFromPlay, PLAY_ACTION_TYPES,
 } from '../data/plays.js';
 import { listOfferings } from '../data/offerings.js';
 import { ManagePlayDrawer } from '../components/onboarding/StepPlays.jsx';
 import { AnimatePresence } from 'framer-motion';
-import { Edit2, Trash2, Save, PlayCircle, Zap, Layers as LayersIcon, Bell, Repeat, ListChecks, GitBranch } from 'lucide-react';
+import { Edit2, Trash2, Save, PlayCircle, Zap, Layers as LayersIcon, Bell, Repeat, ListChecks, GitBranch, Send, Mail, ListTodo, ShieldCheck } from 'lucide-react';
 import { getOffering } from '../data/offerings.js';
 import { getWorkflow } from '../data/workflows.js';
 import { getWorkflowTemplate } from '../data/workflowTemplates.js';
@@ -634,6 +635,10 @@ function PlayDetail({ play, onBack }) {
   const handleActivationPatch = (patch) => {
     setPlayActivation(play.id, patch);
   };
+  const handleRemoveAction = (actionId) => {
+    removeActionFromPlay(play.id, actionId);
+    showToast('Action removed.', 'info');
+  };
 
   const recommendedWorkflowId = recommendedWorkflowForMotion(play.motion, playType);
   const recommendedWorkflowObj =
@@ -961,6 +966,61 @@ function PlayDetail({ play, onBack }) {
         workbookRecordCount={workbookRecordCount}
         attachedWorkbook={attachedWorkbook}
       />
+
+      {/* Individual Actions — near-term focus (add to sequence, draft email) */}
+      {Array.isArray(play.actions) && play.actions.length > 0 && (
+        <div className="bg-surface border border-border rounded-md p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+                Individual actions ({play.actions.length})
+              </div>
+              <div className="text-[11px] text-text-secondary mt-0.5">
+                One-shot actions the copilot runs alongside any workflow. Configured during play creation.
+              </div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {play.actions.map((a) => {
+              const spec = PLAY_ACTION_TYPES[a.type];
+              if (!spec) return null;
+              const ActionIcon = a.type === 'add_to_sequence' ? Send : a.type === 'draft_email' ? Mail : ListTodo;
+              const configSummary = Object.entries(a.config || {})
+                .filter(([, v]) => v)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(' · ');
+              return (
+                <div key={a.id} className="bg-bg/40 border border-border rounded p-2.5 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <ActionIcon size={14} className="text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-text-primary">{spec.label}</span>
+                      {a.requires_approval && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                          <ShieldCheck size={8} />
+                          Approval
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-text-muted mt-0.5 font-mono truncate">
+                      {configSummary || '—'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveAction(a.id)}
+                    className="p-1 text-text-muted hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
+                    title="Remove action"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Workflows (WHAT) */}
       <div className="bg-surface border border-border rounded-md p-4 mb-4">
