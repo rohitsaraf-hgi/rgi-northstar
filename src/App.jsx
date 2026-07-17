@@ -49,6 +49,7 @@ import UsersRoute from './routes/UsersRoute.jsx';
 import TeamsRoute from './routes/TeamsRoute.jsx';
 import SellerHome from './routes/SellerHome.jsx';
 import AccountThread from './routes/AccountThread.jsx';
+import ContactThread from './routes/ContactThread.jsx';
 import RequireAdmin from './components/auth/RequireAdmin.jsx';
 import DemoControls from './components/shared/DemoControls.jsx';
 import ModuleDetailModal from './components/shared/ModuleDetailModal.jsx';
@@ -72,6 +73,7 @@ export default function App() {
           <Route index element={<DefaultRedirect />} />
           <Route path="/home" element={<SellerHome />} />
           <Route path="/account/:id" element={<AccountThread />} />
+          <Route path="/contact/:id" element={<ContactThread />} />
           <Route path="/workbook" element={<WorkbookRoute />} />
           <Route path="/workbook/:workbookId" element={<WorkbookRoute />} />
           {/* Market Analyzer routes — admin-only module (gated through

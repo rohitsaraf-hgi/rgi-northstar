@@ -117,9 +117,9 @@ export default function WorkbookContactsModal({ open, selectedAccountIds, source
                     {group.contacts.map((c) => {
                       const isChecked = selectedContactIds.includes(c.id);
                       return (
-                        <label
+                        <div
                           key={c.id}
-                          className={`flex items-center gap-2 px-3 py-2 rounded border cursor-pointer transition-colors ${
+                          className={`flex items-center gap-2 px-3 py-2 rounded border transition-colors ${
                             isChecked ? 'border-primary/30 bg-primary/5' : 'border-border bg-bg/40 hover:bg-surface-2'
                           }`}
                         >
@@ -129,9 +129,13 @@ export default function WorkbookContactsModal({ open, selectedAccountIds, source
                             onChange={() => toggleContact(c.id)}
                             className="rounded border-border cursor-pointer"
                           />
-                          <div className="flex-1 min-w-0">
+                          <button
+                            onClick={() => { onClose?.(); navigate(`/contact/${c.id}`); }}
+                            className="flex-1 min-w-0 text-left group"
+                            title="Open contact card"
+                          >
                             <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-semibold text-text-primary">{c.name}</span>
+                              <span className="text-xs font-semibold text-text-primary group-hover:text-primary transition-colors">{c.name}</span>
                               {c.isChampion && (
                                 <span className="inline-flex items-center gap-0.5 text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300">
                                   <Crown size={8} />
@@ -145,8 +149,8 @@ export default function WorkbookContactsModal({ open, selectedAccountIds, source
                               <span className="font-mono truncate">{c.email}</span>
                               <span className="ml-1">&middot; {c.source}</span>
                             </div>
-                          </div>
-                        </label>
+                          </button>
+                        </div>
                       );
                     })}
                   </div>

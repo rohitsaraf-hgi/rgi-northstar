@@ -1236,8 +1236,8 @@ function PriorityChip({ priority }) {
 function StakeholdersTab({ account, onRunPlay }) {
   // Contacts — show the list of known stakeholders for this account
   // (sourced from CRM) plus a "Discover new contacts" agentic CTA.
-  // No offering-specific committee mapping here — that lives behind
-  // the persona-discovery agent run.
+  // Each row navigates to the Contact card at /contact/:id.
+  const navigate = useNavigate();
   const stakeholders = useMemo(() => {
     try {
       return getAccountStakeholders(account.id) || [];
@@ -1277,18 +1277,22 @@ function StakeholdersTab({ account, onRunPlay }) {
         </div>
       </div>
 
-      {/* Contacts list */}
+      {/* Contacts list — each row navigates to /contact/:id */}
       {stakeholders.length > 0 ? (
         <div className="bg-surface border border-border rounded-md overflow-hidden">
           <div className="divide-y divide-border">
             {stakeholders.map((s) => (
-              <div key={s.id} className="px-4 py-3 flex items-start gap-3">
+              <button
+                key={s.id}
+                onClick={() => navigate(`/contact/${s.id}`)}
+                className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-bg/40 transition-colors group"
+              >
                 <div className="w-8 h-8 rounded-full bg-primary/15 text-primary text-[11px] flex items-center justify-center font-semibold flex-shrink-0">
                   {(s.name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[13px] font-semibold text-text-primary truncate">
+                    <span className="text-[13px] font-semibold text-text-primary truncate group-hover:text-primary transition-colors">
                       {s.name}
                     </span>
                     {s.isChampion && (
@@ -1302,7 +1306,7 @@ function StakeholdersTab({ account, onRunPlay }) {
                 <div className="text-[11px] text-text-muted font-mono flex-shrink-0 truncate max-w-[200px]">
                   {s.email}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>

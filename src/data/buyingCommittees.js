@@ -190,27 +190,115 @@ export const BUYING_COMMITTEES = {
 // gap analysis is provable.
 //
 // Each entry: { name, title, email, linkedinUrl, isChampion?, identifiedVia? }
+// Stakeholders per account. Rich contacts include full profile (phone,
+// department, linkedinUrl, lifecycleStage, inCrm, jobHistory[], activities[]).
+// Contacts without those fields still render — the getContact() helper fills
+// safe defaults from name + email.
 export const ACCOUNT_STAKEHOLDERS = {
   'acct-jpmc': [
-    { id: 'sk-jpmc-1', name: 'Sarah Chen', title: 'CISO', email: 'sarah.chen@jpmorganchase.com', source: 'CRM + LinkedIn', isChampion: true, joined: 'Apr 14, 2026' },
-    { id: 'sk-jpmc-2', name: 'Diana Park', title: 'VP Cloud Security', email: 'diana.park@jpmorganchase.com', source: 'CRM' },
-    { id: 'sk-jpmc-3', name: 'Marcus Wei', title: 'IAM Architect', email: 'marcus.wei@jpmorganchase.com', source: 'LinkedIn' },
-    { id: 'sk-jpmc-4', name: 'Patricia Singh', title: 'CFO', email: 'patricia.singh@jpmorganchase.com', source: 'CRM' },
+    {
+      id: 'sk-jpmc-1', name: 'Sarah Chen', title: 'CISO',
+      email: 'sarah.chen@jpmorganchase.com', phone: '+1 (212) 555-0187',
+      department: 'Information Security',
+      linkedinUrl: 'https://linkedin.com/in/sarahchen-security',
+      lifecycleStage: 'Qualified Lead', inCrm: true,
+      source: 'CRM + LinkedIn', isChampion: true, joined: 'Apr 14, 2026',
+      jobHistory: [
+        { company: 'JPMorgan Chase', title: 'CISO', start: 'Jan 2024', end: 'Present' },
+        { company: 'Goldman Sachs', title: 'VP Security Architecture', start: 'Mar 2019', end: 'Dec 2023' },
+        { company: 'IBM Security', title: 'Principal Security Engineer', start: 'Aug 2014', end: 'Feb 2019' },
+      ],
+      activities: [
+        { type: 'meeting', label: 'Demo with your team', date: '2026-07-14', detail: '45-min product walkthrough; asked pointed questions about CNAPP roadmap' },
+        { type: 'email_open', label: 'Opened "Cloud native security patterns"', date: '2026-07-12', detail: '3 opens · CNAPP whitepaper' },
+        { type: 'webinar', label: 'Attended "Zero trust in cloud-native" webinar', date: '2026-07-08', detail: '47 min · asked 2 questions' },
+        { type: 'page_visit', label: 'Visited /pricing', date: '2026-07-05', detail: '5 sessions this month' },
+        { type: 'form_fill', label: 'Downloaded Cloud Security Buyer\'s Guide', date: '2026-06-28' },
+      ],
+    },
+    {
+      id: 'sk-jpmc-2', name: 'Diana Park', title: 'VP Cloud Security',
+      email: 'diana.park@jpmorganchase.com', phone: '+1 (212) 555-0221',
+      department: 'Cloud Infrastructure',
+      linkedinUrl: 'https://linkedin.com/in/dianapark',
+      lifecycleStage: 'Marketing Qualified Lead', inCrm: true,
+      source: 'CRM',
+      jobHistory: [
+        { company: 'JPMorgan Chase', title: 'VP Cloud Security', start: 'Jun 2022', end: 'Present' },
+        { company: 'Morgan Stanley', title: 'Director, Cloud Governance', start: 'Feb 2018', end: 'May 2022' },
+      ],
+      activities: [
+        { type: 'email_open', label: 'Opened "Q3 platform review"', date: '2026-07-11' },
+        { type: 'page_visit', label: 'Visited /product/cnapp', date: '2026-07-03' },
+      ],
+    },
+    {
+      id: 'sk-jpmc-3', name: 'Marcus Wei', title: 'IAM Architect',
+      email: 'marcus.wei@jpmorganchase.com',
+      department: 'Identity & Access',
+      linkedinUrl: 'https://linkedin.com/in/marcuswei',
+      lifecycleStage: 'Contact', inCrm: false,
+      source: 'LinkedIn',
+    },
+    {
+      id: 'sk-jpmc-4', name: 'Patricia Singh', title: 'CFO',
+      email: 'patricia.singh@jpmorganchase.com',
+      department: 'Finance',
+      lifecycleStage: 'Contact', inCrm: true,
+      source: 'CRM',
+    },
   ],
   'acct-snowflake': [
-    { id: 'sk-snow-1', name: 'Mike Goldman', title: 'CISO (ex-Datadog)', email: 'mike.goldman@snowflake.com', source: 'LinkedIn', isChampion: true, joined: 'Mar 28, 2026' },
+    {
+      id: 'sk-snow-1', name: 'Mike Goldman', title: 'CISO (ex-Datadog)',
+      email: 'mike.goldman@snowflake.com', phone: '+1 (415) 555-0134',
+      department: 'Security',
+      linkedinUrl: 'https://linkedin.com/in/mikegoldman-sec',
+      lifecycleStage: 'Qualified Lead', inCrm: false,
+      source: 'LinkedIn', isChampion: true, joined: 'Mar 28, 2026',
+      jobHistory: [
+        { company: 'Snowflake', title: 'CISO', start: 'Mar 2026', end: 'Present' },
+        { company: 'Datadog', title: 'VP Security', start: 'Jul 2021', end: 'Feb 2026' },
+        { company: 'Cloudflare', title: 'Sr Director Security', start: 'Aug 2016', end: 'Jun 2021' },
+      ],
+      activities: [
+        { type: 'linkedin_post', label: 'Posted about "modern SecOps stacks"', date: '2026-07-15', detail: '3.2k reactions · reposted 128 times' },
+        { type: 'page_visit', label: 'Visited /solutions/data-security', date: '2026-07-10' },
+        { type: 'form_fill', label: 'Requested demo', date: '2026-07-02' },
+      ],
+    },
   ],
   'acct-acme': [
-    { id: 'sk-acme-1', name: 'Sarah Chen', title: 'VP Engineering', email: 'sarah.chen@acme.com', source: 'CRM', isChampion: true },
-    { id: 'sk-acme-2', name: 'David Wong', title: 'Head of Platform Security', email: 'david.wong@acme.com', source: 'LinkedIn' },
-    { id: 'sk-acme-3', name: 'Diana Park', title: 'CFO', email: 'diana.park@acme.com', source: 'CRM' },
-    { id: 'sk-acme-4', name: 'Marcus Reeve', title: 'CISO', email: 'marcus.reeve@acme.com', source: 'CRM' },
+    { id: 'sk-acme-1', name: 'Sarah Chen', title: 'VP Engineering', email: 'sarah.chen@acme.com', source: 'CRM', isChampion: true, inCrm: true, department: 'Engineering', lifecycleStage: 'Opportunity' },
+    { id: 'sk-acme-2', name: 'David Wong', title: 'Head of Platform Security', email: 'david.wong@acme.com', source: 'LinkedIn', inCrm: false, department: 'Security' },
+    { id: 'sk-acme-3', name: 'Diana Park', title: 'CFO', email: 'diana.park@acme.com', source: 'CRM', inCrm: true, department: 'Finance' },
+    { id: 'sk-acme-4', name: 'Marcus Reeve', title: 'CISO', email: 'marcus.reeve@acme.com', source: 'CRM', inCrm: true, department: 'Security' },
   ],
-  'acct-databricks': [],
+  'acct-databricks': [
+    {
+      id: 'sk-dbx-1', name: 'Tim Chen', title: 'Head of Platform Security',
+      email: 'tim.chen@databricks.com', phone: '+1 (415) 555-0198',
+      department: 'Platform & Infrastructure',
+      linkedinUrl: 'https://linkedin.com/in/timchen',
+      lifecycleStage: 'Opportunity', inCrm: true,
+      source: 'CRM + LinkedIn', isChampion: true, joined: 'Feb 14, 2026',
+      jobHistory: [
+        { company: 'Databricks', title: 'Head of Platform Security', start: 'Feb 2026', end: 'Present' },
+        { company: 'Stripe', title: 'Sr Manager, Cloud Security', start: 'Aug 2021', end: 'Jan 2026' },
+        { company: 'Google Cloud', title: 'Security Engineer', start: 'Jul 2017', end: 'Jul 2021' },
+      ],
+      activities: [
+        { type: 'webinar', label: 'Attended "Zero trust in cloud-native" webinar', date: '2026-07-15', detail: '52 min · asked about CNAPP integration' },
+        { type: 'meeting', label: 'Discovery call with AE', date: '2026-07-08', detail: '30 min · scope of CNAPP rollout' },
+        { type: 'email_open', label: 'Opened 3 emails in sequence "Modern CNAPP"', date: '2026-07-05' },
+        { type: 'page_visit', label: 'Visited /product/cnapp/integrations', date: '2026-07-02', detail: '4 sessions' },
+      ],
+    },
+  ],
   'acct-visa': [
-    { id: 'sk-visa-1', name: 'Priya Ananth', title: 'CISO', email: 'priya.ananth@visa.com', source: 'CRM' },
-    { id: 'sk-visa-2', name: 'James Liu', title: 'Head of Data Platform', email: 'james.liu@visa.com', source: 'CRM' },
-    { id: 'sk-visa-3', name: 'Carla Mendez', title: 'Compliance Officer', email: 'carla.mendez@visa.com', source: 'LinkedIn' },
+    { id: 'sk-visa-1', name: 'Priya Ananth', title: 'CISO', email: 'priya.ananth@visa.com', source: 'CRM', inCrm: true, department: 'Security', lifecycleStage: 'Qualified Lead' },
+    { id: 'sk-visa-2', name: 'James Liu', title: 'Head of Data Platform', email: 'james.liu@visa.com', source: 'CRM', inCrm: true, department: 'Data & Analytics' },
+    { id: 'sk-visa-3', name: 'Carla Mendez', title: 'Compliance Officer', email: 'carla.mendez@visa.com', source: 'LinkedIn', inCrm: false, department: 'Compliance & Risk' },
   ],
 };
 
@@ -220,6 +308,47 @@ export function getBuyingCommittee(offeringId) {
 
 export function getAccountStakeholders(accountId) {
   return ACCOUNT_STAKEHOLDERS[accountId] || [];
+}
+
+// Find the account id that owns a given contact id, plus the raw contact.
+// Iterates the full stakeholder map — O(N) but tiny for this demo.
+export function getContactAccountId(contactId) {
+  for (const [aid, contacts] of Object.entries(ACCOUNT_STAKEHOLDERS)) {
+    if ((contacts || []).some((c) => c.id === contactId)) return aid;
+  }
+  return null;
+}
+
+// Return a contact by id merged with a safe default shape so the Contact
+// card can render even for stakeholders that were seeded without the
+// extended fields.
+export function getContact(contactId) {
+  if (!contactId) return null;
+  for (const [aid, contacts] of Object.entries(ACCOUNT_STAKEHOLDERS)) {
+    const found = (contacts || []).find((c) => c.id === contactId);
+    if (found) {
+      return {
+        // Safe defaults
+        phone: null,
+        department: null,
+        linkedinUrl: null,
+        lifecycleStage: null,
+        inCrm: (found.source || '').includes('CRM'),
+        isChampion: false,
+        jobHistory: [],
+        activities: [],
+        // Actual seed values (overrides defaults)
+        ...found,
+        accountId: aid,
+      };
+    }
+  }
+  return null;
+}
+
+export function listContactActivities(contactId) {
+  const c = getContact(contactId);
+  return c?.activities || [];
 }
 
 // Match a stakeholder title against a committee role's matchTitles array.
