@@ -312,9 +312,9 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
         <div className={collapsed ? 'pt-3 space-y-1' : 'space-y-0.5'}>
           <NavItem
             icon={LayoutGrid}
-            label="Home"
-            active={location.pathname === '/home' || location.pathname === '/workspace'}
-            onClick={() => navigate(persona.plgUser ? '/home' : '/workspace')}
+            label="Daily Brief"
+            active={location.pathname === '/home' || location.pathname === '/workspace' || location.pathname === '/brief'}
+            onClick={() => navigate('/home')}
             collapsed={collapsed}
             badge={persona.plgUser && newSignalCount > 0 ? `${newSignalCount} signals` : undefined}
           />

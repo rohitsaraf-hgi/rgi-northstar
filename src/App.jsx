@@ -48,6 +48,7 @@ import AccountSettingsRoute from './routes/AccountSettingsRoute.jsx';
 import UsersRoute from './routes/UsersRoute.jsx';
 import TeamsRoute from './routes/TeamsRoute.jsx';
 import SellerHome from './routes/SellerHome.jsx';
+import DailyBrief from './routes/DailyBrief.jsx';
 import AccountThread from './routes/AccountThread.jsx';
 import ContactThread from './routes/ContactThread.jsx';
 import RequireAdmin from './components/auth/RequireAdmin.jsx';
@@ -57,10 +58,11 @@ import { usePersona } from './context/PersonaContext.jsx';
 
 function DefaultRedirect() {
   const { personaId, persona } = usePersona();
-  // PLG-onboarded sellers land on the new account-driven Home.
-  if (persona.plgUser) return <Navigate to="/home" replace />;
-  const target = personaId === 'priya' ? '/admin' : '/workspace';
-  return <Navigate to={target} replace />;
+  // Admins land on the Admin Hub; every seller lands on the Daily Brief.
+  if (personaId === 'priya') return <Navigate to="/admin" replace />;
+  // Both PLG-onboarded and regular sellers now share the Daily Brief.
+  // /home is preferred so the URL is memorable; /workspace still works.
+  return <Navigate to="/home" replace />;
 }
 
 export default function App() {
@@ -71,7 +73,13 @@ export default function App() {
         <Route path="/signup" element={<SignupFlow />} />
         <Route element={<AppShell />}>
           <Route index element={<DefaultRedirect />} />
-          <Route path="/home" element={<SellerHome />} />
+          {/* Daily Brief — canonical seller landing. /workspace kept as an
+              alias for anyone with older bookmarks. Legacy SellerHome moved
+              to /home-legacy for now — it still ships behind the scenes but
+              is no longer the default surface. */}
+          <Route path="/home" element={<DailyBrief />} />
+          <Route path="/brief" element={<DailyBrief />} />
+          <Route path="/home-legacy" element={<SellerHome />} />
           <Route path="/account/:id" element={<AccountThread />} />
           <Route path="/contact/:id" element={<ContactThread />} />
           <Route path="/workbook" element={<WorkbookRoute />} />
@@ -94,7 +102,8 @@ export default function App() {
           <Route path="/workbench" element={<Workbench />} />
           <Route path="/workbench/library" element={<WorkbenchLibrary />} />
           <Route path="/workbench/resources" element={<WorkbenchResources />} />
-          <Route path="/workspace" element={<WorkspaceHome />} />
+          <Route path="/workspace" element={<DailyBrief />} />
+          <Route path="/workspace-legacy" element={<WorkspaceHome />} />
           <Route path="/thread/:id" element={<ThreadView />} />
           <Route path="/use-cases" element={<UseCaseLibrary />} />
           <Route path="/collaborate/:id" element={<CollaborateView />} />
