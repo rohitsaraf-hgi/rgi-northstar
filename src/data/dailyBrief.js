@@ -280,24 +280,40 @@ export function summarizePlayActivity(personaId, salesRole, { limit = 8, workboo
     // Sort by most-recent timestamp.
     runs.sort((a, b) => (new Date(b.timestamp)) - (new Date(a.timestamp)));
 
-    const completed = runs.filter((r) => r.status === 'success').length;
-    const stuck = runs.filter((r) => r.status === 'partial').length;
-    const failed = runs.filter((r) => r.status === 'failed').length;
+    const runCompleted = runs.filter((r) => r.status === 'success').length;
+    const runStuck = runs.filter((r) => r.status === 'partial').length;
+    const runFailed = runs.filter((r) => r.status === 'failed').length;
+    const runPending = runs.filter((r) => r.status === 'pending').length;
 
     // Checkpoints tied to this play (bound_signal or workflow_id match).
-    const waitingApproval = checkpoints.filter((c) => {
+    const checkpointWaiting = checkpoints.filter((c) => {
       if (workflowIds.includes(c.workflow_id)) return true;
+      if (c.play_id === play.id) return true;
       if (play.bound_signal && c.bound_signal_id === play.bound_signal) return true;
       return false;
     }).length;
 
-    // Activation batches — treat scheduled batches as work-in-flight.
     const activation = play.activation || {};
-    const scheduledBatches = (activation.batches || []).filter((b) => b.status === 'scheduled').length;
-    const runningBatches = (activation.batches || []).filter((b) => b.status === 'running').length;
+    const batches = activation.batches || [];
+    const scheduledBatches = batches.filter((b) => b.status === 'scheduled').length;
+    const runningBatches = batches.filter((b) => b.status === 'running').length;
+    const completedBatches = batches.filter((b) => b.status === 'completed').length;
+    // For actions-only plays (no attached workflow), we fold the completed
+    // batch record-counts into the completed bucket so the outcome bar
+    // still reflects what the copilot processed.
+    const batchCompletedRecords = batches
+      .filter((b) => b.status === 'completed')
+      .reduce((sum, b) => sum + (b.recordCount || 0), 0);
+
+    // If the play has action-only execution (no workflow runs), use the
+    // batch-derived completed count. Otherwise trust the workflow runs.
+    const completed = runs.length > 0 ? runCompleted : batchCompletedRecords;
+    const stuck = runStuck;
+    const failed = runFailed;
+    const waitingApproval = checkpointWaiting + runPending;
 
     const totalWork = completed + stuck + failed + waitingApproval + runningBatches;
-    if (totalWork === 0 && scheduledBatches === 0) continue;
+    if (totalWork === 0 && scheduledBatches === 0 && completedBatches === 0) continue;
 
     summaries.push({
       play,
@@ -307,6 +323,7 @@ export function summarizePlayActivity(personaId, salesRole, { limit = 8, workboo
       waitingApproval,
       runningBatches,
       scheduledBatches,
+      completedBatches,
       lastRunAt: runs[0]?.timestamp || activation.activatedAt || null,
       totalRuns: runs.length,
       recentRuns: runs.slice(0, 3),

@@ -246,6 +246,9 @@ function adaptLegacyPlay(legacy) {
     actions: legacy.actions,
     source_workbook_id: legacy.source_workbook_id,
     source_record_ids: legacy.source_record_ids,
+    // Which workbooks the play scopes to. Needed for the Daily Brief
+    // workbook-scoper filter (spec §: "play targets one workbook").
+    workbookIds: Array.isArray(legacy.workbookIds) ? legacy.workbookIds : [],
   };
 }
 
@@ -285,7 +288,9 @@ const LEGACY_PLAYS_BY_ID = Object.fromEntries(LEGACY_PLAYS.map((p) => [p.id, p])
 //     (play-champion-move, play-renewal-defense).
 // v5: added actions[] + source_workbook_id + source_record_ids for the
 //     seller-driven "Create Sales Play" wizard flow.
-const PLAYS_SCHEMA_VERSION = 5;
+// v6: added Alex's three demo plays (account brief batch, contact outreach,
+//     full prospecting) — Brief needs populated activation state to demo.
+const PLAYS_SCHEMA_VERSION = 6;
 
 function migrateStaleState(parsed) {
   const needsPlaysReseed = (parsed.playsSchemaVersion || 0) < PLAYS_SCHEMA_VERSION;
