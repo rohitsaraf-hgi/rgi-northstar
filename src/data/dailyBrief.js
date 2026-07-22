@@ -15,6 +15,11 @@ import {
   listPendingCheckpoints,
   listSignalTriggeredPlays,
 } from './sellerInbox.js';
+import {
+  listWorkbooksForPersona,
+  resolveWorkbookRows,
+  WORKBOOK_KINDS,
+} from './workbooks.js';
 
 // Meeting-prep mock — synthesized per persona so the "meetings needing prep"
 // row on the Brief lands populated. Kept minimal for the demo.
@@ -134,11 +139,79 @@ function classifySignal(sig) {
   return sig.type || 'crm_activity';
 }
 
+// Return the list of workbooks a persona sees in the picker, plus counts
+// used by the scoper chip row on the Brief. `CONTACT_LIST` workbooks are
+// included but marked so the UI can render them differently.
+export function listBriefWorkbooks(personaId) {
+  const wbs = listWorkbooksForPersona({ personaId, isAdmin: false, crmConnected: true });
+  return wbs.map((w) => ({
+    id: w.id,
+    name: w.name,
+    kind: w.kind,
+    isContactList: w.kind === WORKBOOK_KINDS.CONTACT_LIST,
+    accountCount: w.accountCount ?? (w.rows?.length || 0),
+  }));
+}
+
+// Which workbooks contain a given account id? Reads through every workbook
+// visible to the persona and checks membership. Contact-list workbooks
+// contribute via each contact row's companyAccountId back-pointer.
+function buildAccountWorkbookMemberships(personaId) {
+  const wbs = listWorkbooksForPersona({ personaId, isAdmin: false, crmConnected: true });
+  const map = new Map(); // accountId → Set(workbookId)
+  for (const wb of wbs) {
+    try {
+      const rows = resolveWorkbookRows(wb);
+      if (wb.kind === WORKBOOK_KINDS.CONTACT_LIST) {
+        for (const c of rows) {
+          const aid = c.companyAccountId;
+          if (!aid) continue;
+          if (!map.has(aid)) map.set(aid, new Set());
+          map.get(aid).add(wb.id);
+        }
+      } else {
+        for (const r of rows) {
+          const aid = r.id || r.accountId;
+          if (!aid) continue;
+          if (!map.has(aid)) map.set(aid, new Set());
+          map.get(aid).add(wb.id);
+        }
+      }
+    } catch {
+      // Skip any workbook that fails to resolve.
+    }
+  }
+  return map;
+}
+
+// Public wrapper — returns a plain map so consumers can render badges
+// per row without caring about the underlying Set semantics.
+export function getWorkbookMemberships(personaId) {
+  const map = buildAccountWorkbookMemberships(personaId);
+  const out = {};
+  for (const [aid, set] of map.entries()) {
+    out[aid] = Array.from(set);
+  }
+  return out;
+}
+
+// Narrow a list of accounts to those in the given workbook. If workbookId is
+// falsy or 'all', the list is passed through unchanged.
+function filterAccountsByWorkbook(accounts, personaId, workbookId) {
+  if (!workbookId || workbookId === 'all') return accounts;
+  const memberships = buildAccountWorkbookMemberships(personaId);
+  return accounts.filter((a) => memberships.get(a.id)?.has(workbookId));
+}
+
 // Group the persona's accounts by signal category. Only signals within
 // `windowDays` are counted (default 7). Each entry:
-//   { category, count, accounts: [{ id, name, headline, daysAgo, logoColor }] }
-export function groupSignalsForBrief(personaId, { windowDays = 7 } = {}) {
-  const accounts = getAccountsForOwner(personaId) || [];
+//   { category, count, accounts: [{ id, name, headline, daysAgo, logoColor,
+//                                   workbookIds: string[] }] }
+// The optional `workbookId` scoper narrows the account universe first.
+export function groupSignalsForBrief(personaId, { windowDays = 7, workbookId = 'all' } = {}) {
+  let accounts = getAccountsForOwner(personaId) || [];
+  accounts = filterAccountsByWorkbook(accounts, personaId, workbookId);
+  const memberships = buildAccountWorkbookMemberships(personaId);
   const buckets = {};
   for (const key of Object.keys(BRIEF_SIGNAL_CATEGORIES)) {
     buckets[key] = { category: BRIEF_SIGNAL_CATEGORIES[key], count: 0, accounts: [] };
@@ -161,6 +234,7 @@ export function groupSignalsForBrief(personaId, { windowDays = 7 } = {}) {
         detail: sig.detail,
         daysAgo: sig.daysAgo,
         strength: sig.strength,
+        workbookIds: Array.from(memberships.get(account.id) || []),
       });
     }
   }
@@ -183,12 +257,17 @@ export function groupSignalsForBrief(personaId, { windowDays = 7 } = {}) {
 //   'pending'  → waiting_approval
 //
 // Plays without any runs are omitted from the Brief (nothing to show).
-export function summarizePlayActivity(personaId, salesRole, { limit = 8 } = {}) {
+export function summarizePlayActivity(personaId, salesRole, { limit = 8, workbookId = 'all' } = {}) {
   const plays = listPlays();
   const checkpoints = listPendingCheckpoints(personaId, salesRole);
+  // If a workbook scoper is active, only surface plays whose workbookIds
+  // include it (spec §: plays operate on a workbook).
+  const scopedPlays = (workbookId && workbookId !== 'all')
+    ? plays.filter((p) => Array.isArray(p.workbookIds) && p.workbookIds.includes(workbookId))
+    : plays;
   const summaries = [];
 
-  for (const play of plays) {
+  for (const play of scopedPlays) {
     // A play surfaces on the Brief when either (a) it has recent agent runs
     // for one of its attached workflows, or (b) it has been activated and
     // has batches (batch queue running).
@@ -246,12 +325,13 @@ export function summarizePlayActivity(personaId, salesRole, { limit = 8 } = {}) 
 
 // Tiny wrapper so the Brief header can render a one-line summary
 // like "12 accounts moved · 3 plays running · 5 items need you".
-export function summarizeBrief(personaId, salesRole) {
-  const groups = groupSignalsForBrief(personaId);
+// Honors the workbook scoper when provided.
+export function summarizeBrief(personaId, salesRole, { workbookId = 'all' } = {}) {
+  const groups = groupSignalsForBrief(personaId, { workbookId });
   const signalAccountCount = new Set(
     groups.flatMap((g) => g.accounts.map((a) => a.id)),
   ).size;
-  const plays = summarizePlayActivity(personaId, salesRole);
+  const plays = summarizePlayActivity(personaId, salesRole, { workbookId });
   const runningPlays = plays.filter((p) => p.runningBatches > 0 || p.totalRuns > 0).length;
   const checkpoints = listPendingCheckpoints(personaId, salesRole).length;
   const triggered = listSignalTriggeredPlays(personaId).length;

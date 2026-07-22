@@ -238,6 +238,8 @@ export function resolveWorkbookRows(workbook) {
       return resolveCustomCsvRows(workbook);
     case WORKBOOK_KINDS.PROMOTED_SEGMENT:
       return resolvePromotedSegmentRows(workbook);
+    case WORKBOOK_KINDS.CONTACT_LIST:
+      return workbook.rows || [];
     default:
       return [];
   }
@@ -295,6 +297,8 @@ export const SEED_WORKBOOKS = [
     visibility: 'private',
   }),
   // Example custom CSV — admin-uploaded org-visible book of Q3 targets.
+  // Populated with actual banking / fintech accounts so filtering the
+  // Daily Brief by workbook returns a real slice.
   seedWorkbook({
     id: 'wb-custom-q3-takeout',
     kind: WORKBOOK_KINDS.CUSTOM_CSV,
@@ -302,8 +306,32 @@ export const SEED_WORKBOOKS = [
     ownerId: 'priya',
     ownerName: 'Priya Sharma',
     visibility: 'organization',
-    rows: [], // will be populated lazily; the picker shows count via accountCount
-    accountCount: 24,
+    rows: [
+      { id: 'acct-jpmc' },
+      { id: 'acct-visa' },
+      { id: 'acct-mastercard' },
+      { id: 'acct-stripe' },
+      { id: 'acct-block' },
+    ],
+    accountCount: 5,
+  }),
+  // Contact workbook owned by Alex — saved during a prior workbook run.
+  // Used by the Daily Brief scoper to demonstrate a rep with 3+
+  // workbooks in scope.
+  seedWorkbook({
+    id: 'wb-contacts-alex-jul',
+    kind: WORKBOOK_KINDS.CONTACT_LIST,
+    name: 'Saved contacts · July',
+    ownerId: 'alex',
+    ownerName: 'Alex Chen',
+    visibility: 'private',
+    rows: [
+      { id: 'sk-jpmc-1', name: 'Sarah Chen', title: 'CISO', email: 'sarah.chen@jpmorganchase.com', company: 'JPMorgan Chase', companyAccountId: 'acct-jpmc' },
+      { id: 'sk-jpmc-2', name: 'Diana Park', title: 'VP Cloud Security', email: 'diana.park@jpmorganchase.com', company: 'JPMorgan Chase', companyAccountId: 'acct-jpmc' },
+      { id: 'sk-dbx-1', name: 'Tim Chen', title: 'Head of Platform Security', email: 'tim.chen@databricks.com', company: 'Databricks', companyAccountId: 'acct-databricks' },
+      { id: 'sk-visa-1', name: 'Priya Ananth', title: 'CISO', email: 'priya.ananth@visa.com', company: 'Visa', companyAccountId: 'acct-visa' },
+    ],
+    accountCount: 4,
   }),
 ];
 

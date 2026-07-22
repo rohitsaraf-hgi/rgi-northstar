@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Sunrise, ArrowRight, ArrowUpRight, CheckCircle2, Clock, AlertTriangle,
   ShieldCheck, Zap, TrendingUp, Globe, Activity, UserCog, Building2,
-  Wand2, CalendarClock, ChevronRight,
+  Wand2, CalendarClock, ChevronRight, Layers,
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
 import {
@@ -11,6 +11,7 @@ import {
   summarizePlayActivity,
   summarizeBrief,
   listMeetingsNeedingPrep,
+  listBriefWorkbooks,
 } from '../data/dailyBrief.js';
 import {
   listPendingCheckpoints,
@@ -142,7 +143,7 @@ function NeedsYouCard({ icon: Icon, tone, title, desc, count, primaryLabel, disa
 // Section 2 · Signals grouped by type
 // -----------------------------------------------------------------------------
 
-function SignalsSection({ groups }) {
+function SignalsSection({ groups, workbookLookup, activeWorkbookId }) {
   if (!groups || groups.length === 0) {
     return (
       <section className="mb-6">
@@ -162,14 +163,32 @@ function SignalsSection({ groups }) {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {groups.map((g) => (
-          <SignalTile key={g.category.id} group={g} />
+          <SignalTile
+            key={g.category.id}
+            group={g}
+            workbookLookup={workbookLookup}
+            activeWorkbookId={activeWorkbookId}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function SignalTile({ group }) {
+// Short badge label for the per-row workbook chip. Falls back to the first
+// three characters of the workbook name if we don't have a curated shorthand.
+function workbookBadgeLabel(wb) {
+  if (!wb) return '';
+  const n = (wb.name || '').toLowerCase();
+  if (n.includes('icp match')) return 'ICP';
+  if (n.includes('q3')) return 'Q3';
+  if (n.includes('book of accounts') || n === 'book') return 'Book';
+  if (wb.isContactList) return 'Contacts';
+  if (n.startsWith('saved list')) return 'Saved';
+  return (wb.name || '').split(/\s+/).slice(0, 1).join('').slice(0, 6);
+}
+
+function SignalTile({ group, workbookLookup, activeWorkbookId }) {
   const navigate = useNavigate();
   const Icon = CATEGORY_ICON[group.category.icon] || Zap;
   const top = group.accounts.slice(0, 3);
@@ -190,27 +209,56 @@ function SignalTile({ group }) {
         </div>
       </div>
       <div className="space-y-1 flex-1">
-        {top.map((a) => (
-          <button
-            key={a.id}
-            onClick={() => navigate(`/account/${a.id}`)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-white/50 dark:bg-black/20 hover:bg-white/70 dark:hover:bg-black/30 transition-colors text-left"
-          >
-            <div
-              className="w-6 h-6 rounded text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
-              style={{ background: a.logoColor || '#64748b' }}
+        {top.map((a) => {
+          const badges = (a.workbookIds || [])
+            .map((wid) => workbookLookup?.[wid])
+            .filter(Boolean);
+          return (
+            <button
+              key={a.id}
+              onClick={() => navigate(`/account/${a.id}`)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-white/50 dark:bg-black/20 hover:bg-white/70 dark:hover:bg-black/30 transition-colors text-left"
             >
-              {(a.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-semibold text-text-primary truncate">{a.name}</div>
-              <div className="text-[10px] text-text-muted truncate">{a.headline}</div>
-            </div>
-            {a.daysAgo != null && (
-              <span className="text-[9px] font-mono text-text-muted flex-shrink-0">{a.daysAgo}d</span>
-            )}
-          </button>
-        ))}
+              <div
+                className="w-6 h-6 rounded text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
+                style={{ background: a.logoColor || '#64748b' }}
+              >
+                {(a.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-semibold text-text-primary truncate">{a.name}</span>
+                  {/* Per-row workbook badges — hidden when the page is
+                      already scoped to a specific workbook (redundant then). */}
+                  {activeWorkbookId === 'all' && badges.length > 0 && (
+                    <span className="inline-flex items-center gap-0.5">
+                      {badges.slice(0, 3).map((wb) => (
+                        <span
+                          key={wb.id}
+                          title={wb.name}
+                          className={`text-[8px] uppercase tracking-wider font-bold px-1 py-0.5 rounded ${
+                            wb.isContactList
+                              ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                              : 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                          }`}
+                        >
+                          {workbookBadgeLabel(wb)}
+                        </span>
+                      ))}
+                      {badges.length > 3 && (
+                        <span className="text-[8px] text-text-muted">+{badges.length - 3}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-text-muted truncate">{a.headline}</div>
+              </div>
+              {a.daysAgo != null && (
+                <span className="text-[9px] font-mono text-text-muted flex-shrink-0">{a.daysAgo}d</span>
+              )}
+            </button>
+          );
+        })}
       </div>
       {overflow > 0 && (
         <button
@@ -391,14 +439,30 @@ export default function DailyBrief() {
   const { personaId, persona } = usePersona();
   const salesRole = persona?.salesRole;
   const [windowId] = useState('since_yesterday');
+  const [workbookScope, setWorkbookScope] = useState('all');
 
   const now = useMemo(() => new Date('2026-07-22'), []);
+  const availableWorkbooks = useMemo(() => listBriefWorkbooks(personaId), [personaId]);
+  const workbookLookup = useMemo(() => {
+    const map = {};
+    for (const w of availableWorkbooks) map[w.id] = w;
+    return map;
+  }, [availableWorkbooks]);
   const checkpoints = useMemo(() => listPendingCheckpoints(personaId, salesRole), [personaId, salesRole]);
   const triggered = useMemo(() => listSignalTriggeredPlays(personaId), [personaId]);
   const meetings = useMemo(() => listMeetingsNeedingPrep(personaId), [personaId]);
-  const signalGroups = useMemo(() => groupSignalsForBrief(personaId, { windowDays: 7 }), [personaId]);
-  const playSummaries = useMemo(() => summarizePlayActivity(personaId, salesRole), [personaId, salesRole]);
-  const summary = useMemo(() => summarizeBrief(personaId, salesRole), [personaId, salesRole]);
+  const signalGroups = useMemo(
+    () => groupSignalsForBrief(personaId, { windowDays: 7, workbookId: workbookScope }),
+    [personaId, workbookScope],
+  );
+  const playSummaries = useMemo(
+    () => summarizePlayActivity(personaId, salesRole, { workbookId: workbookScope }),
+    [personaId, salesRole, workbookScope],
+  );
+  const summary = useMemo(
+    () => summarizeBrief(personaId, salesRole, { workbookId: workbookScope }),
+    [personaId, salesRole, workbookScope],
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-8">
@@ -451,9 +515,54 @@ export default function DailyBrief() {
         </div>
       </div>
 
+      {/* Workbook scoper — visible when the rep has multiple workbooks.
+          Narrows every section below to accounts / plays inside the chosen
+          workbook. */}
+      {availableWorkbooks.length > 1 && (
+        <div className="mb-5 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1">
+            <Layers size={10} />
+            Scope
+          </span>
+          <button
+            onClick={() => setWorkbookScope('all')}
+            className={`px-2.5 py-1 rounded-md text-[11px] transition-colors inline-flex items-center gap-1.5 ${
+              workbookScope === 'all'
+                ? 'bg-primary/15 text-primary font-semibold border border-primary/30'
+                : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            All workbooks
+            <span className="text-[10px] font-mono opacity-70">
+              {availableWorkbooks.reduce((s, w) => s + (w.accountCount || 0), 0)}
+            </span>
+          </button>
+          {availableWorkbooks.map((wb) => (
+            <button
+              key={wb.id}
+              onClick={() => setWorkbookScope(wb.id)}
+              className={`px-2.5 py-1 rounded-md text-[11px] transition-colors inline-flex items-center gap-1.5 ${
+                workbookScope === wb.id
+                  ? 'bg-primary/15 text-primary font-semibold border border-primary/30'
+                  : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+              }`}
+              title={wb.isContactList ? 'Contact-list workbook' : 'Company workbook'}
+            >
+              {wb.isContactList ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 flex-shrink-0" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-500 flex-shrink-0" />
+              )}
+              <span className="truncate max-w-[180px]">{wb.name}</span>
+              <span className="text-[10px] font-mono opacity-70">{wb.accountCount || 0}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Sections */}
       <NeedsYouSection checkpoints={checkpoints} triggered={triggered} meetings={meetings} />
-      <SignalsSection groups={signalGroups} />
+      <SignalsSection groups={signalGroups} workbookLookup={workbookLookup} activeWorkbookId={workbookScope} />
       <PlayActivitySection summaries={playSummaries} />
 
       {/* Footer callout */}
