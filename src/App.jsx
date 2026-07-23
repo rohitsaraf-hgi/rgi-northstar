@@ -33,6 +33,7 @@ import {
 import MarketAnalyzerCopilotRoute from './routes/MarketAnalyzerCopilotRoute.jsx';
 import PlaysRoute from './routes/PlaysRoute.jsx';
 import CreatePlayWizardRoute from './routes/CreatePlayWizardRoute.jsx';
+import MigrationCenter from './routes/MigrationCenter.jsx';
 import WorkflowsRoute from './routes/WorkflowsRoute.jsx';
 import WorkflowDetailRoute from './routes/WorkflowDetailRoute.jsx';
 import WorkflowBuilderRoute from './routes/WorkflowBuilderRoute.jsx';
@@ -202,6 +203,14 @@ export default function App() {
             element={
               <RequireAdmin>
                 <AdminTenantEditor />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/migration"
+            element={
+              <RequireAdmin>
+                <MigrationCenter />
               </RequireAdmin>
             }
           />

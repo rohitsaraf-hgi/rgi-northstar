@@ -45,6 +45,7 @@ import { listSignals, listActiveSignals } from '../data/signals.js';
 import { listOfferings } from '../data/offerings.js';
 import { listPlays } from '../data/plays.js';
 import { listAgenticPlaybooks } from '../data/playbooks.js';
+import { migrationCounts, subscribeMigrations } from '../data/playbookMigration.js';
 import { subscribeConfig } from '../data/configStore.js';
 import { getCoverageStats, listSellers } from '../data/territoryDesign.js';
 
@@ -176,6 +177,11 @@ export default function AdminHub() {
   const sellerCount = listSellers().length;
   const [metrics, setMetrics] = useState(getAdoptionMetrics);
   useEffect(() => subscribeAdminConfig(() => setMetrics(getAdoptionMetrics())), []);
+  // Legacy playbook migration counts — surface an urgent tile when playbooks
+  // remain un-migrated. Re-evaluated on every migration-store change.
+  const [, setMigrationsTick] = useState(0);
+  useEffect(() => subscribeMigrations(() => setMigrationsTick((t) => t + 1)), []);
+  const legacyCounts = migrationCounts();
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-8">
@@ -233,6 +239,17 @@ export default function AdminHub() {
           onClick={() => navigate('/admin/plays')}
           aiPrepared
         />
+        {legacyCounts.remaining > 0 && (
+          <AdminTile
+            icon={ArrowRight}
+            title="Migrate legacy playbooks"
+            subtitle={`${legacyCounts.remaining} of your ${legacyCounts.total} v1 playbooks still need to move to the new Workbook + Sales Play model. We've pre-mapped each one.`}
+            stat={legacyCounts.remaining}
+            statLabel="to migrate"
+            accent={{ bg: 'bg-amber-500/10', color: 'text-amber-700 dark:text-amber-300' }}
+            onClick={() => navigate('/admin/migration')}
+          />
+        )}
         <AdminTile
           icon={Bot}
           title="Agents"
