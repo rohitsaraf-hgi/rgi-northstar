@@ -36,6 +36,7 @@ import {
   Gauge,
   Settings as SettingsGear,
   ChevronRight,
+  ListTree,
 } from 'lucide-react';
 import { useTenant } from '../context/TenantContext.jsx';
 import { AGENTS } from '../data/agents.js';
@@ -250,6 +251,15 @@ export default function AdminHub() {
             onClick={() => navigate('/admin/migration')}
           />
         )}
+        <AdminTile
+          icon={ListTree}
+          title="Filter Studio"
+          subtitle="Compose your tenant's named filters — GTM Persona, Enterprise segment, etc. — from HG primitives + your CRM custom fields. Publish to the FilterPanel."
+          stat={3}
+          statLabel="Derived filters"
+          accent={{ bg: 'bg-violet-500/10', color: 'text-violet-700 dark:text-violet-300' }}
+          onClick={() => navigate('/admin/filter-studio')}
+        />
         <AdminTile
           icon={Bot}
           title="Agents"

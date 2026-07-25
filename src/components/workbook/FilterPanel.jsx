@@ -20,9 +20,16 @@ import {
   FileText,
   Check,
   Database,
+  ListTree,
+  Layers,
 } from 'lucide-react';
 import { listOfferings } from '../../data/offerings.js';
 import { FILTER_REGISTRY, FILTER_GROUPS, CRM_GATED_GROUPS } from '../../data/filterRegistry.js';
+import {
+  listDerivedFilters,
+  subscribeDerivedFilters,
+  summarizeComposition,
+} from '../../data/derivedFilters.js';
 
 // ─── Tiny presentational helpers ───────────────────────────────────────
 
@@ -206,6 +213,13 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
   const activeSpec = FILTER_REGISTRY[activeFilterId];
   const existing = filters.find((f) => f.id === activeFilterId);
   const [draft, setDraft] = useState(existing?.value ?? activeSpec?.defaultValue);
+  // Tenant-authored derived filters — surfaced in a dedicated "Your
+  // definitions" section at the top of the sidebar.
+  const [derivedTick, setDerivedTick] = useState(0);
+  useEffect(() => subscribeDerivedFilters(() => setDerivedTick((t) => t + 1)), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const derivedFilters = useMemo(() => listDerivedFilters(), [derivedTick]);
+  const activeDerived = derivedFilters.find((d) => `derived:${d.id}` === activeFilterId) || null;
 
   useEffect(() => {
     const cur = filters.find((f) => f.id === activeFilterId);
@@ -412,6 +426,26 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
                 hasValue={false}
                 onClick={() => setActiveFilterId('overview')}
               />
+              {/* Your definitions — tenant-authored derived filters from
+                  the Filter Studio. Section auto-hides when there are none. */}
+              {derivedFilters.length > 0 && (
+                <div>
+                  <SectionLabel>Your definitions</SectionLabel>
+                  {derivedFilters
+                    .filter((d) => !search || d.name.toLowerCase().includes(search.toLowerCase()))
+                    .map((d) => (
+                      <FilterRow
+                        key={d.id}
+                        id={`derived:${d.id}`}
+                        label={d.name}
+                        icon={ListTree}
+                        active={activeFilterId === `derived:${d.id}`}
+                        hasValue={filters.some((f) => f.id === `derived:${d.id}`)}
+                        onClick={() => setActiveFilterId(`derived:${d.id}`)}
+                      />
+                    ))}
+                </div>
+              )}
               {FILTER_GROUPS.map((groupName) => {
                 // CRM groups only appear when the tenant has a CRM connected.
                 if (CRM_GATED_GROUPS.has(groupName) && !crmConnected) return null;
@@ -443,14 +477,51 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-border flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold text-text-primary">
-                  {activeFilterId === 'overview' ? 'Overview' : activeSpec?.label || 'Pick a filter'}
+                <div className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                  {activeDerived ? (
+                    <>
+                      <ListTree size={13} className="text-primary" />
+                      {activeDerived.name}
+                      <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
+                        Your definition
+                      </span>
+                    </>
+                  ) : activeFilterId === 'overview' ? 'Overview' : (activeSpec?.label || 'Pick a filter')}
                 </div>
-                {activeFilterId !== 'overview' && activeSpec?.description && (
+                {activeDerived && (
+                  <div className="text-[11px] text-text-muted mt-0.5">{activeDerived.description}</div>
+                )}
+                {!activeDerived && activeFilterId !== 'overview' && activeSpec?.description && (
                   <div className="text-[11px] text-text-muted mt-0.5">{activeSpec.description}</div>
                 )}
               </div>
-              {activeFilterId !== 'overview' && (
+              {activeDerived ? (
+                <div className="flex items-center gap-2">
+                  {filters.some((f) => f.id === `derived:${activeDerived.id}`) ? (
+                    <button
+                      onClick={() => onRemove(`derived:${activeDerived.id}`)}
+                      className="text-[11px] text-text-muted hover:text-rose-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onAddOrUpdate({
+                        id: `derived:${activeDerived.id}`,
+                        specId: `derived:${activeDerived.id}`,
+                        group: 'Your definitions',
+                        label: activeDerived.name,
+                        displayValue: `${(activeDerived.matchCount || 0).toLocaleString()} records`,
+                        value: { derivedId: activeDerived.id },
+                      })}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-dim transition-colors"
+                    >
+                      <Check size={11} />
+                      Apply filter
+                    </button>
+                  )}
+                </div>
+              ) : activeFilterId !== 'overview' && (
                 <div className="flex items-center gap-2">
                   {valuesById[activeFilterId] != null && (
                     <button
@@ -471,7 +542,9 @@ export default function FilterPanel({ open, onClose, filters, onAddOrUpdate, onR
               )}
             </div>
             <div className="flex-1 overflow-y-auto thin-scrollbar p-5">
-              {activeFilterId === 'overview' ? (
+              {activeDerived ? (
+                <DerivedSummaryPane filter={activeDerived} allDerived={derivedFilters} />
+              ) : activeFilterId === 'overview' ? (
                 <OverviewPane filters={filters} onRemove={onRemove} onJump={setActiveFilterId} />
               ) : (
                 renderForm()
@@ -526,6 +599,68 @@ function OverviewPane({ filters, onRemove, onJump }) {
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Right-pane view for a selected derived filter — shows the composition
+// summary + match count. No form; derived filters apply as one click.
+function DerivedSummaryPane({ filter, allDerived }) {
+  const groups = filter?.composition?.groups || [];
+  const summary = summarizeComposition(filter, allDerived);
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
+        <Layers size={14} className="text-primary flex-shrink-0" />
+        <div className="flex-1">
+          <div className="text-xs text-text-primary">
+            <span className="font-mono font-bold text-primary">{(filter.matchCount || 0).toLocaleString()}</span>
+            {' '}records match this definition today
+          </div>
+          <div className="text-[10px] text-text-muted mt-0.5">
+            Applied filters intersect (AND) with the rest of your filters.
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-2">Composition</div>
+        <div className="space-y-2">
+          {groups.map((g, i) => (
+            <div key={i} className="rounded border border-border bg-bg/40 p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-2">
+                {(g.op || 'and').toUpperCase()} of the following
+              </div>
+              <div className="space-y-1.5">
+                {(g.conditions || []).map((c, j) => (
+                  <div key={j} className="flex items-center gap-2 text-[11px] text-text-primary">
+                    <span className="text-text-muted">·</span>
+                    {c.source === 'derived' ? (
+                      <>
+                        <ListTree size={10} className="text-primary" />
+                        <span className="font-semibold">{allDerived.find((d) => d.id === c.id)?.name || c.id}</span>
+                        <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-primary/10 text-primary">Derived</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">{c.id}</span>
+                        <span className="text-text-muted font-mono">{c.op}</span>
+                        <span className="font-mono text-text-secondary">
+                          {Array.isArray(c.values) ? c.values.join(', ') : String(c.values)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="text-[11px] text-text-secondary leading-snug">
+        <span className="font-semibold text-text-primary">Summary:</span> {summary}
+      </div>
     </div>
   );
 }
