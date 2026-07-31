@@ -20,6 +20,7 @@ import SignalBuilderRoute from './routes/SignalBuilderRoute.jsx';
 import SignalTemplatesRoute from './routes/SignalTemplatesRoute.jsx';
 import OfferingsRoute from './routes/OfferingsRoute.jsx';
 import WorkbookRoute from './routes/WorkbookRoute.jsx';
+import AccountAIRoute from './routes/AccountAIRoute.jsx';
 import {
   MarketAnalyzerProjectsRoute,
   MarketAnalyzerSegmentsRoute,
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="/contact/:id" element={<ContactThread />} />
           <Route path="/workbook" element={<WorkbookRoute />} />
           <Route path="/workbook/:workbookId" element={<WorkbookRoute />} />
+          <Route path="/account-ai" element={<AccountAIRoute />} />
           {/* Market Analyzer routes — admin-only module (gated through
               ModuleSwitcher visibility, not RequireAdmin here, so URL
               hand-off from Sales Co-Pilot stays seamless).

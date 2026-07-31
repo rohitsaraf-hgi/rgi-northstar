@@ -58,6 +58,7 @@ import {
 import ConversationInput from '../components/thread/ConversationInput.jsx';
 import ConversationTurn from '../components/thread/ConversationTurn.jsx';
 import LiveAccountBriefV2 from '../components/thread/live/LiveAccountBriefV2.jsx';
+import MiniContextBar from '../components/company/MiniContextBar.jsx';
 import { CONVERSATIONS, AI_RESPONSE_TEMPLATES } from '../data/conversations.js';
 
 const SIGNAL_ICONS = { intent_surge: TrendingUp, web_event: Globe, crm_activity: Activity, no_touch: Clock };
@@ -1733,9 +1734,11 @@ export default function AccountThread() {
   const handleAgentDismiss = (turnId) => setTurns((prev) => discardAgentTurn(prev, turnId));
 
   const cfg = ACCOUNT_STAGES[account.stage];
+  const cameFromWorkbook = searchParams.get('from') === 'workbook';
 
   return (
     <div className="h-full flex flex-col">
+      {cameFromWorkbook && <MiniContextBar accountName={account.name} />}
       {/* Account header */}
       <div className="border-b border-border bg-bg/95 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-8 py-4">

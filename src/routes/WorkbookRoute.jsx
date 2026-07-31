@@ -63,6 +63,7 @@ import {
   WORKBOOK_KIND_META,
 } from '../data/workbooks.js';
 import { useToast } from '../context/ToastContext.jsx';
+import { useAccountDrawer } from '../context/AccountDrawerContext.jsx';
 import { getAccountsForOwner, SIGNAL_TYPES } from '../data/accounts.js';
 import { listOfferings, getOffering, ALL_OFFERINGS_LENS } from '../data/offerings.js';
 import { getFitFor, getAllFitFor, tierForScore } from '../data/accountOfferingFit.js';
@@ -1656,6 +1657,7 @@ export default function WorkbookRoute() {
   const { tenant } = useTenant();
   const { hasModule, hasIntegration } = useDemo();
   const { showToast } = useToast();
+  const { openAccountDrawer, hasThread } = useAccountDrawer();
   const allowSellerUpload = tenant?.policies?.allowSellerBookUpload !== false;
   const hasMarketAnalyzer = hasModule('market_analyzer');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2676,7 +2678,7 @@ export default function WorkbookRoute() {
               accounts={visibleAccounts}
               offerings={tableOfferings}
               source={source}
-              onOpenAccount={(a) => navigate(`/account/${a.id}`)}
+              onOpenAccount={(a) => openAccountDrawer(a, { accountsList: visibleAccounts })}
               onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
               onActivate={(a, offeringId) => navigate(`/account/${a.id}?offering=${offeringId}`)}
               onAddToBook={(a, offeringId) => {
@@ -2696,8 +2698,9 @@ export default function WorkbookRoute() {
             <SellerWorkbookTable
               accounts={visibleAccounts}
               offerings={tableOfferings}
-              onOpenAccount={(a) => (isAdmin ? handleRowClick(a) : navigate(`/account/${a.id}`))}
+              onOpenAccount={(a) => openAccountDrawer(a, { accountsList: visibleAccounts })}
               onOpenAccountChat={(a, lensId) => navigate(buildAccountChatUrl(a, lensId))}
+              hasThread={hasThread}
               showHgIntelligence={isAdmin}
               columnSet={isAdmin ? 'admin-flat' : 'seller'}
               enrichedCols={enrichedCols}

@@ -24,6 +24,7 @@ import {
   Calendar,
   ArrowRight,
   Wand2,
+  Sparkles,
 } from 'lucide-react';
 import { usePersona, usePermissions } from '../../context/PersonaContext.jsx';
 import { THREADS, SIDEBAR_THREADS, SIDEBAR_CHANNELS, CHANNEL_ORIGINS } from '../../data/threads.js';
@@ -323,6 +324,13 @@ function SellerSidebar({ collapsed, onToggle, onNewThread }) {
             label="Workbook"
             active={location.pathname === '/workbook'}
             onClick={() => navigate('/workbook')}
+            collapsed={collapsed}
+          />
+          <NavItem
+            icon={Sparkles}
+            label="Account AI"
+            active={location.pathname === '/account-ai'}
+            onClick={() => navigate('/account-ai')}
             collapsed={collapsed}
           />
         </div>

@@ -6,10 +6,12 @@ import TopNav from './TopNav.jsx';
 import NotificationPanel from './NotificationPanel.jsx';
 import UseCaseActivationModal from '../usecase/UseCaseActivationModal.jsx';
 import CompanyDetailDrawer from '../company/CompanyDetailDrawer.jsx';
+import AccountPreviewDrawer from '../company/AccountPreviewDrawer.jsx';
 import PlaybookDetailDrawer from '../admin/PlaybookDetailDrawer.jsx';
 import PageAgentLauncher from './PageAgentLauncher.jsx';
 import { usePersona } from '../../context/PersonaContext.jsx';
 import { usePageAgentControls } from '../../context/PageAgentContext.jsx';
+import { AccountDrawerProvider } from '../../context/AccountDrawerContext.jsx';
 
 export default function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
@@ -19,6 +21,7 @@ export default function AppShell() {
   const { open: agentOpen } = usePageAgentControls();
 
   return (
+    <AccountDrawerProvider>
     <div className="h-screen flex bg-bg overflow-hidden">
       {/* App sidebar — collapses away while the page agent is open, for a
           focused side-by-side view. */}
@@ -65,8 +68,10 @@ export default function AppShell() {
         onClose={() => setNewThreadOpen(false)}
       />
       <CompanyDetailDrawer />
+      <AccountPreviewDrawer />
       <PlaybookDetailDrawer />
       <PageAgentLauncher />
     </div>
+    </AccountDrawerProvider>
   );
 }

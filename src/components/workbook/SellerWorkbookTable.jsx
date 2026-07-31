@@ -457,6 +457,10 @@ export default function SellerWorkbookTable({
   selectedIds,
   onToggleSelection,
   onToggleSelectAll,
+  // Optional predicate — returns true when an Account AI conversation
+  // already exists for the given accountId. Powers the ✨ badge on rows
+  // so reps can see at a glance which accounts they've already worked.
+  hasThread,
 }) {
   const selectionEnabled = Array.isArray(selectedIds);
   const selectedSet = selectionEnabled ? new Set(selectedIds) : null;
@@ -663,17 +667,30 @@ export default function SellerWorkbookTable({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[13px] font-medium text-text-primary truncate">{account.name}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenAccountChat?.(account);
-                          }}
-                          className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
-                          title={`Open AI chat for ${account.name}`}
-                        >
-                          <Bot size={11} />
-                        </button>
+                        {(() => {
+                          const threadExists = typeof hasThread === 'function' && hasThread(account.id);
+                          return (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenAccountChat?.(account);
+                              }}
+                              className={`flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
+                                threadExists
+                                  ? 'bg-gradient-to-br from-violet-500 to-primary text-white shadow-sm ring-1 ring-violet-500/30'
+                                  : 'bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20'
+                              }`}
+                              title={
+                                threadExists
+                                  ? `Continue AI conversation about ${account.name}`
+                                  : `Open AI chat for ${account.name}`
+                              }
+                            >
+                              {threadExists ? <Sparkles size={11} /> : <Bot size={11} />}
+                            </button>
+                          );
+                        })()}
                         <SubsidiariesIndicator
                           subsidiaries={account.subsidiaries}
                           expanded={isExpanded}
