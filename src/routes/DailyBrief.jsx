@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Sunrise, ArrowRight, ArrowUpRight, CheckCircle2, Clock, AlertTriangle,
   ShieldCheck, Zap, TrendingUp, Globe, Activity, UserCog, Building2,
-  Wand2, CalendarClock, ChevronRight, Layers,
+  Wand2, CalendarClock, ChevronRight, Layers, Repeat, Circle,
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
 import {
