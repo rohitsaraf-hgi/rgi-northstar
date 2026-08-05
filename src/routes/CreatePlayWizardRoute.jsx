@@ -73,7 +73,7 @@ function StepIndicator({ currentStep, onJump }) {
 // -----------------------------------------------------------------------------
 // Step 1 · Audience
 // -----------------------------------------------------------------------------
-function AudienceStep({ workbookId, setWorkbookId, workbooks, selectedRecordIds, setSelectedRecordIds, audienceFilters, setAudienceFilters, crmConnected }) {
+function AudienceStep({ workbookId, setWorkbookId, workbooks, selectedRecordIds, setSelectedRecordIds, audienceFilters, setAudienceFilters, audienceMode, setAudienceMode, crmConnected }) {
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const workbook = workbookId ? workbooks.find((w) => w.id === workbookId) : null;
   const workbookRows = useMemo(() => (workbook ? resolveWorkbookRows(workbook) : []), [workbook]);
@@ -202,6 +202,46 @@ function AudienceStep({ workbookId, setWorkbookId, workbooks, selectedRecordIds,
               {selectedRecordIds.length > 0
                 ? `${selectedRecordIds.length} pre-selected records from ${workbook.name}${audienceFilters.length > 0 ? ` · ${audienceFilters.length} filter${audienceFilters.length === 1 ? '' : 's'} applied` : ''}`
                 : `All records in ${workbook.name}${audienceFilters.length > 0 ? ` · ${audienceFilters.length} filter${audienceFilters.length === 1 ? '' : 's'} applied` : ''}`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audience mode toggle — static (frozen) vs dynamic (live query). */}
+      {workbook && (
+        <div className="bg-surface border border-border rounded-md p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Audience mode</div>
+              <div className="text-[11px] text-text-secondary mt-0.5 leading-snug">
+                {audienceMode === 'dynamic'
+                  ? 'Live — new records that match the filter will enter the play automatically.'
+                  : 'Frozen — only the records in scope right now will execute. New matches won\'t be added.'}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 bg-surface-2 border border-border rounded-md p-0.5 flex-shrink-0">
+              <button
+                onClick={() => setAudienceMode('static')}
+                className={`px-2.5 py-1 text-xs rounded transition-colors inline-flex items-center gap-1 ${
+                  audienceMode === 'static'
+                    ? 'bg-primary/15 text-primary font-semibold'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <Circle size={10} />
+                Static
+              </button>
+              <button
+                onClick={() => setAudienceMode('dynamic')}
+                className={`px-2.5 py-1 text-xs rounded transition-colors inline-flex items-center gap-1 ${
+                  audienceMode === 'dynamic'
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <Repeat size={10} />
+                Dynamic
+              </button>
             </div>
           </div>
         </div>
@@ -679,6 +719,13 @@ export default function CreatePlayWizardRoute() {
   const [playType, setPlayType] = useState('outbound');
   const [actions, setActions] = useState([]);
   const [workflowIds, setWorkflowIds] = useState([]);
+  // Audience mode — smart default keyed to authoring gesture.
+  //   Rep ticked specific rows → static (they picked those records).
+  //   Rep is working the filtered view → dynamic (they want anything that
+  //   matches the filter, now or later).
+  const [audienceMode, setAudienceMode] = useState(
+    preselectedRecords.length > 0 ? 'static' : 'dynamic',
+  );
 
   const canProceed = useMemo(() => {
     if (step === 0) return Boolean(workbookId);
@@ -711,6 +758,25 @@ export default function CreatePlayWizardRoute() {
       source_record_ids: selectedRecordIds,
       recommended_workflows: workflowIds,
       actions: actions.map((a) => ({ ...a, id: a.id || `act_${Date.now()}_${Math.floor(Math.random() * 900)}` })),
+      // Audience mode + filter snapshot. Dynamic plays freeze the
+      // filter definition here so future re-eval matches the rep's intent.
+      audience: {
+        mode: audienceMode,
+        refreshCadence: 'daily',
+        filterDefinition: audienceMode === 'dynamic' && audienceFilters.length > 0
+          ? {
+              chips: audienceFilters.map((f) => ({
+                field: f.label,
+                op: 'matches',
+                values: [f.displayValue],
+              })),
+              summary: audienceFilters.map((f) => `${f.label}: ${f.displayValue}`).join(' · '),
+            }
+          : null,
+        sizeCap: 5000,
+        lastRefreshedAt: null,
+      },
+      audience_events: [],
       created_by: persona?.name || 'Rep',
       version: 1,
       visibility: persona?.roleType === 'admin' ? 'tenant' : 'private',
@@ -770,6 +836,8 @@ export default function CreatePlayWizardRoute() {
               setSelectedRecordIds={setSelectedRecordIds}
               audienceFilters={audienceFilters}
               setAudienceFilters={setAudienceFilters}
+              audienceMode={audienceMode}
+              setAudienceMode={setAudienceMode}
               crmConnected={false}
             />
           )}

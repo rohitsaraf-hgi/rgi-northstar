@@ -96,6 +96,25 @@
 //      triggerConfig:     object                   // trigger-specific fields
 //    }
 //
+//    // Audience mode. Static = records frozen at play creation. Dynamic =
+//    // audience continuously re-evaluated against filterDefinition; new
+//    // matches enter the play, dropped records leave.
+//    audience: {
+//      mode:              'static' | 'dynamic'
+//      refreshCadence:    'daily' | 'hourly' | 'event_driven'
+//      filterDefinition:  object | null           // filter chips at activation
+//      sizeCap:           number                  // pause new intake above this
+//      lastRefreshedAt:   ISODate | null
+//    }
+//    audience_events: Array<{
+//      at:                ISODate
+//      kind:              'added' | 'removed'
+//      recordId:          string
+//      recordName:        string
+//      reason:            string                  // "matched Last activity > 30 days"
+//      filterChip:        string                  // which chip caused the match
+//    }>
+//
 //    // Individual actions attached to the play (near-term focus per the
 //    // seller-driven creation flow). Parallel to recommended_workflows.
 //    actions: Array<{
@@ -249,6 +268,10 @@ function adaptLegacyPlay(legacy) {
     // Which workbooks the play scopes to. Needed for the Daily Brief
     // workbook-scoper filter (spec §: "play targets one workbook").
     workbookIds: Array.isArray(legacy.workbookIds) ? legacy.workbookIds : [],
+    // Audience mode + audit log. ensureLegacyPlayFields fills in defaults
+    // if missing.
+    audience: legacy.audience,
+    audience_events: legacy.audience_events,
   };
 }
 
@@ -290,7 +313,10 @@ const LEGACY_PLAYS_BY_ID = Object.fromEntries(LEGACY_PLAYS.map((p) => [p.id, p])
 //     seller-driven "Create Sales Play" wizard flow.
 // v6: added Alex's three demo plays (account brief batch, contact outreach,
 //     full prospecting) — Brief needs populated activation state to demo.
-const PLAYS_SCHEMA_VERSION = 6;
+// v7: added audience { mode, refreshCadence, filterDefinition, sizeCap } +
+//     audience_events[] so plays can have dynamic (live-query) or static
+//     (snapshot) audiences.
+const PLAYS_SCHEMA_VERSION = 7;
 
 function migrateStaleState(parsed) {
   const needsPlaysReseed = (parsed.playsSchemaVersion || 0) < PLAYS_SCHEMA_VERSION;
@@ -393,6 +419,25 @@ export function defaultTriggerTypeForMotion(motion) {
   return 'signal';
 }
 
+// Default audience config for a play. Every play has a mode: 'static'
+// (records frozen at play creation) or 'dynamic' (audience re-evaluated
+// against the filter definition on a cadence).
+function defaultAudience({ autoRunOnNewRecords, hasExplicitRecordSelection }) {
+  // If the play was authored by ticking specific rows, static is safest.
+  // Otherwise fall back to whatever the activation said, and default to
+  // dynamic when neither is explicit.
+  const mode = hasExplicitRecordSelection
+    ? 'static'
+    : (autoRunOnNewRecords === false ? 'static' : 'dynamic');
+  return {
+    mode,
+    refreshCadence: 'daily',   // 'daily' | 'hourly' | 'event_driven'
+    filterDefinition: null,     // Snapshot of the filter chips at activation
+    sizeCap: 5000,              // Guardrail — pause new intake above this
+    lastRefreshedAt: null,
+  };
+}
+
 function defaultActivationForType(type, motion) {
   if (type === 'inbound') {
     return {
@@ -454,6 +499,24 @@ function ensureLegacyPlayFields(play) {
     // Source workbook + record selection at creation time.
     source_workbook_id: play.source_workbook_id || null,
     source_record_ids: Array.isArray(play.source_record_ids) ? play.source_record_ids : [],
+    // Audience mode + filter definition. Static plays freeze the record set
+    // at activation; dynamic plays re-evaluate against filterDefinition and
+    // pull in new matches on a cadence.
+    audience: play.audience
+      ? {
+          ...defaultAudience({
+            autoRunOnNewRecords: activation.autoRunOnNewRecords,
+            hasExplicitRecordSelection: (play.source_record_ids || []).length > 0,
+          }),
+          ...play.audience,
+        }
+      : defaultAudience({
+          autoRunOnNewRecords: activation.autoRunOnNewRecords,
+          hasExplicitRecordSelection: (play.source_record_ids || []).length > 0,
+        }),
+    // Log of records that entered / left the audience over time. Only
+    // meaningful for dynamic plays; static plays keep this empty.
+    audience_events: Array.isArray(play.audience_events) ? play.audience_events : [],
   };
 }
 

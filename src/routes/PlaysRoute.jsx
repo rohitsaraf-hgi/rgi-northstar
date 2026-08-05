@@ -25,11 +25,12 @@ import {
   getPlayType, setPlayType, setPlayActivation,
   attachWorkflowToPlay, detachWorkflowFromPlay, recommendedWorkflowForMotion,
   removeActionFromPlay, PLAY_ACTION_TYPES,
+  getAudienceState, listAudienceEvents, setPlayAudienceMode,
 } from '../data/plays.js';
 import { listOfferings } from '../data/offerings.js';
 import { ManagePlayDrawer } from '../components/onboarding/StepPlays.jsx';
 import { AnimatePresence } from 'framer-motion';
-import { Edit2, Trash2, Save, PlayCircle, Zap, Layers as LayersIcon, Bell, Repeat, ListChecks, GitBranch, Send, Mail, ListTodo, ShieldCheck } from 'lucide-react';
+import { Edit2, Trash2, Save, PlayCircle, Zap, Layers as LayersIcon, Bell, Repeat, ListChecks, GitBranch, Send, Mail, ListTodo, ShieldCheck, Circle, ArrowRight } from 'lucide-react';
 import { getOffering } from '../data/offerings.js';
 import { getWorkflow } from '../data/workflows.js';
 import { getWorkflowTemplate } from '../data/workflowTemplates.js';
@@ -556,6 +557,162 @@ function PlayTypeActivationSection({ play, playType, onSetPlayType, onPatchActiv
   );
 }
 
+// Audience state section — shows whether the play is dynamic (audience
+// re-evaluated against a filter) or static (frozen at creation), plus the
+// new-records queue for dynamic plays.
+function AudienceStateSection({ play, audienceState, events, onSetMode }) {
+  const navigate = useNavigate();
+  const mode = audienceState?.mode || 'static';
+  const isDynamic = mode === 'dynamic';
+  const filterSummary = audienceState?.filterDefinition?.summary
+    || (audienceState?.filterDefinition?.chips || []).map((c) => `${c.field} ${c.op} ${(c.values || []).join(', ')}`).join(' · ');
+  const recentAdded = events.filter((e) => e.kind === 'added').slice(0, 5);
+  const recentDropped = events.filter((e) => e.kind === 'removed').slice(0, 3);
+
+  return (
+    <div id="audience" className="bg-surface border border-border rounded-md p-4 mb-4">
+      <div className="flex items-start justify-between mb-3 gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+            Audience state
+          </div>
+          <div className="text-[11px] text-text-secondary mt-0.5">
+            {isDynamic
+              ? 'Audience is a live query — new matches enter automatically, dropped records leave.'
+              : 'Audience is frozen at play creation. Only the initially-scoped records execute.'}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 bg-surface-2 border border-border rounded-md p-0.5 flex-shrink-0">
+          <button
+            onClick={() => onSetMode('static')}
+            className={`px-2.5 py-1 text-xs rounded transition-colors inline-flex items-center gap-1 ${
+              !isDynamic ? 'bg-primary/15 text-primary font-semibold' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Circle size={10} />
+            Static
+          </button>
+          <button
+            onClick={() => onSetMode('dynamic')}
+            className={`px-2.5 py-1 text-xs rounded transition-colors inline-flex items-center gap-1 ${
+              isDynamic ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Repeat size={10} />
+            Dynamic
+          </button>
+        </div>
+      </div>
+
+      {isDynamic && (
+        <>
+          {/* Filter definition + cadence + counters */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Filter</div>
+              <div className="text-[11px] text-text-primary mt-1 leading-snug line-clamp-3" title={filterSummary}>
+                {filterSummary || <span className="italic text-text-muted">No filter definition captured — set one to enable dynamic re-evaluation.</span>}
+              </div>
+            </div>
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Refresh</div>
+              <div className="text-[11px] text-text-primary mt-1 capitalize">{audienceState?.refreshCadence || 'daily'}</div>
+              {audienceState?.lastRefreshedAt && (
+                <div className="text-[10px] text-text-muted mt-0.5">
+                  last refreshed {new Date(audienceState.lastRefreshedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </div>
+              )}
+            </div>
+            <div className="px-3 py-2 rounded border border-border bg-bg/40">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Since last window</div>
+              <div className="text-[11px] mt-1">
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono font-bold">+{audienceState?.addedSinceCount || 0}</span>
+                <span className="text-text-muted"> new · </span>
+                <span className="text-rose-700 dark:text-rose-300 font-mono font-bold">{audienceState?.droppedSinceCount || 0}</span>
+                <span className="text-text-muted"> dropped</span>
+              </div>
+              <div className="text-[10px] text-text-muted mt-0.5">
+                {audienceState?.totalAdded || 0} added · {audienceState?.totalDropped || 0} dropped in last 30d
+              </div>
+            </div>
+          </div>
+
+          {/* New records queue */}
+          {recentAdded.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1.5 flex items-center gap-1.5">
+                <ArrowRight size={10} className="text-emerald-700 dark:text-emerald-300" />
+                New records queue
+                <span className="text-text-muted font-mono">({recentAdded.length})</span>
+              </div>
+              <div className="space-y-1.5">
+                {recentAdded.map((e) => (
+                  <div key={e.recordId + e.at} className="flex items-center gap-3 px-3 py-2 rounded border border-emerald-500/30 bg-emerald-500/5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                    <button
+                      onClick={() => navigate(`/account/${e.recordId}`)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-text-primary">{e.recordName}</span>
+                        <span className="text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                          matched {new Date(e.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-text-muted mt-0.5">{e.reason}</div>
+                      {e.filterChip && (
+                        <div className="text-[9px] text-text-muted font-mono mt-0.5">via {e.filterChip}</div>
+                      )}
+                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button className="text-[10px] px-2 py-1 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 rounded transition-colors">
+                        Include now
+                      </button>
+                      <button className="text-[10px] px-2 py-1 border border-border text-text-muted hover:text-text-secondary hover:bg-surface-2 rounded transition-colors">
+                        Skip
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recently dropped */}
+          {recentDropped.length > 0 && (
+            <div className="mt-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1.5 flex items-center gap-1.5">
+                <X size={10} className="text-rose-700 dark:text-rose-300" />
+                Recently dropped
+                <span className="text-text-muted font-mono">({recentDropped.length})</span>
+              </div>
+              <div className="space-y-1">
+                {recentDropped.map((e) => (
+                  <div key={e.recordId + e.at} className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-bg/40 text-[11px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 flex-shrink-0" />
+                    <span className="font-semibold text-text-primary">{e.recordName}</span>
+                    <span className="text-text-muted">·</span>
+                    <span className="text-text-secondary">{e.reason}</span>
+                    <span className="ml-auto text-[10px] text-text-muted">
+                      {new Date(e.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!isDynamic && (
+        <div className="text-[11px] text-text-muted italic">
+          Switch to Dynamic if you want the copilot to pull in new records that match your filter over time. The initial audience won&rsquo;t change unless you re-activate.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlayDetail({ play, onBack }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -639,6 +796,16 @@ function PlayDetail({ play, onBack }) {
     removeActionFromPlay(play.id, actionId);
     showToast('Action removed.', 'info');
   };
+  const handleAudienceModeToggle = (nextMode) => {
+    setPlayAudienceMode(play.id, nextMode);
+    showToast(`Audience switched to ${nextMode}.`, 'success');
+  };
+
+  // Audience state — derived on every render so the section stays live as
+  // events land. Only meaningful for dynamic plays but computed either way
+  // so the toggle can flip in place.
+  const audienceState = getAudienceState(play.id, { windowDays: 30 });
+  const audienceEvents = listAudienceEvents(play.id, { sinceDays: 30 });
 
   const recommendedWorkflowId = recommendedWorkflowForMotion(play.motion, playType);
   const recommendedWorkflowObj =
@@ -965,6 +1132,14 @@ function PlayDetail({ play, onBack }) {
         onOpenActivation={() => setActivationOpen(true)}
         workbookRecordCount={workbookRecordCount}
         attachedWorkbook={attachedWorkbook}
+      />
+
+      {/* Audience state — static vs dynamic, filter definition, new/dropped queue */}
+      <AudienceStateSection
+        play={play}
+        audienceState={audienceState}
+        events={audienceEvents}
+        onSetMode={handleAudienceModeToggle}
       />
 
       {/* Individual Actions — near-term focus (add to sequence, draft email) */}

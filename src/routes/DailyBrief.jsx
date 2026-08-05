@@ -304,10 +304,11 @@ function PlayActivitySection({ summaries }) {
 
 function PlayActivityCard({ summary }) {
   const navigate = useNavigate();
-  const { play, completed, stuck, failed, waitingApproval, runningBatches, scheduledBatches, lastRunAt, totalRuns } = summary;
+  const { play, completed, stuck, failed, waitingApproval, runningBatches, scheduledBatches, lastRunAt, totalRuns, audienceMode, addedSinceCount, droppedSinceCount } = summary;
   const total = completed + stuck + failed + waitingApproval + runningBatches;
   const pct = (n) => (total > 0 ? (n / total) * 100 : 0);
   const playType = play.type || 'outbound';
+  const isDynamic = audienceMode === 'dynamic';
 
   return (
     <div className="bg-surface border border-border rounded-md p-4 hover:border-primary/30 transition-colors">
@@ -321,6 +322,14 @@ function PlayActivityCard({ summary }) {
                 : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
             }`}>
               {playType}
+            </span>
+            <span className={`inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${
+              isDynamic
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                : 'bg-surface-2 text-text-secondary border-border'
+            }`} title={isDynamic ? 'Audience re-evaluates on a cadence — new matches enter automatically' : 'Audience frozen at play creation'}>
+              {isDynamic ? <Repeat size={9} /> : <Circle size={9} />}
+              {isDynamic ? 'Dynamic' : 'Static'}
             </span>
           </div>
           <div className="text-[10px] text-text-muted">
@@ -337,6 +346,34 @@ function PlayActivityCard({ summary }) {
           <ChevronRight size={14} />
         </button>
       </div>
+
+      {/* Dynamic-audience delta strip — only appears when new/dropped records
+          arrived in the last 24h. Clicking jumps to the play's Audience state
+          section for review. */}
+      {isDynamic && (addedSinceCount > 0 || droppedSinceCount > 0) && (
+        <button
+          onClick={() => navigate(`/admin/plays/${play.id}#audience`)}
+          className="w-full text-left mt-2 mb-1 px-2 py-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors flex items-center gap-2"
+        >
+          <Repeat size={10} className="text-emerald-700 dark:text-emerald-300 flex-shrink-0" />
+          <div className="flex-1 min-w-0 text-[11px] text-emerald-700 dark:text-emerald-300">
+            {addedSinceCount > 0 && (
+              <>
+                <span className="font-mono font-bold">+{addedSinceCount}</span> new record{addedSinceCount === 1 ? '' : 's'} since yesterday
+              </>
+            )}
+            {addedSinceCount > 0 && droppedSinceCount > 0 && <span className="text-text-muted"> · </span>}
+            {droppedSinceCount > 0 && (
+              <>
+                <span className="font-mono font-bold">{droppedSinceCount}</span> dropped
+              </>
+            )}
+          </div>
+          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 flex-shrink-0">
+            Review →
+          </span>
+        </button>
+      )}
 
       {/* Outcome bar — stacked segments */}
       <div className="mt-3 mb-1.5">

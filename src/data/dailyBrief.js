@@ -9,7 +9,7 @@
 // This file derives everything from existing stores (no new persistence).
 
 import { getAccountsForOwner, SIGNAL_TYPES } from './accounts.js';
-import { listPlays } from './plays.js';
+import { listPlays, getAudienceState } from './plays.js';
 import { runStats, runsForPlaybook } from './agentRuns.js';
 import {
   listPendingCheckpoints,
@@ -315,6 +315,9 @@ export function summarizePlayActivity(personaId, salesRole, { limit = 8, workboo
     const totalWork = completed + stuck + failed + waitingApproval + runningBatches;
     if (totalWork === 0 && scheduledBatches === 0 && completedBatches === 0) continue;
 
+    // Audience state — new/dropped since yesterday for the Brief chip.
+    const audienceState = getAudienceState(play.id, { windowDays: 1 });
+
     summaries.push({
       play,
       completed,
@@ -327,6 +330,10 @@ export function summarizePlayActivity(personaId, salesRole, { limit = 8, workboo
       lastRunAt: runs[0]?.timestamp || activation.activatedAt || null,
       totalRuns: runs.length,
       recentRuns: runs.slice(0, 3),
+      // Audience state (dynamic vs static + delta chips).
+      audienceMode: audienceState?.mode || 'static',
+      addedSinceCount: audienceState?.addedSinceCount || 0,
+      droppedSinceCount: audienceState?.droppedSinceCount || 0,
     });
   }
 

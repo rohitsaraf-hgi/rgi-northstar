@@ -228,6 +228,16 @@ export const PLAYS = [
     id: 'play-account-brief-batch',
     name: 'Account Brief · ICP Batch',
     description: 'Generate a full account brief for every company in ICP Match. One-shot batch that primes reps for their outreach the next morning.',
+    // Static: rep ran this against a specific batch of accounts on Jul 21.
+    // New ICP matches don't automatically get pulled in.
+    audience: {
+      mode: 'static',
+      refreshCadence: 'daily',
+      filterDefinition: null,
+      sizeCap: 5000,
+      lastRefreshedAt: null,
+    },
+    audience_events: [],
     motion: 'new_logo',
     status: 'active',
     offering_id: 'cnapp',
@@ -268,6 +278,16 @@ export const PLAYS = [
     id: 'play-contact-outreach-jul',
     name: 'Contact Outreach · July Saved',
     description: 'For every contact in the Saved Contacts · July workbook: draft a personalized email and enroll them in an Outreach sequence.',
+    // Static: contact list was saved by hand on July 21; the play targets
+    // exactly those 4 contacts.
+    audience: {
+      mode: 'static',
+      refreshCadence: 'daily',
+      filterDefinition: null,
+      sizeCap: 5000,
+      lastRefreshedAt: null,
+    },
+    audience_events: [],
     motion: 'new_logo',
     status: 'active',
     offering_id: 'cnapp',
@@ -319,6 +339,58 @@ export const PLAYS = [
     id: 'play-full-prospecting-q3',
     name: 'Q3 Prospecting · Banking',
     description: 'Full outbound motion for Q3 Banking targets: brief each account, find the buying committee, draft a personalized email per key persona, then enroll them in Outreach.',
+    // Dynamic: audience is a live query. Any Banking/Fintech account with
+    // 1,000+ employees that lands in the CRM enters the play automatically.
+    audience: {
+      mode: 'dynamic',
+      refreshCadence: 'daily',
+      filterDefinition: {
+        chips: [
+          { field: 'Industry',        op: 'in',    values: ['Banking & Financial Services', 'Fintech'] },
+          { field: 'Employees',       op: '>=',    values: [1000] },
+          { field: 'Last activity',   op: '>',     values: ['30 days ago'] },
+        ],
+        summary: 'Banking or Fintech · ≥ 1,000 employees · last activity > 30 days',
+      },
+      sizeCap: 5000,
+      lastRefreshedAt: '2026-08-03T09:00:00Z',
+    },
+    audience_events: [
+      // Two accounts entered the audience in the last few days — brand-new CRM
+      // records that just crossed the "last activity > 30 days" threshold.
+      {
+        at: '2026-08-03T14:22:00Z',
+        kind: 'added',
+        recordId: 'acct-morgan-stanley',
+        recordName: 'Morgan Stanley',
+        reason: 'Last activity date crossed 30-day threshold (was 27d, now 32d)',
+        filterChip: 'Last activity > 30 days',
+      },
+      {
+        at: '2026-08-02T10:04:00Z',
+        kind: 'added',
+        recordId: 'acct-deutsche-bank',
+        recordName: 'Deutsche Bank',
+        reason: 'New CRM record synced overnight from Salesforce',
+        filterChip: 'Industry in [Banking & Financial Services]',
+      },
+      {
+        at: '2026-08-01T18:41:00Z',
+        kind: 'added',
+        recordId: 'acct-bank-of-america',
+        recordName: 'Bank of America',
+        reason: 'Employees count updated in HG data (was 890, now 3,200)',
+        filterChip: 'Employees >= 1000',
+      },
+      {
+        at: '2026-07-31T11:15:00Z',
+        kind: 'removed',
+        recordId: 'acct-visa',
+        recordName: 'Visa',
+        reason: 'Last activity refreshed — rep touched account on Jul 30',
+        filterChip: 'Last activity > 30 days',
+      },
+    ],
     motion: 'new_logo',
     status: 'active',
     offering_id: 'cnapp',

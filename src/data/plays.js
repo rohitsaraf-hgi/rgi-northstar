@@ -458,6 +458,87 @@ export function removeActionFromPlay(playId, actionId) {
   return next;
 }
 
+// -----------------------------------------------------------------------------
+// Audience state — for dynamic plays that continuously re-evaluate their
+// filter against fresh data. Static plays don't use these helpers.
+// -----------------------------------------------------------------------------
+
+// Return a normalized snapshot of a play's audience state, plus derived
+// counters ("added since yesterday" etc.). Consumers on the Daily Brief
+// and play-detail Audience section read this shape.
+export function getAudienceState(playId, { windowDays = 1 } = {}) {
+  const play = getPlayFromStore(playId);
+  if (!play) return null;
+  const audience = play.audience || {};
+  const events = Array.isArray(play.audience_events) ? play.audience_events : [];
+  const now = new Date('2026-08-04'); // demo-fixed "today"
+  const cutoff = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);
+  const recent = events.filter((e) => {
+    try { return new Date(e.at) >= cutoff; } catch { return false; }
+  });
+  return {
+    playId,
+    mode: audience.mode || 'static',
+    refreshCadence: audience.refreshCadence || 'daily',
+    filterDefinition: audience.filterDefinition || null,
+    sizeCap: audience.sizeCap || 5000,
+    lastRefreshedAt: audience.lastRefreshedAt || null,
+    addedSinceCount: recent.filter((e) => e.kind === 'added').length,
+    droppedSinceCount: recent.filter((e) => e.kind === 'removed').length,
+    // All-time counts too, for the Play detail Audience section.
+    totalAdded: events.filter((e) => e.kind === 'added').length,
+    totalDropped: events.filter((e) => e.kind === 'removed').length,
+  };
+}
+
+// Return the raw audience events for a play, filtered to a time window.
+export function listAudienceEvents(playId, { sinceDays = 30 } = {}) {
+  const play = getPlayFromStore(playId);
+  if (!play) return [];
+  const events = Array.isArray(play.audience_events) ? play.audience_events : [];
+  const now = new Date('2026-08-04');
+  const cutoff = new Date(now.getTime() - sinceDays * 24 * 60 * 60 * 1000);
+  return events
+    .filter((e) => {
+      try { return new Date(e.at) >= cutoff; } catch { return false; }
+    })
+    .sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
+// Toggle the audience mode. When switching to 'dynamic' we don't try to
+// re-derive the filter — the caller (the wizard or play detail) is
+// responsible for passing a filterDefinition when it matters.
+export function setPlayAudienceMode(playId, mode, patch = {}) {
+  const play = getPlayFromStore(playId);
+  if (!play) return null;
+  const next = {
+    ...play,
+    audience: {
+      ...(play.audience || {}),
+      mode,
+      ...patch,
+    },
+  };
+  upsertPlayInStore(next);
+  return next;
+}
+
+// Append an audience event (used when a record enters/leaves a dynamic
+// play). In production this fires from the audience-refresh job; in the
+// demo it's called from admin actions or seeded upfront.
+export function logAudienceEvent(playId, event) {
+  const play = getPlayFromStore(playId);
+  if (!play || !event) return null;
+  const now = new Date().toISOString();
+  const stamped = { at: event.at || now, ...event };
+  const next = {
+    ...play,
+    audience_events: [stamped, ...(play.audience_events || [])],
+  };
+  upsertPlayInStore(next);
+  return next;
+}
+
 // Mock activation — generates a `batches` history so the UI can render a
 // realistic batch queue without a real scheduler. `totalRecords` comes from
 // the workbook's account count.
