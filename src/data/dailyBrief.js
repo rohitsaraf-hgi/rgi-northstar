@@ -11,6 +11,7 @@
 import { getAccountsForOwner, SIGNAL_TYPES } from './accounts.js';
 import { listPlays, getAudienceState } from './plays.js';
 import { runStats, runsForPlaybook } from './agentRuns.js';
+import { listSignalFirings } from './signalFirings.js';
 import {
   listPendingCheckpoints,
   listSignalTriggeredPlays,
@@ -349,12 +350,21 @@ export function summarizePlayActivity(personaId, salesRole, { limit = 8, workboo
 
 // Tiny wrapper so the Brief header can render a one-line summary
 // like "12 accounts moved · 3 plays running · 5 items need you".
-// Honors the workbook scoper when provided.
+// Honors the workbook scoper when provided. When available, the account
+// count reflects the catalog-driven signalFirings (24-signal taxonomy);
+// otherwise falls back to the legacy grouping.
 export function summarizeBrief(personaId, salesRole, { workbookId = 'all' } = {}) {
-  const groups = groupSignalsForBrief(personaId, { workbookId });
-  const signalAccountCount = new Set(
-    groups.flatMap((g) => g.accounts.map((a) => a.id)),
-  ).size;
+  // Catalog-driven signal store — count accounts with ≥ 1 firing.
+  const catalogRows = listSignalFirings(personaId);
+  const catalogCount = new Set(catalogRows.map((r) => r.accountId)).size;
+  // Legacy grouping as a fallback if the new store is empty for the persona.
+  let signalAccountCount = catalogCount;
+  if (signalAccountCount === 0) {
+    const groups = groupSignalsForBrief(personaId, { workbookId });
+    signalAccountCount = new Set(
+      groups.flatMap((g) => g.accounts.map((a) => a.id)),
+    ).size;
+  }
   const plays = summarizePlayActivity(personaId, salesRole, { workbookId });
   const runningPlays = plays.filter((p) => p.runningBatches > 0 || p.totalRuns > 0).length;
   const checkpoints = listPendingCheckpoints(personaId, salesRole).length;

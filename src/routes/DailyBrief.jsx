@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Sunrise, ArrowRight, ArrowUpRight, CheckCircle2, Clock, AlertTriangle,
-  ShieldCheck, Zap, TrendingUp, Globe, Activity, UserCog, Building2,
-  Wand2, CalendarClock, ChevronRight, Layers, Repeat, Circle,
+  ShieldCheck, Zap, TrendingUp, TrendingDown, Globe, Activity, UserCog, Building2,
+  Wand2, CalendarClock, ChevronRight, Layers, Repeat, Circle, Sparkles,
+  Users, Sword, Handshake, Bell,
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
 import {
-  groupSignalsForBrief,
   summarizePlayActivity,
   summarizeBrief,
   listMeetingsNeedingPrep,
@@ -18,6 +18,7 @@ import {
   listSignalTriggeredPlays,
   relativeTime,
 } from '../data/sellerInbox.js';
+import { prioritizedAttentionQueue, signalBoard } from '../data/homeRanking.js';
 
 // Time-window options in the header.
 const WINDOWS = [
@@ -26,16 +27,69 @@ const WINDOWS = [
   { id: 'this_month',      label: 'This month' },
 ];
 
+// Icon lookup — the signalCatalog category-icon names map onto lucide
+// components here. Extended to cover every one of the 9 board categories.
 const CATEGORY_ICON = {
-  TrendingUp, Globe, UserCog, Building2, Activity,
+  TrendingUp,
+  TrendingDown,
+  Globe,
+  UserCog,
+  Building2,
+  Activity,
+  Sparkles,
+  Users,
+  Sword,
+  Handshake,
+  AlertTriangle,
 };
 
 // -----------------------------------------------------------------------------
-// Section 1 · What needs you
+// Section 1 · Attention Queue — grounded in the 24-signal catalog + weights
+//
+// Each row = one account × its highest-weight signal + a primary NBA button.
+// Secondary signals surface as "+N more risks" chips. Copilot approvals +
+// meeting-prep debt appear as sentinel rows at the top of the queue when
+// present.
 // -----------------------------------------------------------------------------
 
-function NeedsYouSection({ checkpoints, triggered, meetings }) {
-  const empty = checkpoints.length === 0 && triggered.length === 0 && meetings.length === 0;
+function AttentionQueueSection({ queue, checkpoints, triggered, meetings }) {
+  const navigate = useNavigate();
+  const sentinels = [];
+  if (checkpoints.length > 0) {
+    sentinels.push({
+      key: 'sentinel-approvals',
+      icon: ShieldCheck,
+      tone: 'amber',
+      title: `${checkpoints.length} draft${checkpoints.length === 1 ? '' : 's'} waiting for your approval`,
+      desc: `From ${new Set(checkpoints.map((c) => c.workflow_name)).size} play${new Set(checkpoints.map((c) => c.workflow_name)).size === 1 ? '' : 's'} the copilot ran overnight`,
+      ctaLabel: 'Review approvals',
+      onClick: () => navigate('/admin/plays'),
+    });
+  }
+  if (triggered.length > 0) {
+    sentinels.push({
+      key: 'sentinel-triggered',
+      icon: Zap,
+      tone: 'rose',
+      title: `${triggered.length} signal-triggered play${triggered.length === 1 ? '' : 's'} queued`,
+      desc: 'Copilot detected a trigger event — review the play run before it lands',
+      ctaLabel: 'Review plays',
+      onClick: () => navigate('/admin/plays'),
+    });
+  }
+  if (meetings.length > 0) {
+    sentinels.push({
+      key: 'sentinel-meetings',
+      icon: CalendarClock,
+      tone: 'sky',
+      title: `${meetings.length} meeting${meetings.length === 1 ? '' : 's'} without a brief`,
+      desc: meetings.map((m) => `${m.accountName} · ${m.whenRelative}`).join(' · '),
+      ctaLabel: 'Prep meetings',
+      onClick: () => navigate('/workbook'),
+    });
+  }
+
+  const empty = sentinels.length === 0 && queue.length === 0;
   if (empty) return null;
 
   return (
@@ -44,54 +98,148 @@ function NeedsYouSection({ checkpoints, triggered, meetings }) {
         <div className="w-6 h-6 rounded-md bg-amber-500/15 flex items-center justify-center">
           <ShieldCheck size={12} className="text-amber-700 dark:text-amber-300" />
         </div>
-        <h2 className="text-sm font-semibold text-text-primary">What needs you</h2>
+        <h2 className="text-sm font-semibold text-text-primary">Needs your attention</h2>
         <span className="text-[11px] text-text-muted">
-          {checkpoints.length + triggered.length + meetings.length} action{(checkpoints.length + triggered.length + meetings.length) === 1 ? '' : 's'}
+          {sentinels.length + queue.length} item{(sentinels.length + queue.length) === 1 ? '' : 's'} · ranked by urgency
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <NeedsYouCard
-          icon={ShieldCheck}
-          tone="amber"
-          title={`${checkpoints.length} draft${checkpoints.length === 1 ? '' : 's'} waiting for approval`}
-          desc={checkpoints.length > 0
-            ? `Batch approvals from ${new Set(checkpoints.map((c) => c.workflow_name)).size} play${new Set(checkpoints.map((c) => c.workflow_name)).size === 1 ? '' : 's'}`
-            : 'All caught up on approvals'}
-          count={checkpoints.length}
-          primaryLabel="Review approvals"
-          primaryHref="#"
-          disabled={checkpoints.length === 0}
-        />
-        <NeedsYouCard
-          icon={Zap}
-          tone="rose"
-          title={`${triggered.length} signal-triggered play${triggered.length === 1 ? '' : 's'}`}
-          desc={triggered.length > 0
-            ? 'Copilot queued an outreach — review before it sends'
-            : 'No triggered plays right now'}
-          count={triggered.length}
-          primaryLabel="Review plays"
-          primaryHref="#"
-          disabled={triggered.length === 0}
-        />
-        <NeedsYouCard
-          icon={CalendarClock}
-          tone="sky"
-          title={`${meetings.length} meeting${meetings.length === 1 ? '' : 's'} need prep`}
-          desc={meetings.length > 0
-            ? meetings.map((m) => `${m.accountName} · ${m.whenRelative}`).join(' · ')
-            : 'No prep debt today'}
-          count={meetings.length}
-          primaryLabel="Prep meetings"
-          primaryHref="#"
-          disabled={meetings.length === 0}
-        />
-      </div>
+      {sentinels.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          {sentinels.map((s) => <SentinelCard key={s.key} {...s} />)}
+        </div>
+      )}
+
+      {queue.length > 0 && (
+        <div className="bg-surface border border-border rounded-md divide-y divide-border overflow-hidden">
+          {queue.map((row) => <AttentionRow key={row.accountId} row={row} />)}
+        </div>
+      )}
     </section>
   );
 }
 
+function SentinelCard({ icon: Icon, tone, title, desc, ctaLabel, onClick }) {
+  const toneMap = {
+    amber: { border: 'border-amber-500/30 bg-amber-500/5', color: 'text-amber-700 dark:text-amber-300' },
+    rose:  { border: 'border-rose-500/30 bg-rose-500/5',   color: 'text-rose-700 dark:text-rose-300' },
+    sky:   { border: 'border-sky-500/30 bg-sky-500/5',     color: 'text-sky-700 dark:text-sky-300' },
+  }[tone] || { border: 'border-border bg-surface', color: 'text-text-secondary' };
+  return (
+    <button
+      onClick={onClick}
+      className={`text-left p-3 rounded-md border transition-all hover:brightness-105 ${toneMap.border}`}
+    >
+      <div className="flex items-start gap-2 mb-2">
+        <div className="w-7 h-7 rounded-md bg-white/50 dark:bg-black/20 flex items-center justify-center flex-shrink-0">
+          <Icon size={13} className={toneMap.color} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold text-text-primary leading-snug">{title}</div>
+          <div className="text-[10px] text-text-secondary leading-snug mt-0.5">{desc}</div>
+        </div>
+      </div>
+      <div className={`text-[11px] font-semibold flex items-center gap-1 ${toneMap.color}`}>
+        {ctaLabel}
+        <ArrowRight size={10} />
+      </div>
+    </button>
+  );
+}
+
+// One row per attention-eligible account. Primary signal drives the CTA;
+// secondary signals surface as "+N more" chips with a hover tooltip.
+function AttentionRow({ row }) {
+  const navigate = useNavigate();
+  const { accountId, accountName, accountLogo, primary, secondary } = row;
+  const category = primary.definition.category;
+  const nbaVerb = primary.definition.nba?.verb || 'Take action';
+  const secondaryTitles = secondary.map((s) => s.definition.description).join('\n');
+
+  const handlePrimaryAction = (e) => {
+    e.stopPropagation();
+    // Route by NBA agent — content drafts go to the account chat; discovery
+    // opens the wizard; the rest jump to the account card where the rep
+    // can pick up in context.
+    const agent = primary.definition.nba?.agent;
+    if (agent === 'find_buying_personas') {
+      navigate(`/plays/new?workbook=wb-icp-match&records=${accountId}`);
+      return;
+    }
+    if (agent === 'draft_personalized_email' || agent === 'generate_account_brief') {
+      navigate(`/account/${accountId}?agent=${agent}`);
+      return;
+    }
+    navigate(`/account/${accountId}`);
+  };
+
+  return (
+    <div
+      onClick={() => navigate(`/account/${accountId}`)}
+      className="flex items-center gap-3 px-4 py-3 hover:bg-bg/40 transition-colors cursor-pointer"
+    >
+      <div
+        className="w-8 h-8 rounded text-[11px] font-bold text-white flex items-center justify-center flex-shrink-0"
+        style={{ background: accountLogo || '#64748b' }}
+      >
+        {(accountName || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-text-primary truncate">{accountName}</span>
+          <CategoryPill categoryId={category} />
+        </div>
+        <div className="text-[11px] text-text-secondary leading-snug truncate mt-0.5">
+          {primary.definition.description}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[10px] font-mono text-text-muted">
+            weight {primary.weight}
+          </span>
+          {secondary.length > 0 && (
+            <span
+              className="text-[10px] text-text-muted italic"
+              title={secondaryTitles}
+            >
+              · +{secondary.length} more risk{secondary.length === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+      </div>
+      <button
+        onClick={handlePrimaryAction}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-primary text-white rounded hover:bg-primary-dim transition-colors flex-shrink-0"
+      >
+        {nbaVerb}
+        <ArrowRight size={10} />
+      </button>
+    </div>
+  );
+}
+
+// Small colored pill for the signal category — used on Attention rows and
+// (indirectly) on the Signal Board tile headers.
+function CategoryPill({ categoryId }) {
+  const cats = {
+    deal_health: { label: 'Deal Health', bg: 'bg-rose-500/10', color: 'text-rose-700 dark:text-rose-300' },
+    engagement: { label: 'Engagement', bg: 'bg-amber-500/10', color: 'text-amber-700 dark:text-amber-300' },
+    relationship_coverage: { label: 'Coverage', bg: 'bg-orange-500/10', color: 'text-orange-700 dark:text-orange-300' },
+    deal_risk: { label: 'Deal Risk', bg: 'bg-red-500/10', color: 'text-red-700 dark:text-red-300' },
+    buyer_intent: { label: 'Buyer Intent', bg: 'bg-emerald-500/10', color: 'text-emerald-700 dark:text-emerald-300' },
+    account_health: { label: 'Account Health', bg: 'bg-violet-500/10', color: 'text-violet-700 dark:text-violet-300' },
+    competitive: { label: 'Competitive', bg: 'bg-rose-500/10', color: 'text-rose-700 dark:text-rose-300' },
+    partner: { label: 'Partner', bg: 'bg-sky-500/10', color: 'text-sky-700 dark:text-sky-300' },
+    momentum: { label: 'Momentum', bg: 'bg-blue-500/10', color: 'text-blue-700 dark:text-blue-300' },
+    first_party_activity: { label: '1P Activity', bg: 'bg-sky-500/10', color: 'text-sky-700 dark:text-sky-300' },
+  }[categoryId] || { label: categoryId, bg: 'bg-surface-2', color: 'text-text-secondary' };
+  return (
+    <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${cats.bg} ${cats.color}`}>
+      {cats.label}
+    </span>
+  );
+}
+
+// Kept for backwards-compat with any external consumer — no-op now.
 function NeedsYouCard({ icon: Icon, tone, title, desc, count, primaryLabel, disabled }) {
   const toneMap = {
     amber: 'border-amber-500/30 bg-amber-500/5',
@@ -143,32 +291,28 @@ function NeedsYouCard({ icon: Icon, tone, title, desc, count, primaryLabel, disa
 // Section 2 · Signals grouped by type
 // -----------------------------------------------------------------------------
 
-function SignalsSection({ groups, workbookLookup, activeWorkbookId }) {
-  if (!groups || groups.length === 0) {
+function SignalsSection({ tiles }) {
+  if (!tiles || tiles.length === 0) {
     return (
       <section className="mb-6">
-        <SectionHeader icon={Zap} title="Signals" hint="What changed on your accounts overnight" />
+        <SectionHeader icon={Zap} title="Signal Board" hint="What changed on your accounts overnight" />
         <div className="bg-surface border border-dashed border-border rounded-md p-8 text-center text-[11px] text-text-muted">
           No signals fired in your book in the current window.
         </div>
       </section>
     );
   }
+  const totalFirings = tiles.reduce((s, t) => s + t.count, 0);
   return (
     <section className="mb-6">
       <SectionHeader
         icon={Zap}
-        title="Signals"
-        hint={`${groups.reduce((s, g) => s + g.count, 0)} account-signals across ${groups.length} categor${groups.length === 1 ? 'y' : 'ies'}`}
+        title="Signal Board"
+        hint={`${totalFirings} firing${totalFirings === 1 ? '' : 's'} across ${tiles.length} categor${tiles.length === 1 ? 'y' : 'ies'} — grounded in the account-signals catalog`}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {groups.map((g) => (
-          <SignalTile
-            key={g.category.id}
-            group={g}
-            workbookLookup={workbookLookup}
-            activeWorkbookId={activeWorkbookId}
-          />
+        {tiles.map((t) => (
+          <SignalTile key={t.category.id} tile={t} />
         ))}
       </div>
     </section>
@@ -188,87 +332,71 @@ function workbookBadgeLabel(wb) {
   return (wb.name || '').split(/\s+/).slice(0, 1).join('').slice(0, 6);
 }
 
-function SignalTile({ group, workbookLookup, activeWorkbookId }) {
+function SignalTile({ tile }) {
   const navigate = useNavigate();
-  const Icon = CATEGORY_ICON[group.category.icon] || Zap;
-  const top = group.accounts.slice(0, 3);
-  const overflow = Math.max(0, group.accounts.length - top.length);
+  const Icon = CATEGORY_ICON[tile.category.icon] || Zap;
+  const remaining = Math.max(0, tile.accountCount - tile.topAccounts.length);
 
   return (
-    <div className={`p-3 rounded-md border ${group.category.border} ${group.category.bg} flex flex-col`}>
+    <div className={`p-3 rounded-md border ${tile.category.border} ${tile.category.bg} flex flex-col`}>
       <div className="flex items-center gap-2 mb-2">
-        <div className={`w-7 h-7 rounded-md bg-white/60 dark:bg-black/20 flex items-center justify-center`}>
-          <Icon size={13} className={group.category.color} />
+        <div className="w-7 h-7 rounded-md bg-white/60 dark:bg-black/20 flex items-center justify-center">
+          <Icon size={13} className={tile.category.color} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className={`text-xs font-semibold ${group.category.color}`}>{group.category.label}</span>
-            <span className={`text-[10px] font-mono font-bold ${group.category.color}`}>+{group.count}</span>
+            <span className={`text-xs font-semibold ${tile.category.color}`}>{tile.category.label}</span>
+            <span className={`text-[10px] font-mono font-bold ${tile.category.color}`}>{tile.count}</span>
           </div>
-          <div className="text-[10px] text-text-muted leading-snug">{group.category.hint}</div>
+          <div className="text-[10px] text-text-muted leading-snug">{tile.category.hint}</div>
         </div>
       </div>
-      <div className="space-y-1 flex-1">
-        {top.map((a) => {
-          const badges = (a.workbookIds || [])
-            .map((wid) => workbookLookup?.[wid])
-            .filter(Boolean);
-          return (
-            <button
-              key={a.id}
-              onClick={() => navigate(`/account/${a.id}`)}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-white/50 dark:bg-black/20 hover:bg-white/70 dark:hover:bg-black/30 transition-colors text-left"
+
+      {/* Sub-signal chips — the specific signal types firing in this category. */}
+      {tile.subSignals?.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {tile.subSignals.map((sig) => (
+            <span
+              key={sig.id}
+              title={sig.description}
+              className={`text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-white/60 dark:bg-black/20 ${tile.category.color}`}
             >
-              <div
-                className="w-6 h-6 rounded text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
-                style={{ background: a.logoColor || '#64748b' }}
-              >
-                {(a.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] font-semibold text-text-primary truncate">{a.name}</span>
-                  {/* Per-row workbook badges — hidden when the page is
-                      already scoped to a specific workbook (redundant then). */}
-                  {activeWorkbookId === 'all' && badges.length > 0 && (
-                    <span className="inline-flex items-center gap-0.5">
-                      {badges.slice(0, 3).map((wb) => (
-                        <span
-                          key={wb.id}
-                          title={wb.name}
-                          className={`text-[8px] uppercase tracking-wider font-bold px-1 py-0.5 rounded ${
-                            wb.isContactList
-                              ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
-                              : 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
-                          }`}
-                        >
-                          {workbookBadgeLabel(wb)}
-                        </span>
-                      ))}
-                      {badges.length > 3 && (
-                        <span className="text-[8px] text-text-muted">+{badges.length - 3}</span>
-                      )}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-text-muted truncate">{a.headline}</div>
-              </div>
-              {a.daysAgo != null && (
-                <span className="text-[9px] font-mono text-text-muted flex-shrink-0">{a.daysAgo}d</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      {overflow > 0 && (
-        <button
-          onClick={() => navigate(`/workbook?signalCategory=${group.category.id}`)}
-          className={`mt-2 text-[10px] font-semibold self-start inline-flex items-center gap-1 ${group.category.color} hover:underline`}
-        >
-          +{overflow} more &middot; view all in workbook
-          <ArrowRight size={9} />
-        </button>
+              {sig.id.replace(/_/g, ' ')}
+            </span>
+          ))}
+        </div>
       )}
+
+      <div className="space-y-1 flex-1">
+        {tile.topAccounts.map((a) => (
+          <button
+            key={a.id}
+            onClick={() => navigate(`/account/${a.id}`)}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-white/50 dark:bg-black/20 hover:bg-white/70 dark:hover:bg-black/30 transition-colors text-left"
+          >
+            <div
+              className="w-6 h-6 rounded text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
+              style={{ background: a.logoColor || '#64748b' }}
+            >
+              {(a.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] font-semibold text-text-primary truncate">{a.name}</div>
+              <div className="text-[10px] text-text-muted truncate">{a.signalDescription}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <button
+        onClick={() => navigate(`/workbook?signalCategory=${tile.category.id}`)}
+        className={`mt-2 text-[10px] font-semibold self-start inline-flex items-center gap-1 ${tile.category.color} hover:underline`}
+      >
+        {remaining > 0
+          ? <>+{remaining} more &middot; view all in workbook</>
+          : <>View all in workbook</>}
+        <ArrowRight size={9} />
+      </button>
     </div>
   );
 }
@@ -488,10 +616,12 @@ export default function DailyBrief() {
   const checkpoints = useMemo(() => listPendingCheckpoints(personaId, salesRole), [personaId, salesRole]);
   const triggered = useMemo(() => listSignalTriggeredPlays(personaId), [personaId]);
   const meetings = useMemo(() => listMeetingsNeedingPrep(personaId), [personaId]);
-  const signalGroups = useMemo(
-    () => groupSignalsForBrief(personaId, { windowDays: 7, workbookId: workbookScope }),
-    [personaId, workbookScope],
+  // New signal ranking + board — grounded in the 24-signal catalog.
+  const attentionQueue = useMemo(
+    () => prioritizedAttentionQueue(personaId, { limit: 10 }),
+    [personaId],
   );
+  const signalTiles = useMemo(() => signalBoard(personaId), [personaId]);
   const playSummaries = useMemo(
     () => summarizePlayActivity(personaId, salesRole, { workbookId: workbookScope }),
     [personaId, salesRole, workbookScope],
@@ -598,8 +728,13 @@ export default function DailyBrief() {
       )}
 
       {/* Sections */}
-      <NeedsYouSection checkpoints={checkpoints} triggered={triggered} meetings={meetings} />
-      <SignalsSection groups={signalGroups} workbookLookup={workbookLookup} activeWorkbookId={workbookScope} />
+      <AttentionQueueSection
+        queue={attentionQueue}
+        checkpoints={checkpoints}
+        triggered={triggered}
+        meetings={meetings}
+      />
+      <SignalsSection tiles={signalTiles} />
       <PlayActivitySection summaries={playSummaries} />
 
       {/* Footer callout */}

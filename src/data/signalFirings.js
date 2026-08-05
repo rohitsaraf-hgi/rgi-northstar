@@ -1,0 +1,402 @@
+// Signal firings synthesizer.
+//
+// For the prototype, real signal-detection logic isn't wired end-to-end.
+// This module walks the persona's account state (accounts + stakeholders +
+// existing account.signals array + play activation state + agent runs) and
+// synthesizes a list of firings that reads as if the real detectors had run.
+//
+// Every consumer reads through listSignalFirings() so we can swap the
+// synthesizer for real detectors later without touching UI code.
+
+import { getAccountsForOwner } from './accounts.js';
+import { getAccountStakeholders } from './buyingCommittees.js';
+import { getSignalDefinition, SIGNAL_CATALOG } from './signalCatalog.js';
+
+// Fixed "today" for the demo so relative dates stay stable.
+const TODAY = new Date('2026-08-05');
+
+function daysAgo(n) {
+  const d = new Date(TODAY);
+  d.setDate(d.getDate() - n);
+  return d.toISOString();
+}
+
+// -----------------------------------------------------------------------------
+// Per-account synthesis
+// -----------------------------------------------------------------------------
+//
+// The keys correspond to account.id in ACCOUNTS_BY_OWNER (accounts.js).
+// Values are arrays of { signalId, firedAt, context } — signals that
+// "fire" on that account right now. Written by hand so the demo tells a
+// coherent story per account (single-threaded on JPMC, competitor renewal
+// window on Databricks, past-close on Acme, etc.).
+//
+// Signals not surfaced here still exist in the catalog — they simply
+// aren't firing today for the demo persona.
+
+const ACCOUNT_FIRINGS = {
+  // JPMC — enterprise banking, ARR-heavy, single-threaded risk on the Q3 opp
+  'acct-jpmc': [
+    {
+      signalId: 'single_threaded',
+      firedAt: daysAgo(3),
+      context: {
+        oppName: 'Q3 Security Expansion',
+        oppAmount: 285000,
+        linkedContact: 'Sarah Chen (CISO)',
+        weight: 80, // > $50K threshold → higher weight
+      },
+    },
+    {
+      signalId: 'no_meeting_21d',
+      firedAt: daysAgo(2),
+      context: {
+        oppName: 'Q3 Security Expansion',
+        lastMeetingDaysAgo: 24,
+      },
+    },
+    {
+      signalId: 'stuck_at_stage',
+      firedAt: daysAgo(1),
+      context: {
+        oppName: 'Q3 Security Expansion',
+        stage: 'Discovery',
+        daysAtStage: 28,
+      },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(1),
+      context: {
+        topic: 'Cloud-native application protection',
+        score: 82,
+      },
+    },
+  ],
+
+  // Snowflake — new CISO recently, high intent, no CRM opp yet
+  'acct-snowflake': [
+    {
+      signalId: 'trustradius_intent',
+      firedAt: daysAgo(3),
+      context: {
+        productCompared: 'Wiz vs Palo Alto Prisma Cloud',
+        session: 'pricing page + comparison table',
+      },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(5),
+      context: { topic: 'CNAPP', score: 91 },
+    },
+    {
+      signalId: 'no_champion',
+      firedAt: daysAgo(2),
+      context: {
+        oppName: 'Snowflake · CNAPP eval',
+      },
+    },
+  ],
+
+  // Acme — deal past close date, high urgency
+  'acct-acme': [
+    {
+      signalId: 'past_close_date',
+      firedAt: daysAgo(2),
+      context: {
+        oppName: 'Acme Renewal + Expansion',
+        oppAmount: 420000,
+        pastDueDays: 5,
+      },
+    },
+    {
+      signalId: 'competitor_mentioned',
+      firedAt: daysAgo(6),
+      context: {
+        competitor: 'Palo Alto Prisma Cloud',
+        stage: 'Negotiate',
+        source: 'Call notes · Aug 4',
+      },
+    },
+    {
+      signalId: 'late_stage_no_security_review',
+      firedAt: daysAgo(4),
+      context: {
+        oppName: 'Acme Renewal + Expansion',
+        stage: 'Negotiate',
+      },
+    },
+  ],
+
+  // Databricks — competitor install + renewal window
+  'acct-databricks': [
+    {
+      signalId: 'competitor_renewal_window',
+      firedAt: daysAgo(1),
+      context: {
+        competitor: 'Lacework Polygraph',
+        renewalWindowDays: 87,
+        installAge: '31 months',
+      },
+    },
+    {
+      signalId: 'competitor_install_detected',
+      firedAt: daysAgo(10),
+      context: { competitor: 'Lacework Polygraph' },
+    },
+    {
+      signalId: 'trustradius_intent',
+      firedAt: daysAgo(4),
+      context: {
+        productCompared: 'CNAPP category · Wiz vs Lacework',
+      },
+    },
+    {
+      signalId: 'partner_install_detected',
+      firedAt: daysAgo(14),
+      context: { partner: 'Snowflake' },
+    },
+    {
+      signalId: 'tenant_product_momentum',
+      firedAt: daysAgo(2),
+      context: { direction: 'increasing', delta: '+ 24 seats · 30d' },
+    },
+  ],
+
+  // Visa — closing soon opp with no brief
+  'acct-visa': [
+    {
+      signalId: 'closing_in_14_days',
+      firedAt: daysAgo(1),
+      context: {
+        oppName: 'Visa · CNAPP Rollout',
+        oppAmount: 850000,
+        closesInDays: 9,
+        stage: 'Discovery',
+      },
+    },
+    {
+      signalId: 'no_economic_buyer',
+      firedAt: daysAgo(3),
+      context: {
+        oppName: 'Visa · CNAPP Rollout',
+      },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(1),
+      context: { topic: 'Compliance automation', score: 78 },
+    },
+  ],
+
+  // Mastercard — no activity in 30+ days on open opp
+  'acct-mastercard': [
+    {
+      signalId: 'no_activity_30d',
+      firedAt: daysAgo(1),
+      context: {
+        oppName: 'Mastercard · Cloud Security',
+        oppAmount: 320000,
+        lastActivityDaysAgo: 35,
+      },
+    },
+    {
+      signalId: 'procurement_added_late',
+      firedAt: daysAgo(4),
+      context: {
+        contactName: 'Karen Fields',
+        addedAtStage: 'Commit',
+      },
+    },
+    {
+      signalId: 'stuck_at_stage',
+      firedAt: daysAgo(2),
+      context: {
+        oppName: 'Mastercard · Cloud Security',
+        stage: 'Commit',
+        daysAtStage: 41,
+      },
+    },
+  ],
+
+  // Datadog — sales activity + web activity in 1P
+  'acct-datadog': [
+    {
+      signalId: 'sales_activity_7d',
+      firedAt: daysAgo(2),
+      context: { count: 4, type: 'outreach opens' },
+    },
+    {
+      signalId: 'web_activity_7d',
+      firedAt: daysAgo(1),
+      context: { count: 6, page: '/pricing + /solutions/cnapp' },
+    },
+    {
+      signalId: 'trustradius_intent',
+      firedAt: daysAgo(6),
+      context: {
+        productCompared: 'Wiz vs Aqua vs Prisma',
+      },
+    },
+  ],
+
+  // Spotify — churn risk signals: no activity, no meeting
+  'acct-spotify': [
+    {
+      signalId: 'no_activity_30d',
+      firedAt: daysAgo(1),
+      context: {
+        oppName: 'Spotify Renewal',
+        oppAmount: 180000,
+        lastActivityDaysAgo: 46,
+      },
+    },
+    {
+      signalId: 'no_meeting_21d',
+      firedAt: daysAgo(3),
+      context: {
+        oppName: 'Spotify Renewal',
+        lastMeetingDaysAgo: 38,
+      },
+    },
+    {
+      signalId: 'renewal_not_started',
+      firedAt: daysAgo(2),
+      context: { contractEndDays: 74 },
+    },
+  ],
+
+  // Block — marketing activity
+  'acct-block': [
+    {
+      signalId: 'marketing_activity_7d',
+      firedAt: daysAgo(3),
+      context: { count: 3, source: 'CNAPP webinar attendance' },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(5),
+      context: { topic: 'Fintech security', score: 71 },
+    },
+  ],
+
+  // Stripe — expansion opportunity untapped
+  'acct-stripe': [
+    {
+      signalId: 'expansion_untapped',
+      firedAt: daysAgo(4),
+      context: { growthSignal: 'seat growth + 40% QoQ · HG' },
+    },
+    {
+      signalId: 'partner_install_detected',
+      firedAt: daysAgo(12),
+      context: { partner: 'AWS' },
+    },
+  ],
+
+  // Pinterest — no activity, contacts inactive
+  'acct-pinterest': [
+    {
+      signalId: 'contacts_none_active',
+      firedAt: daysAgo(6),
+      context: { totalContacts: 4, linkedOnOpp: 0 },
+    },
+    {
+      signalId: 'no_activity_30d',
+      firedAt: daysAgo(1),
+      context: {
+        oppName: 'Pinterest · CNAPP Trial',
+        oppAmount: 95000,
+        lastActivityDaysAgo: 38,
+      },
+    },
+  ],
+
+  // Cloudflare — multi-opp conflict, competitor install
+  'acct-cloudflare': [
+    {
+      signalId: 'multi_opp_conflict',
+      firedAt: daysAgo(8),
+      context: { opps: 2, owners: 'Alex Chen · Jordan Kim' },
+    },
+    {
+      signalId: 'competitor_install_detected',
+      firedAt: daysAgo(15),
+      context: { competitor: 'Orca Security' },
+    },
+  ],
+};
+
+// -----------------------------------------------------------------------------
+// Public API
+// -----------------------------------------------------------------------------
+
+// Return every synthesized firing for a persona's book. Each firing is
+// normalized with the catalog metadata attached so consumers don't need
+// to look it up separately.
+export function listSignalFirings(personaId, { category, sinceDays } = {}) {
+  const accounts = getAccountsForOwner(personaId) || [];
+  const rows = [];
+  for (const account of accounts) {
+    const firings = ACCOUNT_FIRINGS[account.id] || [];
+    for (const f of firings) {
+      const def = getSignalDefinition(f.signalId);
+      if (!def) continue;
+      if (category && def.category !== category) continue;
+      if (sinceDays != null) {
+        try {
+          const firedMs = new Date(f.firedAt).getTime();
+          const cutoff = TODAY.getTime() - sinceDays * 24 * 60 * 60 * 1000;
+          if (firedMs < cutoff) continue;
+        } catch {
+          // fall through — include the firing
+        }
+      }
+      rows.push({
+        signalId: f.signalId,
+        accountId: account.id,
+        accountName: account.name,
+        accountLogo: account.logoColor,
+        firedAt: f.firedAt,
+        context: f.context || {},
+        definition: def,
+        // Weight — allow per-firing override (e.g., single_threaded when
+        // Amount ≥ $50K bumps 40 → 80). Falls back to the catalog weight.
+        weight: (f.context && f.context.weight != null) ? f.context.weight : def.weight,
+      });
+    }
+  }
+  return rows;
+}
+
+// Convenience — return firings for a single account.
+export function listFiringsForAccount(accountId, { category } = {}) {
+  const rows = [];
+  const firings = ACCOUNT_FIRINGS[accountId] || [];
+  for (const f of firings) {
+    const def = getSignalDefinition(f.signalId);
+    if (!def) continue;
+    if (category && def.category !== category) continue;
+    rows.push({
+      signalId: f.signalId,
+      accountId,
+      firedAt: f.firedAt,
+      context: f.context || {},
+      definition: def,
+      weight: (f.context && f.context.weight != null) ? f.context.weight : def.weight,
+    });
+  }
+  return rows;
+}
+
+// Returns which accounts (by id) have at least one firing in the given
+// category. Powers the workbook signal-category filter.
+export function accountsWithSignalInCategory(personaId, categoryId) {
+  const set = new Set();
+  const rows = listSignalFirings(personaId, { category: categoryId });
+  for (const r of rows) set.add(r.accountId);
+  return set;
+}
+
+// The catalog itself, re-exported so single-import consumers exist.
+export { SIGNAL_CATALOG };

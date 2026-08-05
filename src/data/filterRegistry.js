@@ -6,6 +6,8 @@
 //   - buildPredicate(value)           — materializes the runtime filter fn
 //   - format(value)                   — display-friendly string for chips
 //
+
+import { accountsWithSignalInCategory } from './signalFirings.js';
 // All filters are spec-driven (serializable). Predicates are constructed
 // from spec at filter-time, never persisted. This lets us round-trip
 // filters into Workbook views later without serializing functions.
@@ -41,6 +43,7 @@ function withinRange(value, min, max) {
 
 export const FILTER_GROUPS = [
   'Accounts',
+  'Signals',
   'Scoring',
   'Intent',
   'Firmographics',
@@ -92,6 +95,48 @@ export const FILTER_REGISTRY = {
     },
     format: (v) =>
       v === 'crm' ? 'In tenant book' : v === 'hg' ? 'HG whitespace only' : null,
+  },
+
+  // ----- SIGNALS -----
+  // Predicate matches accounts that have at least one firing in the given
+  // signal category (from src/data/signalCatalog.js). The widget accepts a
+  // single category id ('deal_health', 'engagement', etc.).
+  signal_category: {
+    id: 'signal_category',
+    group: 'Signals',
+    label: 'Signal category',
+    description: 'Accounts with at least one signal firing in this category (Deal Health, Engagement, etc.).',
+    widget: 'multiSelect',
+    options: [
+      { value: 'deal_health',           label: 'Deal Health' },
+      { value: 'engagement',            label: 'Engagement' },
+      { value: 'relationship_coverage', label: 'Relationship Coverage' },
+      { value: 'deal_risk',             label: 'Deal Risk' },
+      { value: 'buyer_intent',          label: 'Buyer Intent' },
+      { value: 'account_health',        label: 'Account Health' },
+      { value: 'competitive',           label: 'Competitive' },
+      { value: 'partner',               label: 'Partner' },
+      { value: 'momentum',              label: 'Product Momentum' },
+      { value: 'first_party_activity',  label: '1P Activity' },
+    ],
+    defaultValue: [],
+    // Predicate is built lazily so it doesn't hard-import signalFirings at
+    // module init time. The buildPredicates caller runs during workbook
+    // filter application, at which point the store is warm.
+    buildPredicate: (values, ctx = {}) => {
+      if (!Array.isArray(values) || values.length === 0) return null;
+      // Merge account-id sets across all selected categories (OR semantics).
+      const matched = new Set();
+      const personaId = ctx.personaId || 'alex';
+      for (const cat of values) {
+        for (const aid of accountsWithSignalInCategory(personaId, cat)) matched.add(aid);
+      }
+      return (a) => matched.has(a.id);
+    },
+    displayValueOf: (values) =>
+      Array.isArray(values) && values.length > 0
+        ? values.map((v) => v.replace(/_/g, ' ')).join(', ')
+        : null,
   },
 
   // ----- SCORING -----
