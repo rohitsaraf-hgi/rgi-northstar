@@ -39,6 +39,8 @@ const SIGNAL_ICON = {
   expansion_untapped: TrendingUp,
   // Competitive
   competitor_install_detected: Sword,
+  competitor_momentum_increasing: TrendingUp,
+  competitor_momentum_decreasing: TrendingDown,
   competitor_renewal_window: Sword,
   // Partner
   partner_install_detected: Handshake,
@@ -48,6 +50,7 @@ const SIGNAL_ICON = {
   sales_activity_7d: Activity,
   web_activity_7d: Globe,
   marketing_activity_7d: Sparkles,
+  app_usage_7d: Zap,
 };
 
 const PLAY_ICON = {
@@ -300,7 +303,10 @@ function RecommendedPlaysBlock({ accountId }) {
                 <div className="text-[11px] text-text-secondary leading-snug mt-0.5">{p.rationale}</div>
               </div>
               <button
-                onClick={() => navigate(`/account/${accountId}?agent=${p.agentId || ''}`)}
+                onClick={() => {
+                  if (p.agentId) navigate(`/account/${accountId}?play=${p.agentId}`);
+                  else navigate(`/account/${accountId}?tab=overview`);
+                }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded hover:bg-primary-dim transition-colors flex-shrink-0"
               >
                 {p.ctaLabel}
@@ -322,7 +328,7 @@ function FooterActions({ accountId }) {
   return (
     <div className="pt-3 border-t border-border flex items-center gap-2 flex-wrap">
       <button
-        onClick={() => navigate(`/account/${accountId}?agent=generate_account_brief`)}
+        onClick={() => navigate(`/account/${accountId}?play=generate_account_brief`)}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold bg-gradient-to-r from-primary to-violet-500 text-white rounded transition-colors hover:opacity-90"
       >
         <Sparkles size={11} />
@@ -431,7 +437,10 @@ function CompressedRow({ account, firings, initiallyExpanded = false }) {
         </div>
         {topPlay && (
           <button
-            onClick={() => navigate(`/account/${account.id}?agent=${topPlay.agentId || ''}`)}
+            onClick={() => {
+              if (topPlay.agentId) navigate(`/account/${account.id}?play=${topPlay.agentId}`);
+              else navigate(`/account/${account.id}?tab=overview`);
+            }}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-primary text-white rounded hover:bg-primary-dim transition-colors flex-shrink-0"
             title={topPlay.rationale}
           >

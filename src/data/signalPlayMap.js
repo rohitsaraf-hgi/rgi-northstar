@@ -1,179 +1,300 @@
 // Signal → Recommended Play mapper.
 //
-// Each firing category resolves to a concrete play recommendation with a
-// primary CTA. Multiple firings on one account produce multiple play cards,
-// deduped by category (so an account with three Coverage signals gets one
-// "Find buying committee" card, not three).
+// Each signal id maps to a concrete play recommendation with:
+//   { title, category, agentId, ctaLabel, rationaleFor(firing), playKey }
 //
-// Every play card carries:
-//   { id, title, category, rationale, agentId, ctaLabel, sourceSignalIds }
+// Multiple firings that share the same `playKey` merge into ONE card
+// (so an account with three coverage firings gets one "Find contacts" card,
+// but distinct signals in the same category produce distinct cards).
+//
+// The rationale is signal-specific and grounded in the firing's context —
+// no generic phrases.
 
 import { listFiringsForAccount } from './signalFirings.js';
 
-// Category → play template. The template's rationale gets filled in with
-// details from the specific firing(s) on the account.
-const PLAY_BY_CATEGORY = {
-  deal_health: {
+const PLAY_BY_SIGNAL = {
+  // ─── Deal Health ─────────────────────────────────────────────────────
+  past_close_date: {
     title: 'Generate deal status brief',
     category: 'Deal Health',
     agentId: 'generate_account_brief',
     ctaLabel: 'Draft brief',
-    rationaleFor: (firings) => {
-      const stuck = firings.find((f) => f.signalId === 'stuck_at_stage');
-      const past = firings.find((f) => f.signalId === 'past_close_date');
-      const soon = firings.find((f) => f.signalId === 'closing_in_14_days');
-      if (past) return `Close date passed by ${past.context.pastDueDays}d on ${past.context.oppName || 'the opportunity'} — brief the account team.`;
-      if (soon) return `${soon.context.oppName || 'Opportunity'} closes in ${soon.context.closesInDays}d — no MEDDIC brief yet.`;
-      if (stuck) return `${stuck.context.oppName || 'Opportunity'} has been at "${stuck.context.stage}" for ${stuck.context.daysAtStage}d — needs a stalled-deal brief.`;
-      return 'Deal health signal detected on this account.';
-    },
+    playKey: 'deal_status_brief',
+    rationaleFor: (f) => `Close date passed by ${f.context.pastDueDays}d on ${f.context.oppName || 'the opportunity'} — brief the account team.`,
   },
-  engagement: {
-    title: 'Draft outreach email',
+  closing_in_14_days: {
+    title: 'Generate deal status brief',
+    category: 'Deal Health',
+    agentId: 'generate_account_brief',
+    ctaLabel: 'Draft brief',
+    playKey: 'deal_status_brief',
+    rationaleFor: (f) => `${f.context.oppName || 'Opportunity'} closes in ${f.context.closesInDays}d — no MEDDIC brief yet.`,
+  },
+  stuck_at_stage: {
+    title: 'Generate deal status brief',
+    category: 'Deal Health',
+    agentId: 'generate_account_brief',
+    ctaLabel: 'Draft brief',
+    playKey: 'deal_status_brief',
+    rationaleFor: (f) => `${f.context.oppName || 'Opportunity'} has been at "${f.context.stage}" for ${f.context.daysAtStage}d — needs a stalled-deal brief.`,
+  },
+
+  // ─── Engagement ──────────────────────────────────────────────────────
+  no_activity_30d: {
+    title: 'Draft re-engagement email',
     category: 'Engagement',
     agentId: 'draft_personalized_email',
     ctaLabel: 'Draft email',
-    rationaleFor: (firings) => {
-      const noAct = firings.find((f) => f.signalId === 'no_activity_30d');
-      const noMtg = firings.find((f) => f.signalId === 'no_meeting_21d');
-      if (noAct) return `No activity in ${noAct.context.lastActivityDaysAgo}d on ${noAct.context.oppName || 'the open opp'} — send a re-engagement touch.`;
-      if (noMtg) return `Last meeting was ${noMtg.context.lastMeetingDaysAgo}d ago — draft a quick-sync ask.`;
-      return 'Engagement decay detected — send a re-engagement touch.';
-    },
+    playKey: 'reengagement_email',
+    rationaleFor: (f) => `No activity in ${f.context.lastActivityDaysAgo}d on ${f.context.oppName || 'the open opp'} — send a re-engagement touch.`,
   },
-  relationship_coverage: {
+  no_meeting_21d: {
+    title: 'Draft re-engagement email',
+    category: 'Engagement',
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft email',
+    playKey: 'reengagement_email',
+    rationaleFor: (f) => `Last meeting was ${f.context.lastMeetingDaysAgo}d ago — draft a quick-sync ask.`,
+  },
+
+  // ─── Relationship Coverage ───────────────────────────────────────────
+  single_threaded: {
     title: 'Find buying committee',
     category: 'Relationship Coverage',
     agentId: 'find_buying_personas',
     ctaLabel: 'Find contacts',
-    rationaleFor: (firings) => {
-      const st = firings.find((f) => f.signalId === 'single_threaded');
-      const noEb = firings.find((f) => f.signalId === 'no_economic_buyer');
-      const noCh = firings.find((f) => f.signalId === 'no_champion');
-      if (st) return `Single-threaded on ${st.context.oppName || 'the opp'} (${st.context.linkedContact || 'one contact'}) — surface additional stakeholders.`;
-      if (noEb) return 'No VP/C-level linked as Decision Maker — find an economic buyer.';
-      if (noCh) return 'No champion identified on the opp — surface an internal advocate.';
-      return 'Coverage gap detected — surface additional buying-committee members.';
-    },
+    playKey: 'find_committee',
+    rationaleFor: (f) => `Single-threaded on ${f.context.oppName || 'the opp'} (${f.context.linkedContact || 'one contact'}) — surface additional stakeholders.`,
   },
-  deal_risk: {
+  no_economic_buyer: {
+    title: 'Find buying committee',
+    category: 'Relationship Coverage',
+    agentId: 'find_buying_personas',
+    ctaLabel: 'Find contacts',
+    playKey: 'find_committee',
+    rationaleFor: () => 'No VP/C-level linked as Decision Maker — find an economic buyer.',
+  },
+  no_champion: {
+    title: 'Find buying committee',
+    category: 'Relationship Coverage',
+    agentId: 'find_buying_personas',
+    ctaLabel: 'Find contacts',
+    playKey: 'find_committee',
+    rationaleFor: () => 'No champion identified on the opp — surface an internal advocate.',
+  },
+  contacts_none_active: {
+    title: 'Find buying committee',
+    category: 'Relationship Coverage',
+    agentId: 'find_buying_personas',
+    ctaLabel: 'Find contacts',
+    playKey: 'find_committee',
+    rationaleFor: () => 'No active contacts on this account — build initial coverage.',
+  },
+
+  // ─── Deal Risk ───────────────────────────────────────────────────────
+  competitor_mentioned: {
     title: 'Prepare competitive battlecard',
     category: 'Deal Risk',
     agentId: 'competitive_battlecard',
     ctaLabel: 'Draft battlecard',
-    rationaleFor: (firings) => {
-      const cm = firings.find((f) => f.signalId === 'competitor_mentioned');
-      const proc = firings.find((f) => f.signalId === 'procurement_added_late');
-      const sec = firings.find((f) => f.signalId === 'late_stage_no_security_review');
-      if (cm) return `${cm.context.competitor} mentioned at stage "${cm.context.stage}" (${cm.context.source || 'source unknown'}) — prep a counter.`;
-      if (proc) return `Procurement contact "${proc.context.contactName}" added at stage ${proc.context.addedAtStage} — deal-risk flag.`;
-      if (sec) return 'Late stage with no security review logged — get ahead of it before it slips.';
-      return 'Deal-risk signal detected on this account.';
-    },
+    playKey: 'battlecard_deal_risk',
+    rationaleFor: (f) => `${f.context.competitor} mentioned at stage "${f.context.stage}" (${f.context.source || 'source unknown'}) — prep a counter.`,
   },
-  buyer_intent: {
+  procurement_added_late: {
+    title: 'Generate deal risk brief',
+    category: 'Deal Risk',
+    agentId: 'generate_account_brief',
+    ctaLabel: 'Draft brief',
+    playKey: 'deal_risk_brief',
+    rationaleFor: (f) => `Procurement contact "${f.context.contactName}" added at stage ${f.context.addedAtStage} — deal-risk flag.`,
+  },
+  late_stage_no_security_review: {
+    title: 'Generate deal risk brief',
+    category: 'Deal Risk',
+    agentId: 'generate_account_brief',
+    ctaLabel: 'Draft brief',
+    playKey: 'deal_risk_brief',
+    rationaleFor: () => 'Late stage with no security review logged — get ahead of it before it slips.',
+  },
+
+  // ─── Buyer Intent ────────────────────────────────────────────────────
+  trustradius_intent: {
     title: 'Draft peer-comparison outreach',
     category: 'Buyer Intent',
     agentId: 'draft_personalized_email',
     ctaLabel: 'Draft email',
-    rationaleFor: (firings) => {
-      const tr = firings.find((f) => f.signalId === 'trustradius_intent');
-      const topic = firings.find((f) => f.signalId === 'topic_intent');
-      if (tr) return `Researching ${tr.context.productCompared} on TrustRadius — reach out with a peer-comparison angle.`;
-      if (topic) return `Elevated intent on "${topic.context.topic}" (score ${topic.context.score}) — reference it in the outreach.`;
-      return 'Buyer intent surging — send a topic-specific outreach.';
-    },
+    playKey: 'peer_comparison_email',
+    rationaleFor: (f) => `Researching ${f.context.productCompared} on TrustRadius — reach out ASAP with peer reviews from their industry + a case study.`,
   },
-  competitive: {
-    title: 'Enter competitive displacement play',
+  topic_intent: {
+    title: 'Draft topic-specific outreach',
+    category: 'Buyer Intent',
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft email',
+    playKey: 'topic_intent_email',
+    rationaleFor: (f) => `Elevated intent on "${f.context.topic}" (score ${f.context.score}) — lead with education, offer a relevant guide.`,
+  },
+
+  // ─── Competitive (HG) ────────────────────────────────────────────────
+  competitor_install_detected: {
+    title: 'Draft displacement email',
     category: 'Competitive',
     agentId: 'competitive_battlecard',
-    ctaLabel: 'Draft battlecard',
-    rationaleFor: (firings) => {
-      const cr = firings.find((f) => f.signalId === 'competitor_renewal_window');
-      const inst = firings.find((f) => f.signalId === 'competitor_install_detected');
-      if (cr) return `${cr.context.competitor} renewal window opens in ${cr.context.renewalWindowDays}d — intercept before renegotiation.`;
-      if (inst) return `${inst.context.competitor} installed — position for displacement.`;
-      return 'Competitor detected in the install base — position for displacement.';
-    },
+    ctaLabel: 'Draft displacement email',
+    playKey: 'displacement_install',
+    rationaleFor: (f) => `${f.context.competitor} installed — lead with your key differentiator vs. ${f.context.competitor}. Get in before onboarding completes.`,
   },
-  account_health: {
+  competitor_momentum_increasing: {
+    title: 'Draft displacement email',
+    category: 'Competitive',
+    agentId: 'competitive_battlecard',
+    ctaLabel: 'Draft displacement email',
+    playKey: 'displacement_momentum_up',
+    rationaleFor: (f) => `${f.context.competitor} usage is expanding here (${f.context.delta || 'increasing'}) — displace before they go deeper. If this is an existing customer, flag as churn risk.`,
+  },
+  competitor_momentum_decreasing: {
+    title: 'Draft migration pitch',
+    category: 'Competitive',
+    agentId: 'competitive_battlecard',
+    ctaLabel: 'Draft migration pitch',
+    playKey: 'displacement_momentum_down',
+    rationaleFor: (f) => `${f.context.competitor} usage is decreasing (${f.context.delta || 'declining'}) — "we've helped others migrate from ${f.context.competitor}" + a case study. Strike before they re-commit.`,
+  },
+  competitor_renewal_window: {
+    title: 'Launch displacement play',
+    category: 'Competitive',
+    agentId: 'find_competitor_accounts',
+    ctaLabel: 'Launch displacement play',
+    playKey: 'displacement_renewal',
+    rationaleFor: (f) => `${f.context.competitor} renewal window opens in ${f.context.renewalWindowDays}d — intercept before their renewal conversation starts.`,
+  },
+
+  // ─── Account Health ──────────────────────────────────────────────────
+  renewal_not_started: {
     title: 'Open a renewal opportunity',
     category: 'Account Health',
     agentId: 'create_crm_tasks',
     ctaLabel: 'Create task',
-    rationaleFor: (firings) => {
-      const rn = firings.find((f) => f.signalId === 'renewal_not_started');
-      const exp = firings.find((f) => f.signalId === 'expansion_untapped');
-      const conf = firings.find((f) => f.signalId === 'multi_opp_conflict');
-      if (rn) return `Contract ends in ${rn.context.contractEndDays}d — renewal opp not open yet.`;
-      if (exp) return `Growth signal: ${exp.context.growthSignal}. Expansion opp not open.`;
-      if (conf) return `Multiple open opps (${conf.context.opps}) owned by ${conf.context.owners} — coordinate.`;
-      return 'Account-health signal detected — take action.';
-    },
+    playKey: 'renewal_task',
+    rationaleFor: (f) => `Contract ends in ${f.context.contractEndDays}d — renewal opp not open yet.`,
   },
-  partner: {
-    title: 'Loop in partner co-sell',
+  expansion_untapped: {
+    title: 'Draft expansion pitch',
+    category: 'Account Health',
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft expansion pitch',
+    playKey: 'expansion_pitch',
+    rationaleFor: (f) => `Growth signal: ${f.context.growthSignal}. Expansion opp not open — propose an upgrade or add-on.`,
+  },
+  multi_opp_conflict: {
+    title: 'Coordinate multi-owner opps',
+    category: 'Account Health',
+    agentId: 'create_crm_tasks',
+    ctaLabel: 'Create task',
+    playKey: 'coordinate_opps',
+    rationaleFor: (f) => `Multiple open opps (${f.context.opps}) owned by ${f.context.owners} — coordinate before conflicts surface.`,
+  },
+
+  // ─── Partner (HG) ────────────────────────────────────────────────────
+  partner_install_detected: {
+    title: 'Draft integration email',
     category: 'Partner',
-    agentId: 'get_account_context',
-    ctaLabel: 'Open account',
-    rationaleFor: (firings) => {
-      const p = firings.find((f) => f.signalId === 'partner_install_detected');
-      if (p) return `${p.context.partner} installed — engage co-sell.`;
-      return 'Partner product installed — engage co-sell.';
-    },
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft integration email',
+    playKey: 'partner_integration',
+    rationaleFor: (f) => `${f.context.partner} just installed — lead with the integration story: "You just added ${f.context.partner} — here's how we integrate natively."`,
   },
-  momentum: {
-    title: 'Review usage trajectory',
+
+  // ─── Momentum (HG) ───────────────────────────────────────────────────
+  tenant_product_momentum: {
+    title: 'Draft growth pitch',
     category: 'Momentum',
-    agentId: 'get_account_context',
-    ctaLabel: 'Open account',
-    rationaleFor: (firings) => {
-      const m = firings.find((f) => f.signalId === 'tenant_product_momentum');
-      if (m) return `Momentum ${m.context.direction} · ${m.context.delta}.`;
-      return 'Product-install momentum detected.';
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft growth pitch',
+    playKey: 'growth_pitch',
+    rationaleFor: (f) => {
+      if (f.context.direction === 'increasing') {
+        return `Product usage growing (${f.context.delta || 'increasing'}) — lead with "as you grow, here's how we scale with you." Expansion signal for existing customers.`;
+      }
+      if (f.context.direction === 'decreasing') {
+        return `Product usage declining (${f.context.delta || 'decreasing'}) — flag as retention risk and get in before it accelerates.`;
+      }
+      return `Momentum shift detected (${f.context.delta || 'trending'}).`;
     },
   },
-  first_party_activity: {
-    title: 'Open 1P activity tab',
+
+  // ─── 1P Activity ─────────────────────────────────────────────────────
+  sales_activity_7d: {
+    title: 'View 1P sales activity',
     category: '1P Activity',
     agentId: null,
     ctaLabel: 'View activity',
-    rationaleFor: (firings) => {
-      const s = firings[0];
-      return s?.definition?.description || 'Recent 1P activity detected.';
-    },
+    playKey: 'view_sales_activity',
+    rationaleFor: (f) => f.context.summary || `Sales activity in the last 7d — review the specific interaction.`,
+  },
+  web_activity_7d: {
+    title: 'Draft interest-based outreach',
+    category: '1P Activity',
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft email',
+    playKey: 'web_interest_email',
+    rationaleFor: (f) => `${f.context.summary || 'Web activity detected'} — draft outreach referencing this. Pair with HG intent for a stronger opener.`,
+  },
+  marketing_activity_7d: {
+    title: 'Draft personalized outreach',
+    category: '1P Activity',
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Draft email',
+    playKey: 'marketing_personalized_email',
+    rationaleFor: (f) => `${f.context.summary || 'Marketing activity detected'} — personalize outreach referencing this specific event.`,
+  },
+  app_usage_7d: {
+    title: 'Propose expansion or reference',
+    category: '1P Activity',
+    agentId: 'draft_personalized_email',
+    ctaLabel: 'Propose expansion',
+    playKey: 'app_usage_expansion',
+    rationaleFor: (f) => `${f.context.summary || 'App usage detected'} — identify power users. If usage + tenant momentum both up, propose an upgrade.`,
   },
 };
 
 // Return recommended plays for a specific account, derived from its firings.
-// Buckets by category, dedupes, ranks by category weight sum.
+// Signals are looked up per-id, deduped by playKey, ranked by summed weight.
 export function recommendedPlaysForAccount(accountId, { limit = 3 } = {}) {
   const firings = listFiringsForAccount(accountId);
   if (!firings.length) return [];
 
-  const byCategory = new Map();
+  // Group firings by the play they map to (playKey).
+  const byPlay = new Map();
   for (const f of firings) {
-    const cat = f.definition.category;
-    const bucket = byCategory.get(cat) || { category: cat, firings: [], weightSum: 0 };
+    const template = PLAY_BY_SIGNAL[f.signalId];
+    if (!template) continue;
+    const key = template.playKey;
+    const bucket = byPlay.get(key) || {
+      template,
+      firings: [],
+      weightSum: 0,
+    };
     bucket.firings.push(f);
     bucket.weightSum += f.weight || 0;
-    byCategory.set(cat, bucket);
+    byPlay.set(key, bucket);
   }
 
+  // Build one play card per unique playKey. Rationale uses the
+  // highest-weight firing in the bucket for its context.
   const plays = [];
-  for (const [cat, bucket] of byCategory.entries()) {
-    const template = PLAY_BY_CATEGORY[cat];
-    if (!template) continue;
+  for (const [key, bucket] of byPlay.entries()) {
+    const { template, firings: bucketFirings, weightSum } = bucket;
+    const primary = [...bucketFirings].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0];
     plays.push({
-      id: `play-${accountId}-${cat}`,
+      id: `play-${accountId}-${key}`,
       title: template.title,
       category: template.category,
       agentId: template.agentId,
       ctaLabel: template.ctaLabel,
-      rationale: template.rationaleFor(bucket.firings),
-      sourceSignalIds: bucket.firings.map((f) => f.signalId),
-      weight: bucket.weightSum,
+      rationale: template.rationaleFor(primary),
+      sourceSignalIds: bucketFirings.map((f) => f.signalId),
+      weight: weightSum,
     });
   }
 
@@ -181,8 +302,7 @@ export function recommendedPlaysForAccount(accountId, { limit = 3 } = {}) {
   return plays.slice(0, limit);
 }
 
-// Which agent should fire for a specific signal? Used by the compressed-row
-// top-CTA (picks the highest-weight firing on the account).
+// Highest-weight play for the compressed-row CTA.
 export function primaryPlayForAccount(accountId) {
   const plays = recommendedPlaysForAccount(accountId, { limit: 1 });
   return plays[0] || null;

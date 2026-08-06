@@ -96,6 +96,15 @@ const ACCOUNT_FIRINGS = {
         oppName: 'Snowflake · CNAPP eval',
       },
     },
+    {
+      signalId: 'competitor_momentum_increasing',
+      firedAt: daysAgo(4),
+      context: {
+        competitor: 'Palo Alto Prisma Cloud',
+        delta: '+ 18 installs · 60d',
+        trend: 'expanding across engineering + platform teams',
+      },
+    },
   ],
 
   // Acme — deal past close date, high urgency
@@ -161,6 +170,11 @@ const ACCOUNT_FIRINGS = {
       firedAt: daysAgo(2),
       context: { direction: 'increasing', delta: '+ 24 seats · 30d' },
     },
+    {
+      signalId: 'app_usage_7d',
+      firedAt: daysAgo(1),
+      context: { summary: '3 power users engaging with new CNAPP dashboards · 12 sessions this week' },
+    },
   ],
 
   // Visa — closing soon opp with no brief
@@ -224,12 +238,12 @@ const ACCOUNT_FIRINGS = {
     {
       signalId: 'sales_activity_7d',
       firedAt: daysAgo(2),
-      context: { count: 4, type: 'outreach opens' },
+      context: { count: 4, type: 'outreach opens', summary: '4 outreach opens this week from Head of Platform Sec' },
     },
     {
       signalId: 'web_activity_7d',
       firedAt: daysAgo(1),
-      context: { count: 6, page: '/pricing + /solutions/cnapp' },
+      context: { count: 6, page: '/pricing + /solutions/cnapp', summary: '6 pageviews on /pricing and /solutions/cnapp — high-intent browsing' },
     },
     {
       signalId: 'trustradius_intent',
@@ -271,7 +285,7 @@ const ACCOUNT_FIRINGS = {
     {
       signalId: 'marketing_activity_7d',
       firedAt: daysAgo(3),
-      context: { count: 3, source: 'CNAPP webinar attendance' },
+      context: { count: 3, source: 'CNAPP webinar attendance', summary: 'Attended CNAPP webinar + downloaded "Fintech CNAPP" guide' },
     },
     {
       signalId: 'topic_intent',
@@ -312,7 +326,7 @@ const ACCOUNT_FIRINGS = {
     },
   ],
 
-  // Cloudflare — multi-opp conflict, competitor install
+  // Cloudflare — multi-opp conflict, competitor install, competitor churning
   'acct-cloudflare': [
     {
       signalId: 'multi_opp_conflict',
@@ -323,6 +337,15 @@ const ACCOUNT_FIRINGS = {
       signalId: 'competitor_install_detected',
       firedAt: daysAgo(15),
       context: { competitor: 'Orca Security' },
+    },
+    {
+      signalId: 'competitor_momentum_decreasing',
+      firedAt: daysAgo(3),
+      context: {
+        competitor: 'Orca Security',
+        delta: '− 9 installs · 45d',
+        trend: 'usage declining across security team',
+      },
     },
   ],
 };

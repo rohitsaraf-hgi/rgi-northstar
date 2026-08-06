@@ -325,11 +325,45 @@ export const SIGNAL_CATALOG = [
     id: 'competitor_install_detected',
     category: 'competitive',
     source: 'HG data',
-    description: 'Account has a competitor product installed (per HG technographic data)',
+    description: 'Competitor product installed at this account (per HG technographic data)',
     detectionRule: 'HG installs contain a tenant-configured competitor product',
-    nba: { verb: 'Review competitive positioning', agent: 'find_competitor_accounts' },
-    weight: 30,
-    attentionEligible: false,
+    nba: {
+      verb: 'Draft displacement email',
+      agent: 'competitive_battlecard',
+      guidance: 'Run a competitive displacement play. Draft an email leading with your key differentiator vs. the specific competitor installed. Get in before the competitor completes onboarding.',
+    },
+    weight: 45,
+    attentionEligible: true,
+    tenantContextRequired: true,
+  },
+  {
+    id: 'competitor_momentum_increasing',
+    category: 'competitive',
+    source: 'HG data',
+    description: 'Competitor product install is expanding at this account',
+    detectionRule: 'HG install-count trend on competitor product, direction = increasing',
+    nba: {
+      verb: 'Draft displacement email',
+      agent: 'competitive_battlecard',
+      guidance: 'For prospects: run displacement play now before they go deeper. For existing customers: flag as churn risk.',
+    },
+    weight: 55,
+    attentionEligible: true,
+    tenantContextRequired: true,
+  },
+  {
+    id: 'competitor_momentum_decreasing',
+    category: 'competitive',
+    source: 'HG data',
+    description: 'Competitor product usage is decreasing — high-value displacement moment',
+    detectionRule: 'HG install-count trend on competitor product, direction = decreasing',
+    nba: {
+      verb: 'Draft migration pitch',
+      agent: 'competitive_battlecard',
+      guidance: 'High-value displacement signal. Reach out with a "we\'ve helped others in your situation migrate from X" message. Pair with a case study. Strike before they re-commit to the competitor.',
+    },
+    weight: 60,
+    attentionEligible: true,
     tenantContextRequired: true,
   },
   {
@@ -338,8 +372,12 @@ export const SIGNAL_CATALOG = [
     source: 'HG data',
     description: 'Competitor product install is within the 90-day renewal window',
     detectionRule: 'HG installs show competitor product with install-age ≥ contract-term − 90d',
-    nba: { verb: 'Enter competitive displacement play', agent: 'find_competitor_accounts' },
-    weight: 50,
+    nba: {
+      verb: 'Launch displacement play',
+      agent: 'find_competitor_accounts',
+      guidance: 'Launch the full competitive displacement play immediately. Get in before the competitor\'s renewal conversation starts.',
+    },
+    weight: 65,
     attentionEligible: true,
     tenantContextRequired: true,
   },
@@ -364,9 +402,13 @@ export const SIGNAL_CATALOG = [
     source: 'HG data',
     description: 'Tenant product install trajectory (increasing or decreasing)',
     detectionRule: 'HG install trend on tenant product, direction from delta',
-    nba: { verb: 'Review usage trajectory', agent: 'get_account_context' },
-    weight: 20,
-    attentionEligible: false,
+    nba: {
+      verb: 'Draft growth pitch',
+      agent: 'draft_personalized_email',
+      guidance: 'Lead with a growth/scale angle: "As you grow, here\'s how [Your Product] scales with you." For existing customers, this is an expansion signal — propose an upgrade or add-on.',
+    },
+    weight: 30,
+    attentionEligible: true,
     tenantContextRequired: true,
   },
 
@@ -377,7 +419,11 @@ export const SIGNAL_CATALOG = [
     source: '1P Data Pipeline',
     description: 'Sales-side activity detected on this account in the last 7 days',
     detectionRule: 'Sales activity event within last 7 days',
-    nba: { verb: 'Open 1P activity tab', agent: null },
+    nba: {
+      verb: 'View 1P activity',
+      agent: null,
+      guidance: 'Take them to the 1P activities tab on the account to see the underlying interaction.',
+    },
     weight: 30,
     attentionEligible: false,
   },
@@ -385,21 +431,43 @@ export const SIGNAL_CATALOG = [
     id: 'web_activity_7d',
     category: 'first_party_activity',
     source: '1P Data Pipeline',
-    description: 'Website activity detected on this account in the last 7 days',
+    description: 'Website activity detected on this account in the last 7 days (e.g. pricing page = high intent, product page = research)',
     detectionRule: 'Web activity event within last 7 days',
-    nba: { verb: 'Open 1P activity tab', agent: null },
-    weight: 30,
-    attentionEligible: false,
+    nba: {
+      verb: 'Draft interest-based outreach',
+      agent: 'draft_personalized_email',
+      guidance: 'Draft outreach referencing their area of interest. Combine with HG intent signals for a stronger opening.',
+    },
+    weight: 35,
+    attentionEligible: true,
   },
   {
     id: 'marketing_activity_7d',
     category: 'first_party_activity',
     source: '1P Data Pipeline',
-    description: 'Marketing engagement detected on this account in the last 7 days',
+    description: 'Marketing engagement detected on this account in the last 7 days (e.g. form filled, attended webinar)',
     detectionRule: 'Marketing engagement event within last 7 days',
-    nba: { verb: 'Open 1P activity tab', agent: null },
-    weight: 30,
-    attentionEligible: false,
+    nba: {
+      verb: 'Draft personalized outreach',
+      agent: 'draft_personalized_email',
+      guidance: 'Personalize outreach referencing the specific marketing activity (webinar attended, content downloaded, form completed).',
+    },
+    weight: 35,
+    attentionEligible: true,
+  },
+  {
+    id: 'app_usage_7d',
+    category: 'first_party_activity',
+    source: '1P Data Pipeline',
+    description: 'App usage detected on this account in the last 7 days',
+    detectionRule: 'App usage event within last 7 days',
+    nba: {
+      verb: 'Propose expansion',
+      agent: 'draft_personalized_email',
+      guidance: 'Identify power users for expansion or reference conversations. Have CSMs check in to understand use cases. When usage and tenant momentum increase together, propose an upgrade.',
+    },
+    weight: 40,
+    attentionEligible: true,
   },
 ];
 
@@ -422,4 +490,10 @@ export function listAttentionEligibleSignals() {
 // The NBA verb is the button label on the Attention Queue row.
 export function nbaVerbFor(signalId) {
   return BY_ID[signalId]?.nba?.verb || 'Take action';
+}
+
+// The NBA guidance is the seller-facing "why + how" for the signal.
+// Used in tooltips and the recommended-play rationale.
+export function nbaGuidanceFor(signalId) {
+  return BY_ID[signalId]?.nba?.guidance || null;
 }
