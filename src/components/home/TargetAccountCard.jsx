@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Building2, DollarSign, Users, MapPin, Flame, Zap, Globe, Star, UserCog,
   Sword, Handshake, TrendingUp, TrendingDown, Activity, Sparkles,
-  AlertTriangle, ChevronDown, ChevronRight, Mail, FileText, ListTree,
-  Wand2, ArrowUpRight, Clock, MoonStar,
+  ChevronDown, ChevronRight, Mail, FileText,
+  Wand2, ArrowUpRight, MoonStar,
 } from 'lucide-react';
 import { listFiringsForAccount } from '../../data/signalFirings.js';
 import { recommendedPlaysForAccount } from '../../data/signalPlayMap.js';
@@ -13,53 +13,32 @@ import { SIGNAL_CATEGORIES } from '../../data/signalCatalog.js';
 // -----------------------------------------------------------------------------
 // Icon resolver — a signal id → a lucide icon, based on the catalog category.
 // -----------------------------------------------------------------------------
+// Phase 1 signal icons — one per catalog id.
 const SIGNAL_ICON = {
-  // Deal Health
-  past_close_date: AlertTriangle,
-  closing_in_14_days: Clock,
-  stuck_at_stage: Activity,
-  // Engagement
-  no_activity_30d: TrendingDown,
-  no_meeting_21d: Clock,
-  // Coverage
-  single_threaded: Users,
-  no_economic_buyer: Users,
-  no_champion: Users,
-  contacts_none_active: Users,
-  // Deal Risk
-  competitor_mentioned: Sword,
-  procurement_added_late: AlertTriangle,
-  late_stage_no_security_review: AlertTriangle,
-  // Buyer Intent
+  // Buyer Intent (HG)
   trustradius_intent: Star,
   topic_intent: Sparkles,
-  // Account Health
-  renewal_not_started: Clock,
-  multi_opp_conflict: Users,
-  expansion_untapped: TrendingUp,
-  // Competitive
+  // Competitive (HG)
   competitor_install_detected: Sword,
   competitor_momentum_increasing: TrendingUp,
   competitor_momentum_decreasing: TrendingDown,
   competitor_renewal_window: Sword,
-  // Partner
+  // Partner (HG)
   partner_install_detected: Handshake,
-  // Momentum
+  // Momentum (HG)
   tenant_product_momentum: TrendingUp,
   // 1P Activity
   sales_activity_7d: Activity,
   web_activity_7d: Globe,
   marketing_activity_7d: Sparkles,
-  app_usage_7d: Zap,
 };
 
+// Phase 1 play icons — one per agent id in signalPlayMap.PLAY_TEMPLATES.
 const PLAY_ICON = {
-  generate_account_brief: FileText,
-  draft_personalized_email: Mail,
-  find_buying_personas: Users,
   competitive_battlecard: Sword,
-  create_crm_tasks: ListTree,
-  get_account_context: Building2,
+  find_buying_personas: Users,
+  draft_personalized_email: Mail,
+  generate_account_brief: FileText,
 };
 
 // Weight buckets → severity chip
@@ -277,7 +256,7 @@ function SignalRow({ firing }) {
 // -----------------------------------------------------------------------------
 function RecommendedPlaysBlock({ accountId }) {
   const navigate = useNavigate();
-  const plays = recommendedPlaysForAccount(accountId, { limit: 4 });
+  const plays = recommendedPlaysForAccount(accountId, { limit: 6 });
   if (plays.length === 0) return null;
   return (
     <div className="mb-4">

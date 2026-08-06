@@ -35,35 +35,8 @@ function daysAgo(n) {
 // aren't firing today for the demo persona.
 
 const ACCOUNT_FIRINGS = {
-  // JPMC — enterprise banking, ARR-heavy, single-threaded risk on the Q3 opp
+  // JPMC — active CNAPP intent + web activity on the Q3 opp
   'acct-jpmc': [
-    {
-      signalId: 'single_threaded',
-      firedAt: daysAgo(3),
-      context: {
-        oppName: 'Q3 Security Expansion',
-        oppAmount: 285000,
-        linkedContact: 'Sarah Chen (CISO)',
-        weight: 80, // > $50K threshold → higher weight
-      },
-    },
-    {
-      signalId: 'no_meeting_21d',
-      firedAt: daysAgo(2),
-      context: {
-        oppName: 'Q3 Security Expansion',
-        lastMeetingDaysAgo: 24,
-      },
-    },
-    {
-      signalId: 'stuck_at_stage',
-      firedAt: daysAgo(1),
-      context: {
-        oppName: 'Q3 Security Expansion',
-        stage: 'Discovery',
-        daysAtStage: 28,
-      },
-    },
     {
       signalId: 'topic_intent',
       firedAt: daysAgo(1),
@@ -72,9 +45,23 @@ const ACCOUNT_FIRINGS = {
         score: 82,
       },
     },
+    {
+      signalId: 'web_activity_7d',
+      firedAt: daysAgo(2),
+      context: {
+        summary: '5 pageviews on /solutions/financial-services and CNAPP pricing',
+        page: '/solutions/financial-services + /pricing',
+        count: 5,
+      },
+    },
+    {
+      signalId: 'competitor_install_detected',
+      firedAt: daysAgo(6),
+      context: { competitor: 'Palo Alto Prisma Cloud' },
+    },
   ],
 
-  // Snowflake — new CISO recently, high intent, no CRM opp yet
+  // Snowflake — new CISO, high intent, competitor expanding
   'acct-snowflake': [
     {
       signalId: 'trustradius_intent',
@@ -90,13 +77,6 @@ const ACCOUNT_FIRINGS = {
       context: { topic: 'CNAPP', score: 91 },
     },
     {
-      signalId: 'no_champion',
-      firedAt: daysAgo(2),
-      context: {
-        oppName: 'Snowflake · CNAPP eval',
-      },
-    },
-    {
       signalId: 'competitor_momentum_increasing',
       firedAt: daysAgo(4),
       context: {
@@ -107,37 +87,28 @@ const ACCOUNT_FIRINGS = {
     },
   ],
 
-  // Acme — deal past close date, high urgency
+  // Acme — late-stage negotiate, competitor lurking + intent
   'acct-acme': [
     {
-      signalId: 'past_close_date',
-      firedAt: daysAgo(2),
-      context: {
-        oppName: 'Acme Renewal + Expansion',
-        oppAmount: 420000,
-        pastDueDays: 5,
-      },
-    },
-    {
-      signalId: 'competitor_mentioned',
+      signalId: 'competitor_install_detected',
       firedAt: daysAgo(6),
-      context: {
-        competitor: 'Palo Alto Prisma Cloud',
-        stage: 'Negotiate',
-        source: 'Call notes · Aug 4',
-      },
+      context: { competitor: 'Palo Alto Prisma Cloud' },
     },
     {
-      signalId: 'late_stage_no_security_review',
+      signalId: 'trustradius_intent',
       firedAt: daysAgo(4),
       context: {
-        oppName: 'Acme Renewal + Expansion',
-        stage: 'Negotiate',
+        productCompared: 'Wiz vs Palo Alto Prisma Cloud',
       },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(2),
+      context: { topic: 'CNAPP consolidation', score: 84 },
     },
   ],
 
-  // Databricks — competitor install + renewal window
+  // Databricks — competitor renewal + install + tenant momentum
   'acct-databricks': [
     {
       signalId: 'competitor_renewal_window',
@@ -170,169 +141,181 @@ const ACCOUNT_FIRINGS = {
       firedAt: daysAgo(2),
       context: { direction: 'increasing', delta: '+ 24 seats · 30d' },
     },
-    {
-      signalId: 'app_usage_7d',
-      firedAt: daysAgo(1),
-      context: { summary: '3 power users engaging with new CNAPP dashboards · 12 sessions this week' },
-    },
   ],
 
-  // Visa — closing soon opp with no brief
+  // Visa — closing soon opp, compliance intent + partner install
   'acct-visa': [
-    {
-      signalId: 'closing_in_14_days',
-      firedAt: daysAgo(1),
-      context: {
-        oppName: 'Visa · CNAPP Rollout',
-        oppAmount: 850000,
-        closesInDays: 9,
-        stage: 'Discovery',
-      },
-    },
-    {
-      signalId: 'no_economic_buyer',
-      firedAt: daysAgo(3),
-      context: {
-        oppName: 'Visa · CNAPP Rollout',
-      },
-    },
     {
       signalId: 'topic_intent',
       firedAt: daysAgo(1),
       context: { topic: 'Compliance automation', score: 78 },
     },
+    {
+      signalId: 'trustradius_intent',
+      firedAt: daysAgo(5),
+      context: { productCompared: 'Wiz vs Aqua vs Prisma' },
+    },
+    {
+      signalId: 'partner_install_detected',
+      firedAt: daysAgo(11),
+      context: { partner: 'ServiceNow' },
+    },
   ],
 
-  // Mastercard — no activity in 30+ days on open opp
+  // Mastercard — marketing engaged + web signals
   'acct-mastercard': [
     {
-      signalId: 'no_activity_30d',
-      firedAt: daysAgo(1),
-      context: {
-        oppName: 'Mastercard · Cloud Security',
-        oppAmount: 320000,
-        lastActivityDaysAgo: 35,
-      },
-    },
-    {
-      signalId: 'procurement_added_late',
-      firedAt: daysAgo(4),
-      context: {
-        contactName: 'Karen Fields',
-        addedAtStage: 'Commit',
-      },
-    },
-    {
-      signalId: 'stuck_at_stage',
+      signalId: 'marketing_activity_7d',
       firedAt: daysAgo(2),
       context: {
-        oppName: 'Mastercard · Cloud Security',
-        stage: 'Commit',
-        daysAtStage: 41,
+        summary: 'Attended "Financial Services CNAPP" webinar + downloaded compliance guide',
+        source: 'Webinar + gated content',
+        count: 2,
       },
+    },
+    {
+      signalId: 'web_activity_7d',
+      firedAt: daysAgo(4),
+      context: {
+        summary: '4 pageviews on /use-cases/compliance-automation',
+        page: '/use-cases/compliance-automation',
+        count: 4,
+      },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(3),
+      context: { topic: 'Cloud security posture', score: 74 },
     },
   ],
 
-  // Datadog — sales activity + web activity in 1P
+  // Datadog — sales + web activity + intent
   'acct-datadog': [
     {
       signalId: 'sales_activity_7d',
       firedAt: daysAgo(2),
-      context: { count: 4, type: 'outreach opens', summary: '4 outreach opens this week from Head of Platform Sec' },
+      context: {
+        count: 4,
+        type: 'outreach opens',
+        summary: '4 outreach opens this week from Head of Platform Security',
+      },
     },
     {
       signalId: 'web_activity_7d',
       firedAt: daysAgo(1),
-      context: { count: 6, page: '/pricing + /solutions/cnapp', summary: '6 pageviews on /pricing and /solutions/cnapp — high-intent browsing' },
+      context: {
+        count: 6,
+        page: '/pricing + /solutions/cnapp',
+        summary: '6 pageviews on /pricing and /solutions/cnapp — high-intent browsing',
+      },
     },
     {
       signalId: 'trustradius_intent',
       firedAt: daysAgo(6),
-      context: {
-        productCompared: 'Wiz vs Aqua vs Prisma',
-      },
+      context: { productCompared: 'Wiz vs Aqua vs Prisma' },
     },
   ],
 
-  // Spotify — churn risk signals: no activity, no meeting
+  // Spotify — tenant product decreasing (retention risk) + competitor momentum up
   'acct-spotify': [
     {
-      signalId: 'no_activity_30d',
-      firedAt: daysAgo(1),
-      context: {
-        oppName: 'Spotify Renewal',
-        oppAmount: 180000,
-        lastActivityDaysAgo: 46,
-      },
-    },
-    {
-      signalId: 'no_meeting_21d',
+      signalId: 'tenant_product_momentum',
       firedAt: daysAgo(3),
+      context: { direction: 'decreasing', delta: '− 12 seats · 45d' },
+    },
+    {
+      signalId: 'competitor_momentum_increasing',
+      firedAt: daysAgo(5),
       context: {
-        oppName: 'Spotify Renewal',
-        lastMeetingDaysAgo: 38,
+        competitor: 'Wiz',
+        delta: '+ 8 installs · 30d',
+        trend: 'security team piloting alongside',
       },
     },
     {
-      signalId: 'renewal_not_started',
+      signalId: 'sales_activity_7d',
       firedAt: daysAgo(2),
-      context: { contractEndDays: 74 },
+      context: {
+        summary: '2 unopened outreach emails to CISO this week',
+        count: 2,
+      },
     },
   ],
 
-  // Block — marketing activity
+  // Block — marketing + intent, fintech vertical
   'acct-block': [
     {
       signalId: 'marketing_activity_7d',
       firedAt: daysAgo(3),
-      context: { count: 3, source: 'CNAPP webinar attendance', summary: 'Attended CNAPP webinar + downloaded "Fintech CNAPP" guide' },
+      context: {
+        summary: 'Attended CNAPP webinar + downloaded "Fintech CNAPP" guide',
+        source: 'Webinar + gated content',
+        count: 3,
+      },
     },
     {
       signalId: 'topic_intent',
       firedAt: daysAgo(5),
       context: { topic: 'Fintech security', score: 71 },
     },
+    {
+      signalId: 'web_activity_7d',
+      firedAt: daysAgo(1),
+      context: {
+        summary: '3 pageviews on /industries/fintech',
+        page: '/industries/fintech',
+        count: 3,
+      },
+    },
   ],
 
-  // Stripe — expansion opportunity untapped
+  // Stripe — partner install (AWS) + tenant momentum growing
   'acct-stripe': [
-    {
-      signalId: 'expansion_untapped',
-      firedAt: daysAgo(4),
-      context: { growthSignal: 'seat growth + 40% QoQ · HG' },
-    },
     {
       signalId: 'partner_install_detected',
       firedAt: daysAgo(12),
       context: { partner: 'AWS' },
     },
+    {
+      signalId: 'tenant_product_momentum',
+      firedAt: daysAgo(4),
+      context: { direction: 'increasing', delta: '+ 40% seat growth · QoQ' },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(6),
+      context: { topic: 'Payment infrastructure security', score: 76 },
+    },
   ],
 
-  // Pinterest — no activity, contacts inactive
+  // Pinterest — web + sales activity, early-cycle
   'acct-pinterest': [
     {
-      signalId: 'contacts_none_active',
-      firedAt: daysAgo(6),
-      context: { totalContacts: 4, linkedOnOpp: 0 },
+      signalId: 'web_activity_7d',
+      firedAt: daysAgo(2),
+      context: {
+        summary: '3 pageviews on /solutions/consumer-tech',
+        page: '/solutions/consumer-tech',
+        count: 3,
+      },
     },
     {
-      signalId: 'no_activity_30d',
-      firedAt: daysAgo(1),
+      signalId: 'sales_activity_7d',
+      firedAt: daysAgo(3),
       context: {
-        oppName: 'Pinterest · CNAPP Trial',
-        oppAmount: 95000,
-        lastActivityDaysAgo: 38,
+        summary: '3 outreach opens from VP Platform Security',
+        count: 3,
       },
+    },
+    {
+      signalId: 'topic_intent',
+      firedAt: daysAgo(4),
+      context: { topic: 'Container security', score: 68 },
     },
   ],
 
-  // Cloudflare — multi-opp conflict, competitor install, competitor churning
+  // Cloudflare — competitor install + competitor churning + partner install
   'acct-cloudflare': [
-    {
-      signalId: 'multi_opp_conflict',
-      firedAt: daysAgo(8),
-      context: { opps: 2, owners: 'Alex Chen · Jordan Kim' },
-    },
     {
       signalId: 'competitor_install_detected',
       firedAt: daysAgo(15),
@@ -346,6 +329,11 @@ const ACCOUNT_FIRINGS = {
         delta: '− 9 installs · 45d',
         trend: 'usage declining across security team',
       },
+    },
+    {
+      signalId: 'partner_install_detected',
+      firedAt: daysAgo(9),
+      context: { partner: 'AWS' },
     },
   ],
 };
