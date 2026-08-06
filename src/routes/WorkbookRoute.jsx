@@ -34,6 +34,7 @@ import {
   Plug,
   Save,
   ListPlus,
+  Target,
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
 import { useTenant } from '../context/TenantContext.jsx';
@@ -47,6 +48,12 @@ import WorkbookSelectionBar from '../components/workbook/WorkbookSelectionBar.js
 import WorkbookContactsModal from '../components/workbook/WorkbookContactsModal.jsx';
 import SaveWorkbookAsModal from '../components/workbook/SaveWorkbookAsModal.jsx';
 import FilterPanel from '../components/workbook/FilterPanel.jsx';
+import {
+  getFlaggedTargetWorkbook,
+  setTargetWorkbook,
+  clearTargetWorkbook,
+  subscribeTargetScope,
+} from '../data/targetScope.js';
 import IcpPill from '../components/workbook/IcpPill.jsx';
 import BookUploadModal from '../components/workbook/BookUploadModal.jsx';
 import SellerBookUploadModal from '../components/workbook/SellerBookUploadModal.jsx';
@@ -1649,6 +1656,44 @@ function EnrichmentModal({ open, accounts, currentView, onClose, onAddColumn, le
   );
 }
 
+// Target-workbook toggle chip — flips the persona's "target workbook"
+// preference (drives Home page scope). Only one workbook can be target
+// per persona; flipping this on flips the previous target off.
+function TargetWorkbookChip({ personaId, workbookId, workbookName }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => subscribeTargetScope(() => setTick((t) => t + 1)), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const flagged = useMemo(() => getFlaggedTargetWorkbook(personaId), [personaId, tick]);
+  const isActive = workbookId && flagged === workbookId;
+
+  if (!workbookId) return null;
+
+  const handleToggle = () => {
+    if (isActive) {
+      clearTargetWorkbook(personaId);
+    } else {
+      setTargetWorkbook(personaId, workbookId);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleToggle}
+      title={isActive
+        ? `${workbookName} is your Home target — click to unflag`
+        : `Mark ${workbookName} as your Home target — Home will scope to these accounts`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors border ${
+        isActive
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+          : 'border-border text-text-secondary hover:text-text-primary hover:bg-surface-2'
+      }`}
+    >
+      <Target size={11} />
+      {isActive ? 'Target ✓' : 'Set as target'}
+    </button>
+  );
+}
+
 // ----- Main route -----
 
 export default function WorkbookRoute() {
@@ -2458,6 +2503,11 @@ export default function WorkbookRoute() {
                 <ListPlus size={11} />
                 Save as workbook
               </button>
+              <TargetWorkbookChip
+                personaId={personaId}
+                workbookId={activeWorkbook?.id}
+                workbookName={activeWorkbook?.name}
+              />
               <button
                 onClick={() => {
                   const targetIds = selectedRowIds.length > 0 ? selectedRowIds : visibleAccounts.map((a) => a.id);

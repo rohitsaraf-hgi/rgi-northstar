@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Sunrise, ArrowRight, ArrowUpRight, CheckCircle2, Clock, AlertTriangle,
   ShieldCheck, Zap, TrendingUp, TrendingDown, Globe, Activity, UserCog, Building2,
-  Wand2, CalendarClock, ChevronRight, Layers, Repeat, Circle, Sparkles,
+  Wand2, CalendarClock, ChevronRight, ChevronDown, Layers, Repeat, Circle, Sparkles,
   Users, Sword, Handshake, Bell,
 } from 'lucide-react';
 import { usePersona } from '../context/PersonaContext.jsx';
@@ -19,6 +19,16 @@ import {
   relativeTime,
 } from '../data/sellerInbox.js';
 import { prioritizedAttentionQueue, signalBoard } from '../data/homeRanking.js';
+import {
+  resolveTargetScope,
+  listScopeOptions,
+  setTargetWorkbook,
+  clearTargetWorkbook,
+  subscribeTargetScope,
+} from '../data/targetScope.js';
+import { listSignalFirings } from '../data/signalFirings.js';
+import { getAccountById } from '../data/accounts.js';
+import TargetAccountCard from '../components/home/TargetAccountCard.jsx';
 
 // Time-window options in the header.
 const WINDOWS = [
@@ -605,8 +615,40 @@ export default function DailyBrief() {
   const salesRole = persona?.salesRole;
   const [windowId] = useState('since_yesterday');
   const [workbookScope, setWorkbookScope] = useState('all');
+  const [scopePickerOpen, setScopePickerOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(20);
+  // Target-scope subscription so a workbook flag change refreshes Home.
+  const [scopeTick, setScopeTick] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useMemo(() => {
+    const unsub = subscribeTargetScope(() => setScopeTick((t) => t + 1));
+    return unsub;
+  }, []);
 
-  const now = useMemo(() => new Date('2026-07-22'), []);
+  const now = useMemo(() => new Date('2026-08-05'), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const targetScope = useMemo(() => resolveTargetScope(personaId), [personaId, scopeTick]);
+  const scopeOptions = useMemo(() => listScopeOptions(personaId), [personaId]);
+  const targetAccounts = useMemo(() => {
+    return targetScope.accountIds
+      .map((id) => getAccountById(id))
+      .filter(Boolean);
+  }, [targetScope.accountIds]);
+  // Rank target accounts by total signal weight (highest first).
+  const rankedAccounts = useMemo(() => {
+    const scored = targetAccounts.map((a) => {
+      const firings = listSignalFirings(personaId).filter((f) => f.accountId === a.id);
+      const weightSum = firings.reduce((s, f) => s + (f.weight || 0), 0);
+      return { account: a, weightSum, firingCount: firings.length };
+    });
+    scored.sort((a, b) => {
+      if (b.weightSum !== a.weightSum) return b.weightSum - a.weightSum;
+      return b.firingCount - a.firingCount;
+    });
+    return scored;
+  }, [targetAccounts, personaId]);
+
   const availableWorkbooks = useMemo(() => listBriefWorkbooks(personaId), [personaId]);
   const workbookLookup = useMemo(() => {
     const map = {};
@@ -616,7 +658,6 @@ export default function DailyBrief() {
   const checkpoints = useMemo(() => listPendingCheckpoints(personaId, salesRole), [personaId, salesRole]);
   const triggered = useMemo(() => listSignalTriggeredPlays(personaId), [personaId]);
   const meetings = useMemo(() => listMeetingsNeedingPrep(personaId), [personaId]);
-  // New signal ranking + board — grounded in the 24-signal catalog.
   const attentionQueue = useMemo(
     () => prioritizedAttentionQueue(personaId, { limit: 10 }),
     [personaId],
@@ -630,6 +671,29 @@ export default function DailyBrief() {
     () => summarizeBrief(personaId, salesRole, { workbookId: workbookScope }),
     [personaId, salesRole, workbookScope],
   );
+
+  // Filter accounts by search query.
+  const searchedAccounts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rankedAccounts;
+    return rankedAccounts.filter((r) =>
+      (r.account.name || '').toLowerCase().includes(q)
+      || (r.account.url || '').toLowerCase().includes(q)
+    );
+  }, [rankedAccounts, searchQuery]);
+
+  const topAccounts = searchedAccounts.slice(0, 5);
+  const restAccounts = searchedAccounts.slice(5, 5 + visibleCount);
+  const hasMore = searchedAccounts.length > 5 + visibleCount;
+
+  const handlePickScope = (opt) => {
+    if (opt.id === '__crm_territory__') {
+      clearTargetWorkbook(personaId);
+    } else {
+      setTargetWorkbook(personaId, opt.id);
+    }
+    setScopePickerOpen(false);
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-8">
@@ -727,14 +791,141 @@ export default function DailyBrief() {
         </div>
       )}
 
-      {/* Sections */}
+      {/* Target scope chip — sticky at top of Home. Priority chain:
+          CRM territory → flagged workbook → Book of Accounts. */}
+      <div className="mb-5 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted font-semibold">
+            <Layers size={10} />
+            Target
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setScopePickerOpen((v) => !v)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface border border-border rounded-md text-xs hover:border-primary/30 transition-colors"
+            >
+              <span className="font-semibold text-text-primary">{targetScope.workbookName}</span>
+              <span className="text-text-muted font-mono">{targetScope.accountCount}</span>
+              <ChevronDown size={12} className="text-text-muted" />
+            </button>
+            {scopePickerOpen && (
+              <div className="absolute left-0 top-full mt-1 min-w-[240px] bg-surface border border-border rounded-md shadow-modal z-20 py-1 max-h-80 overflow-y-auto">
+                {scopeOptions.length === 0 && (
+                  <div className="px-3 py-2 text-[11px] text-text-muted italic">No scope options available.</div>
+                )}
+                {scopeOptions.map((opt) => {
+                  const active =
+                    (opt.id === '__crm_territory__' && targetScope.source === 'crm_territory')
+                    || (opt.id === targetScope.workbookId);
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => handlePickScope(opt)}
+                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-surface-2 transition-colors ${active ? 'font-semibold text-primary' : 'text-text-secondary'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {active && <CheckCircle2 size={11} className="text-primary" />}
+                        {!active && <div className="w-2.5 h-2.5" />}
+                        <span>{opt.label}</span>
+                        {opt.isPseudo && (
+                          <span className="ml-auto text-[9px] uppercase tracking-wider font-bold px-1 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                            CRM
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+                <div className="border-t border-border mt-1 pt-1 px-3 py-1.5 text-[10px] text-text-muted leading-snug">
+                  Only accounts in the selected scope appear on Home. Signals + plays follow scope automatically.
+                </div>
+              </div>
+            )}
+          </div>
+          <span className="text-[11px] text-text-muted">
+            {targetScope.source === 'crm_territory' ? 'From CRM territory' : targetScope.source === 'workbook' ? 'Workbook-flagged' : 'Default'}
+          </span>
+        </div>
+        <div className="text-[11px] text-text-muted">
+          {rankedAccounts.filter((r) => r.firingCount > 0).length} need attention · {rankedAccounts.reduce((s, r) => s + r.firingCount, 0)} signals
+        </div>
+      </div>
+
+      {/* Sentinel row — approvals / triggered plays / meetings needing prep */}
       <AttentionQueueSection
-        queue={attentionQueue}
+        queue={[]} /* rows now live inline on each account card */
         checkpoints={checkpoints}
         triggered={triggered}
         meetings={meetings}
       />
+
+      {/* Priority accounts — top 5 full cards */}
+      {topAccounts.length > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-md bg-rose-500/10 flex items-center justify-center">
+              <Zap size={12} className="text-rose-700 dark:text-rose-300" />
+            </div>
+            <h2 className="text-sm font-semibold text-text-primary">Priority accounts</h2>
+            <span className="text-[11px] text-text-muted">
+              Top {topAccounts.length} by signal weight
+            </span>
+          </div>
+          <div className="space-y-3">
+            {topAccounts.map((r) => (
+              <TargetAccountCard key={r.account.id} account={r.account} mode="full" />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* All target accounts — compressed rows below with search + load-more */}
+      {(restAccounts.length > 0 || searchQuery) && (
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
+                <Building2 size={12} className="text-primary" />
+              </div>
+              <h2 className="text-sm font-semibold text-text-primary">All target accounts</h2>
+              <span className="text-[11px] text-text-muted">
+                {searchedAccounts.length} account{searchedAccounts.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search accounts..."
+              className="px-2.5 py-1 text-xs bg-surface border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/40 w-56"
+            />
+          </div>
+          {restAccounts.length === 0 && searchQuery ? (
+            <div className="bg-surface border border-dashed border-border rounded-md p-6 text-center text-[11px] text-text-muted">
+              No accounts match &ldquo;{searchQuery}&rdquo;.
+            </div>
+          ) : (
+            <div className="bg-surface border border-border rounded-md overflow-hidden">
+              {restAccounts.map((r) => (
+                <TargetAccountCard key={r.account.id} account={r.account} mode="compressed" />
+              ))}
+            </div>
+          )}
+          {hasMore && (
+            <button
+              onClick={() => setVisibleCount((v) => v + 20)}
+              className="mt-3 w-full py-2 text-[11px] font-semibold text-primary border border-border rounded-md hover:bg-surface-2 transition-colors"
+            >
+              Load {Math.min(20, searchedAccounts.length - 5 - visibleCount)} more accounts
+            </button>
+          )}
+        </section>
+      )}
+
+      {/* Signal Board — kept but pushed below the target-account feed as a
+          zoomed-out complement. */}
       <SignalsSection tiles={signalTiles} />
+
       <PlayActivitySection summaries={playSummaries} />
 
       {/* Footer callout */}
