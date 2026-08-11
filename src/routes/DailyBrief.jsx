@@ -29,6 +29,15 @@ import {
 import { listSignalFirings } from '../data/signalFirings.js';
 import { getAccountById } from '../data/accounts.js';
 import TargetAccountCard from '../components/home/TargetAccountCard.jsx';
+import CopilotBar from '../components/copilot/CopilotBar.jsx';
+import CopilotPanel from '../components/copilot/CopilotPanel.jsx';
+import {
+  getPinnedPlan,
+  subscribeDayPlan,
+  toggleDayPlanRow,
+  unpinDayPlan,
+} from '../data/dailyPlan.js';
+import { isPanelOpen as readPanelOpen, setPanelOpen } from '../data/copilotStore.js';
 
 // Time-window options in the header.
 const WINDOWS = [
@@ -626,6 +635,27 @@ export default function DailyBrief() {
     return unsub;
   }, []);
 
+  // Copilot panel open state — persisted so it survives navigation.
+  const [copilotOpen, setCopilotOpenState] = useState(() => readPanelOpen(personaId));
+  const handleCopilotOpen = () => {
+    setCopilotOpenState(true);
+    setPanelOpen(personaId, true);
+  };
+  const handleCopilotClose = () => {
+    setCopilotOpenState(false);
+    setPanelOpen(personaId, false);
+  };
+
+  // Pinned day plan — swaps Priority Accounts section on Home when set.
+  const [planTick, setPlanTick] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useMemo(() => {
+    const unsub = subscribeDayPlan(() => setPlanTick((t) => t + 1));
+    return unsub;
+  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pinnedPlan = useMemo(() => getPinnedPlan(personaId), [personaId, planTick]);
+
   const now = useMemo(() => new Date('2026-08-05'), []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const targetScope = useMemo(() => resolveTargetScope(personaId), [personaId, scopeTick]);
@@ -696,7 +726,10 @@ export default function DailyBrief() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-8 py-8">
+    <>
+      <CopilotBar personaId={personaId} onOpen={handleCopilotOpen} />
+      <CopilotPanel isOpen={copilotOpen} onClose={handleCopilotClose} personaId={personaId} />
+      <div className="max-w-6xl mx-auto px-8 py-8">
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-start gap-3">
@@ -859,8 +892,16 @@ export default function DailyBrief() {
         meetings={meetings}
       />
 
-      {/* Priority accounts — top 5 full cards */}
-      {topAccounts.length > 0 && (
+      {/* Priority accounts vs. Pinned Day Plan — D-ii: plan replaces priority when pinned */}
+      {pinnedPlan && pinnedPlan.rows?.length > 0 ? (
+        <PinnedDayPlanSection
+          plan={pinnedPlan}
+          personaId={personaId}
+          onUnpin={() => {
+            unpinDayPlan(personaId);
+          }}
+        />
+      ) : topAccounts.length > 0 ? (
         <section className="mb-6">
           <div className="flex items-center gap-2 mb-3">
             <div className="w-6 h-6 rounded-md bg-rose-500/10 flex items-center justify-center">
@@ -877,7 +918,7 @@ export default function DailyBrief() {
             ))}
           </div>
         </section>
-      )}
+      ) : null}
 
       {/* All target accounts — compressed rows below with search + load-more */}
       {(restAccounts.length > 0 || searchQuery) && (
@@ -941,7 +982,93 @@ export default function DailyBrief() {
           <ArrowRight size={10} />
         </button>
       </div>
-    </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Pinned Day Plan section — swaps Priority Accounts when plan is pinned ──
+function PinnedDayPlanSection({ plan, personaId, onUnpin }) {
+  const navigate = useNavigate();
+  const { title, rows } = plan;
+  const completed = rows.filter((r) => r.completed).length;
+
+  return (
+    <section className="mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
+          <Sparkles size={12} className="text-primary" />
+        </div>
+        <h2 className="text-sm font-semibold text-text-primary">{title || 'Daily Plan'}</h2>
+        <span className="text-[11px] text-text-muted">
+          {completed} of {rows.length} done · pinned from Copilot
+        </span>
+        <button
+          onClick={onUnpin}
+          className="ml-auto text-[11px] text-text-muted hover:text-text-primary hover:underline"
+          title="Unpin plan and return to auto-ranked Priority accounts"
+        >
+          Unpin
+        </button>
+      </div>
+      <div className="space-y-2">
+        {rows.map((r, i) => (
+          <div
+            key={r.accountId}
+            className={`bg-surface border border-border rounded p-3 flex items-start gap-3 ${
+              r.completed ? 'opacity-60' : ''
+            }`}
+          >
+            <button
+              onClick={() => toggleDayPlanRow(personaId, r.accountId)}
+              className={`w-4 h-4 mt-0.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                r.completed
+                  ? 'bg-emerald-500 border-emerald-500'
+                  : 'border-border hover:border-primary'
+              }`}
+              title={r.completed ? 'Mark incomplete' : 'Mark done'}
+            >
+              {r.completed && <CheckCircle2 size={10} className="text-white" />}
+            </button>
+            <span className="text-xs font-mono text-text-muted pt-0.5 w-4">{i + 1}</span>
+            <div
+              className="w-7 h-7 rounded text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
+              style={{ background: r.accountLogo || '#64748b' }}
+            >
+              {(r.accountName || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => navigate(`/account/${r.accountId}`)}
+                  className={`text-sm font-semibold hover:text-primary ${r.completed ? 'line-through' : 'text-text-primary'}`}
+                >
+                  {r.accountName}
+                </button>
+                <span className="text-[10px] font-mono text-text-muted">w {r.weight}</span>
+                {r.hasRenewal && (
+                  <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-300">
+                    Time-sensitive
+                  </span>
+                )}
+              </div>
+              <div className="text-[12px] text-text-secondary leading-snug mt-0.5">{r.headline}</div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {r.plays?.slice(0, 3).map((p) => (
+                  <button
+                    key={p.title}
+                    onClick={() => navigate(`/account/${r.accountId}?play=${p.agentId}`)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold text-primary border border-primary/40 rounded hover:bg-primary/10 transition-colors"
+                  >
+                    {p.ctaLabel}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
