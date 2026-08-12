@@ -36,6 +36,7 @@ import PlaysRoute from './routes/PlaysRoute.jsx';
 import CreatePlayWizardRoute from './routes/CreatePlayWizardRoute.jsx';
 import MigrationCenter from './routes/MigrationCenter.jsx';
 import FilterStudioRoute from './routes/FilterStudioRoute.jsx';
+import SignalStudioRoute from './routes/SignalStudioRoute.jsx';
 import WorkflowsRoute from './routes/WorkflowsRoute.jsx';
 import WorkflowDetailRoute from './routes/WorkflowDetailRoute.jsx';
 import WorkflowBuilderRoute from './routes/WorkflowBuilderRoute.jsx';
@@ -222,6 +223,14 @@ export default function App() {
             element={
               <RequireAdmin>
                 <FilterStudioRoute />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/signals-studio"
+            element={
+              <RequireAdmin>
+                <SignalStudioRoute />
               </RequireAdmin>
             }
           />

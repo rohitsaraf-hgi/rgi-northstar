@@ -261,6 +261,16 @@ export default function AdminHub() {
           onClick={() => navigate('/admin/filter-studio')}
         />
         <AdminTile
+          icon={Sparkles}
+          title="First-Party Signal Studio"
+          subtitle="Define CRM-derived signals over Account, Opportunity, Contact, and Activity attributes. Each signal has an action — Brief, Email, Committee, or Task. Live signals surface on seller account cards."
+          stat={3}
+          statLabel="Signals defined"
+          accent={{ bg: 'bg-amber-500/10', color: 'text-amber-700 dark:text-amber-300' }}
+          onClick={() => navigate('/admin/signals-studio')}
+          aiPrepared
+        />
+        <AdminTile
           icon={Bot}
           title="Agents"
           subtitle="Seller-facing AI in the Account view — brief, email, contacts, opportunity finder. Visibility per team."
