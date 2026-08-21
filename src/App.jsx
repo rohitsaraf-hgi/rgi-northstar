@@ -32,6 +32,8 @@ import {
   MarketAnalyzerExportHistoryRoute,
 } from './routes/MarketAnalyzerRoutes.jsx';
 import MarketAnalyzerCopilotRoute from './routes/MarketAnalyzerCopilotRoute.jsx';
+import MarketReportsListRoute from './routes/MarketReportsListRoute.jsx';
+import MarketReportRoute from './routes/MarketReportRoute.jsx';
 import PlaysRoute from './routes/PlaysRoute.jsx';
 import CreatePlayWizardRoute from './routes/CreatePlayWizardRoute.jsx';
 import MigrationCenter from './routes/MigrationCenter.jsx';
@@ -101,6 +103,8 @@ export default function App() {
           <Route path="/market-analyzer/segments" element={<RequireAdmin><MarketAnalyzerSegmentsRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/segments/:id" element={<RequireAdmin><MarketAnalyzerSegmentDetailRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/scoring-profiles" element={<RequireAdmin><MarketAnalyzerScoringProfilesRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/reports"       element={<RequireAdmin><MarketReportsListRoute /></RequireAdmin>} />
+          <Route path="/market-analyzer/reports/:id"   element={<RequireAdmin><MarketReportRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/tech-taxonomies" element={<RequireAdmin><MarketAnalyzerTechTaxonomiesRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/saved-collections" element={<RequireAdmin><MarketAnalyzerSavedCollectionsRoute /></RequireAdmin>} />
           <Route path="/market-analyzer/export-history" element={<RequireAdmin><MarketAnalyzerExportHistoryRoute /></RequireAdmin>} />

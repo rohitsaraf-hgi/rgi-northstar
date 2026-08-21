@@ -7,14 +7,24 @@
 // land with Phase 3 (engagement layer). Today: greet + 4 starters.
 
 import { Sparkles, ArrowRight, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { copilotScript } from '../../data/marketAnalyzerCopilot/copilotScript.js';
 import MondayMonitor from './MondayMonitor.jsx';
 
 function StarterCard({ starter, onPick }) {
+  const navigate = useNavigate();
   const isComingSoon = starter.comingSoon;
+  const handleClick = () => {
+    if (isComingSoon) return;
+    if (starter.directRoute) {
+      navigate(starter.directRoute);
+      return;
+    }
+    onPick(starter);
+  };
   return (
     <button
-      onClick={() => !isComingSoon && onPick(starter)}
+      onClick={handleClick}
       disabled={isComingSoon}
       className={`text-left p-4 rounded-xl border transition-all group ${
         isComingSoon

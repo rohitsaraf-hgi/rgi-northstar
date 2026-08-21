@@ -52,6 +52,13 @@ export const copilotScript = {
         examples: 'Coming soon — persistent segment library (JTBD 7)',
         comingSoon: true,
       },
+      {
+        id: 'starter-play-reports',
+        label: 'Report on my sales plays',
+        promptText: 'Analyze my configured sales plays as a market report',
+        examples: 'Per-play tier distribution · industry + geo mix · cross-play overlap · lead-with recommendation',
+        directRoute: '/market-analyzer/reports',
+      },
     ],
   },
 

@@ -23,6 +23,7 @@ import {
   Sparkles,
   ChevronsLeft,
   ChevronsRight,
+  BarChart3,
 } from 'lucide-react';
 import PersonaSwitcher from './PersonaSwitcher.jsx';
 
@@ -121,7 +122,7 @@ export default function SidebarMarketAnalyzer({ collapsed, onToggle }) {
           />
         </div>
 
-        {/* SCORING — Scoring Profiles, accessible to every Market Analyzer user. */}
+        {/* SCORING — Scoring Profiles + Sales Play Reports */}
         {!collapsed && <SectionLabel>Scoring</SectionLabel>}
         <div className="space-y-0.5">
           <NavRow
@@ -129,6 +130,13 @@ export default function SidebarMarketAnalyzer({ collapsed, onToggle }) {
             label="Scoring Profiles"
             active={startsWith('/market-analyzer/scoring-profiles')}
             onClick={() => navigate('/market-analyzer/scoring-profiles')}
+            collapsed={collapsed}
+          />
+          <NavRow
+            icon={BarChart3}
+            label="Play Reports"
+            active={startsWith('/market-analyzer/reports')}
+            onClick={() => navigate('/market-analyzer/reports')}
             collapsed={collapsed}
           />
         </div>
